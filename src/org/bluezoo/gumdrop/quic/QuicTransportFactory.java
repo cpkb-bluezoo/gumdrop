@@ -120,7 +120,6 @@ public class QuicTransportFactory extends TransportFactory {
     private boolean verifyHostname = true;
     private boolean earlyDataEnabled;
     private boolean ackFrequencyEnabled = true;
-    private boolean qlogEnabled;
     private long maxIdleTimeout = DEFAULT_MAX_IDLE_TIMEOUT;
     private long maxData = DEFAULT_MAX_DATA;
     private long maxStreamDataBidiLocal = DEFAULT_MAX_STREAM_DATA;
@@ -305,27 +304,6 @@ public class QuicTransportFactory extends TransportFactory {
      */
     public void setAckFrequencyEnabled(boolean enabled) {
         this.ackFrequencyEnabled = enabled;
-    }
-
-    /**
-     * Sets whether connections report qlog events to the telemetry
-     * pipeline. They also do when the telemetry configuration has a qlog
-     * directory, which is how {@code QLOGDIR} turns them on. Decided when a
-     * connection is created, so it does not affect connections that exist.
-     *
-     * @param enabled the new state
-     */
-    public void setQlogEnabled(boolean enabled) {
-        this.qlogEnabled = enabled;
-    }
-
-    /**
-     * Returns whether connections report qlog events on this factory's say-so.
-     *
-     * @return the current state
-     */
-    public boolean isQlogEnabled() {
-        return qlogEnabled;
     }
 
     /**
@@ -758,10 +736,8 @@ public class QuicTransportFactory extends TransportFactory {
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                         if (LOGGER.isLoggable(Level.INFO)) {
-                            LOGGER.info(MessageFormat.format(
-                                    ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N")
-                                            .getString("info.sni_enabled"),
-                                    sniHostnameToAlias.size()));
+                            eventTelemetry().getLogger(QuicTransportFactory.class, ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N"))
+                    .info("info.sni_enabled").attr("hostnames", sniHostnameToAlias.size()).emit();
                         }
                     } else {
                         serverCredentials = TlsUtils.loadServerCredentials(

@@ -88,16 +88,17 @@ public final class TelemetryTestData {
     public static List<LogRecord> logRecords() {
         List<LogRecord> list = new ArrayList<LogRecord>();
         Trace trace = new Trace("op", SpanKind.SERVER);
-        LogRecord a = LogRecord.info(trace.getRootSpan(), "with span");
-        a.addAttribute("k", "v");
+        LogRecord a = new LogRecord(LogLevel.INFO, "info.with_span").body("with span")
+                .span(trace.getRootSpan());
+        a.attr("k", "v");
         a.addAttribute(Attribute.bool("b", true));
         a.addAttribute(Attribute.integer("i", 5L));
         a.addAttribute(Attribute.doubleValue("d", 0.5));
         list.add(a);
-        list.add(new LogRecord(LogRecord.SEVERITY_DEBUG, "no span"));
-        list.add(LogRecord.warn(trace.getRootSpan(), "warn"));
-        list.add(LogRecord.error(trace.getRootSpan(), "err"));
-        list.add(new LogRecord(LogRecord.SEVERITY_FATAL, null));
+        list.add(new LogRecord(LogLevel.INFO, "info.no_span").body("no span"));
+        list.add(new LogRecord(LogLevel.WARN, "warn.thing").body("warn").span(trace.getRootSpan()));
+        list.add(new LogRecord(LogLevel.ERROR, "err.thing").body("err").span(trace.getRootSpan()));
+        list.add(new LogRecord(LogLevel.ERROR, "err.no_body"));
         return list;
     }
 

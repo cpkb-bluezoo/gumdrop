@@ -53,7 +53,6 @@ import java.net.UnixDomainSocketAddress;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.security.KeyStore;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -380,11 +379,8 @@ public class TcpTransportFactory extends TransportFactory {
                         KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
-                        if (LOGGER.isLoggable(Level.INFO)) {
-                            LOGGER.info(MessageFormat.format(
-                                    Gumdrop.L10N.getString("info.sni_enabled"),
-                                    sniHostnameToAlias.size()));
-                        }
+                        eventTelemetry().getLogger(TcpTransportFactory.class, Gumdrop.L10N)
+                                .info("info.sni_enabled").attr("hostnames", sniHostnameToAlias.size()).emit();
                     } else {
                         serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
                     }
@@ -446,7 +442,7 @@ public class TcpTransportFactory extends TransportFactory {
         throw new java.security.GeneralSecurityException("No X509TrustManager available");
     }
 
-    private static List<CipherSuite> resolveCipherSuites(String raw) {
+    private List<CipherSuite> resolveCipherSuites(String raw) {
         if (raw == null || raw.isEmpty()) {
             return null;
         }
@@ -460,16 +456,14 @@ public class TcpTransportFactory extends TransportFactory {
             try {
                 resolved.add(CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            Gumdrop.L10N.getString("warn.unrecognized_cipher_suite"), name));
-                }
+                eventTelemetry().getLogger(TcpTransportFactory.class, Gumdrop.L10N)
+                        .warn("warn.unrecognized_cipher_suite").attr("cipher_suite", name).emit();
             }
         }
         return resolved.isEmpty() ? null : resolved;
     }
 
-    private static List<Tls12CipherSuite> resolveTls12CipherSuites(String raw) {
+    private List<Tls12CipherSuite> resolveTls12CipherSuites(String raw) {
         if (raw == null || raw.isEmpty()) {
             return null;
         }
@@ -483,10 +477,8 @@ public class TcpTransportFactory extends TransportFactory {
             try {
                 resolved.add(Tls12CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            Gumdrop.L10N.getString("warn.unrecognized_tls12_cipher_suite"), name));
-                }
+                eventTelemetry().getLogger(TcpTransportFactory.class, Gumdrop.L10N)
+                        .warn("warn.unrecognized_tls12_cipher_suite").attr("cipher_suite", name).emit();
             }
         }
         return resolved.isEmpty() ? null : resolved;

@@ -43,7 +43,6 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
-
 import org.bluezoo.gumdrop.ChannelHandler;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.MultiplexedEndpoint;
@@ -73,6 +72,7 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * One UDP socket multiplexing many {@link QuicConnection}s.
@@ -115,6 +115,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     private static final Logger LOGGER = Logger.getLogger(QuicEngine.class.getName());
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(QuicEngine.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -186,6 +190,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private StreamAcceptHandler streamAcceptHandler;
     private ConnectionAcceptedHandler connectionAcceptedHandler;
     private Trace trace;
+    private TelemetryConfig standaloneTelemetry;
     private boolean closing;
     // False once the engine has been told to stop admitting new
     // connections (graceful shutdown): existing connections carry on.
@@ -382,7 +387,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         try {
             source = (InetSocketAddress) from.receive(recvBuf);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.recv_error"), e);
+            events().warn("warn.recv_error").thrown(e).emit();
             return;
         }
         if (source == null) {
@@ -611,7 +616,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         ServerCredentialsResolver serverCredentialsResolver =
                 factory.getServerCredentialsResolver();
         if (serverCredentials == null && serverCredentialsResolver == null) {
-            LOGGER.warning(L10N.getString("warn.no_server_cert"));
+            events().warn("warn.no_server_cert").emit();
             return null;
         }
         QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(serverCredentials,
@@ -1075,11 +1080,6 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return factory.getApplicationProtocols();
     }
 
-    /** Returns whether the factory asks connections to report qlog events. */
-    boolean isQlogEnabled() {
-        return factory.isQlogEnabled();
-    }
-
     /** Returns whether to send ACK_FREQUENCY and IMMEDIATE_ACK frames. */
     boolean isAckFrequencyEnabled() {
         return factory.isAckFrequencyEnabled();
@@ -1220,14 +1220,14 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             try {
                 path.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.close_channel_failed"), e);
+                events().warn("warn.close_channel_failed").thrown(e).emit();
             }
         }
         for (QuicDatagramPath additional : additionalPaths) {
             try {
                 additional.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.close_channel_failed"), e);
+                events().warn("warn.close_channel_failed").thrown(e).emit();
             }
         }
         if (selectionKey != null) {
@@ -1284,14 +1284,22 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         this.trace = trace;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The factory's configuration, else one of this engine's own for
+     * an engine outside any runtime, as in tests.
+     */
     @Override
-    public boolean isTelemetryEnabled() {
-        return factory.isTelemetryEnabled();
-    }
-
-    @Override
-    public TelemetryConfig getTelemetryConfig() {
-        return factory.getTelemetryConfig();
+    public synchronized TelemetryConfig getTelemetryConfig() {
+        TelemetryConfig telemetry = factory.getTelemetryConfig();
+        if (telemetry != null) {
+            return telemetry;
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
     }
 
     @Override

@@ -356,13 +356,8 @@ public class CryptoExecutorIntegrationTest {
         public void setTrace(Trace trace) { }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return false;
-        }
-
-        @Override
         public TelemetryConfig getTelemetryConfig() {
-            return null;
+            return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
         }
     }
 }

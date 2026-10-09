@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.telemetry.SpanEvent;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -63,6 +64,10 @@ public class FtpTelemetryTest {
     private static final class CapturingConfig extends TelemetryConfig {
         final List<Trace> traces = new ArrayList<Trace>();
 
+        CapturingConfig() {
+            exporter(new RecordingExporter());
+        }
+
         @Override
         public Trace createTrace(String rootSpanName) {
             Trace trace = super.createTrace(rootSpanName);
@@ -79,11 +84,6 @@ public class FtpTelemetryTest {
 
         TelemetryEndpoint(TelemetryConfig config) {
             this.config = config;
-        }
-
-        @Override
-        public boolean isTelemetryEnabled() {
-            return config != null;
         }
 
         @Override
@@ -223,7 +223,6 @@ public class FtpTelemetryTest {
     @Test
     public void disabledTracesLeaveSessionWorking() {
         TelemetryConfig off = new TelemetryConfig();
-        off.setTracesEnabled(false);
         TelemetryEndpoint plain = new TelemetryEndpoint(off);
         FtpProtocolHandler h = new FtpProtocolHandler(new FtpListener(), scripted);
         h.connected(plain);

@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.telemetry.SpanEvent;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 /**
  * Telemetry helpers for IMAP session tests: a configuration that keeps the
@@ -48,7 +49,7 @@ final class ImapTelemetryEndpoint {
         final List<Trace> traces = new ArrayList<Trace>();
 
         CapturingConfig() {
-            setTracesEnabled(true);
+            exporter(new RecordingExporter());
         }
 
         @Override

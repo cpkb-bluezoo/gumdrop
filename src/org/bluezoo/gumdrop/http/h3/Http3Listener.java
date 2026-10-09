@@ -24,14 +24,11 @@ package org.bluezoo.gumdrop.http.h3;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -51,6 +48,7 @@ import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * QUIC transport listener for HTTP/3 connections.
@@ -75,8 +73,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
 public class Http3Listener extends TcpListener
         implements QuicEngine.ConnectionAcceptedHandler {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(Http3Listener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(Http3Listener.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
@@ -175,7 +174,6 @@ public class Http3Listener extends TcpListener
         super.secure(flag);
         return this;
     }
-
 
     @Override
     public Http3Listener tls(TlsConfig tls) {
@@ -526,7 +524,7 @@ public class Http3Listener extends TcpListener
         if (port <= 0) {
             port = HTTP3_DEFAULT_PORT;
         }
-        super.start();
+        super.start(gumdrop);
         if (isMetricsEnabled()) {
             metrics = new HttpServerMetrics(getTelemetryConfig());
         }
@@ -569,15 +567,15 @@ public class Http3Listener extends TcpListener
                         addr, port, this, selectorLoop);
                 engines.add(engine);
             } catch (IOException e) {
-                String message = MessageFormat.format(
-                        L10N.getString("warn.bind_failed"),
-                        addr.getHostAddress(), Integer.valueOf(port));
-                LOGGER.log(Level.WARNING, message, e);
+                events().warn("warn.bind_failed")
+                        .attr("host_address", addr.getHostAddress())
+                        .attr("port", port)
+                        .thrown(e).emit();
             }
         }
 
         if (engines.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.no_bind_address"));
+            events().warn("warn.no_bind_address").emit();
         }
     }
 

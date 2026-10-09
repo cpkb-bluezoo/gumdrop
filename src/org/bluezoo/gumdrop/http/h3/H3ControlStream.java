@@ -23,9 +23,7 @@ package org.bluezoo.gumdrop.http.h3;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ResourceBundle;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -35,6 +33,8 @@ import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Handles one peer-initiated HTTP/3 unidirectional stream (RFC 9114
@@ -85,7 +85,11 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  */
 class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
-    private static final Logger LOGGER = Logger.getLogger(H3ControlStream.class.getName());
+    private EventLogger events() {
+        // before the stream is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(H3ControlStream.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
@@ -137,6 +141,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     private final QuicConnection quicConnection;
     private final Listener listener;
+    private Endpoint endpoint;
     private final Encoder qpackEncoder;
     private final Decoder qpackDecoder;
     // True when this handler sits on an HTTP/3 client connection, so
@@ -175,6 +180,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void connected(Endpoint endpoint) {
+        this.endpoint = endpoint;
         if (endpoint instanceof QuicStreamEndpoint) {
             streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
         }
@@ -216,9 +222,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                 qpackDecoder.feedEncoderStream(data);
                 String error = qpackDecoder.takeLastInstructionError();
                 if (error != null) {
-                    String formatted = MessageFormat.format(
-                            L10N.getString("warn.qpack_encoder_stream_error"), error);
-                    LOGGER.warning(formatted);
+                    events().warn("warn.qpack_encoder_stream_error").attr("error", error).emit();
                     quicConnection.closeWithApplicationError(H3ErrorCode.QPACK_ENCODER_STREAM_ERROR, error);
                 }
                 break;
@@ -226,9 +230,8 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                 qpackEncoder.feedDecoderStream(data);
                 String decoderError = qpackEncoder.takeLastInstructionError();
                 if (decoderError != null) {
-                    String formatted = MessageFormat.format(
-                            L10N.getString("warn.qpack_decoder_stream_error"), decoderError);
-                    LOGGER.warning(formatted);
+                    events().warn("warn.qpack_decoder_stream_error")
+                            .attr("decoder_error", decoderError).emit();
                     quicConnection.closeWithApplicationError(
                             H3ErrorCode.QPACK_DECODER_STREAM_ERROR, decoderError);
                 }
@@ -293,9 +296,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void error(Exception cause) {
-        String formatted = MessageFormat.format(
-                L10N.getString("warn.control_stream_error"), cause);
-        LOGGER.warning(formatted);
+        events().warn("warn.control_stream_error").attr("cause", String.valueOf(cause)).emit();
         closeIfCriticalStreamClosed();
     }
 
@@ -532,9 +533,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         closing = true;
-        String formatted = MessageFormat.format(
-                L10N.getString("warn.control_stream_error"), message);
-        LOGGER.warning(formatted);
+        events().warn("warn.control_stream_error").attr("message", message).emit();
         quicConnection.closeWithApplicationError(errorCode, message);
     }
 }

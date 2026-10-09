@@ -48,21 +48,22 @@ key exchange and ML-DSA certificate validation are supported throughout (see
 </p>
 
 <p>
-If you know Netty, Gumdrop solves a similar problem (extensible networking for
-custom protocols) with a different programming model:
+If you know Netty, Gumdrop solves a similar problem (extensible modern
+networking for custom protocols) with a different programming model:
 <code>ProtocolHandler</code> and protocol-specific staged handlers run as
 synchronous callbacks on selector threads, familiar to nginx or C event-loop
 programmers, rather than channel pipelines and <code>Future</code> completion.
 It uses standard <code>ByteBuffer</code> throughout, pure Java in-tree TLS and
 QUIC with secure defaults, push parsers and streaming codecs for constant
 memory, many wire protocols plus OpenTelemetry on one stack, and a scalable
-servlet container when you need it. Throughput is comparable to Netty's; see
-<a href="design.html#performance">benchmarks and design rationale</a>.
+servlet container when you need it. Throughput is comparable to or better than
+Netty's; see <a href="design.html#performance">benchmarks</a>.
 </p>
 
 <p>
-This page is the Gumdrop documentation home. The sections below explain the
-reactor architecture in depth and link to detailed guides for every major feature.
+This page is the Gumdrop documentation home, also served as the example web
+application for the servlet container. The sections below explain the reactor
+architecture in depth and link to detailed guides for every major feature.
 </p>
 
 <h3>Feature documentation</h3>
@@ -70,54 +71,58 @@ reactor architecture in depth and link to detailed guides for every major featur
 <ul>
 <li><a href="design.html"><strong>Design &amp; architecture</strong></a> -
 reactor model, comparison with Netty, push parsing, TLS/QUIC, performance</li>
-<li><a href="servlet.html"><strong>Servlet Container</strong></a> - features,
+<li><a href="servlet.html"><strong>Servlet container</strong></a> - features,
 architecture, configuration, clustering, and deployment</li>
-<li><a href="http.html"><strong>HTTP Server &amp; Client</strong></a> - HTTP/3,
+<li><a href="http.html"><strong>HTTP</strong></a> server and client - HTTP/3,
 HTTP/2, HTTP/1.x, HPACK, and QPACK</li>
-<li><a href="webdav.html"><strong>File Server &amp; WebDAV</strong></a> - static
+<li><a href="webdav.html"><strong>WebDAV</strong></a> - static
 file serving, WebDAV distributed authoring, and locking</li>
-<li><a href="websocket.html"><strong>WebSocket Service &amp; Client</strong></a> -
+<li><a href="websocket.html"><strong>WebSocket</strong></a> server and client -
 standalone WebSocket services, client connections, and servlet integration</li>
-<li><a href="p2p.html"><strong>Peer-to-Peer &amp; Mesh</strong></a> - nodes that
-both listen and dial on one runtime, with a worked two-peer example</li>
-<li><a href="microservices.html"><strong>Building Microservices</strong></a> - how
-to build your own high performance HTTP microservices with streaming XML/JSON parsing</li>
-<li><a href="smtp.html"><strong>SMTP Server &amp; Client</strong></a> - mail
-submission, relay, security policies, and authentication</li>
-<li><a href="imap.html"><strong>IMAP Server</strong></a> - IMAP4rev2 with IDLE,
-NAMESPACE, MOVE, QUOTA, and SASL authentication</li>
-<li><a href="pop3.html"><strong>POP3 Server</strong></a> - POP3 with APOP,
-SASL authentication, and UTF-8 support</li>
-<li><a href="ftp.html"><strong>FTP Server</strong></a> - FTP with TLS,
-role-based access control, and quota management</li>
-<li><a href="dns.html"><strong>DNS Server</strong></a> - DNS proxy with caching,
-custom resolution, and DTLS support, plus multicast DNS (mDNS) and DNS-SD
-service advertisement</li>
-<li><a href="mqtt.html"><strong>MQTT Server &amp; Client</strong></a> - MQTT 3.1.1 and 5.0
-message broker with streaming payloads and WebSocket support</li>
-<li><a href="socks.html"><strong>SOCKS Proxy Server &amp; Client</strong></a> - SOCKS4/4a/5
-proxy with CONNECT, BIND, UDP ASSOCIATE, and tunneled client API</li>
-<li><a href="mailbox.html"><strong>Mailbox API</strong></a> - storage abstraction
-for IMAP, POP3, and SMTP with mbox and Maildir implementations</li>
-<li><a href="telemetry.html"><strong>Telemetry</strong></a> - OpenTelemetry
-distributed tracing and metrics with OTLP export</li>
-<li><a href="security.html"><strong>Security</strong></a> - IAM, rate limiting,
-TLS, and authentication across all protocols</li>
-<li><a href="tls.html"><strong>TLS &amp; DTLS</strong></a> - in-tree TLS stack,
-cipher profiles, configuration, and RFC conformance</li>
-<li><a href="ldap.html"><strong>LDAP Client &amp; Realm</strong></a> - asynchronous
-LDAPv3 client, SASL bind, and LDAP-backed authentication realm</li>
-<li><a href="amqp.html"><strong>AMQP 0-9-1 Client</strong></a> - asynchronous
-0-9-1 client with automatic connection recovery and SelectorLoop affinity</li>
-<li><a href="amqp1.html"><strong>AMQP 1.0 Client</strong></a> - link-based 1.0
-client (sender/receiver, credit, settlement) with recovery and streaming messages</li>
-<li><a href="redis.html"><strong>Redis Client</strong></a> - asynchronous Redis
-client with SelectorLoop affinity for server integration</li>
-<li><a href="grpc.html"><strong>gRPC Client &amp; Server</strong></a> - gRPC over
+<li><a href="grpc.html"><strong>gRPC</strong></a> client and server - gRPC over
 HTTP/2 with event-oriented protobuf, no generated code</li>
-<li><a href="configuration.html"><strong>Application composition</strong></a> —
-Java <code>Runtime</code>, listeners, and handlers (canonical Gumdrop 3 setup;
-no XML <code>gumdroprc</code>)</li>
+<li><a href="p2p.html"><strong>Peer-to-peer &amp; mesh</strong></a> - nodes that
+both listen and dial on one runtime, with a worked two-peer example</li>
+<li><a href="microservices.html"><strong>Microservices</strong></a> - how
+to build your own high performance HTTP microservices with streaming XML/JSON parsing</li>
+<li><a href="smtp.html"><strong>SMTP</strong></a> server and client - mail
+submission, relay, security policies, SPF, DKIM, DMARC, ARC</li>
+<li><a href="imap.html"><strong>IMAP</strong></a> server and client -
+IMAP4rev2 with IDLE, NAMESPACE, MOVE</li>
+<li><a href="pop3.html"><strong>POP3</strong></a> server and client - POP3
+with APOP and UTF-8 support</li>
+<li><a href="ftp.html"><strong>FTP</strong></a> server and client - FTP
+with TLS, role-based access control, and quota management</li>
+<li><a href="dns.html"><strong>DNS</strong></a> server and client (resolver) -
+DNS proxy with caching, authoritative zone server, custom resolution, DTLS
+support, DoQ, DoT, DoH, async client, plus multicast DNS (mDNS) and DNS-SD
+service advertisement</li>
+<li><a href="mqtt.html"><strong>MQTT</strong></a> broker and client - MQTT
+3.1.1 and 5.0 message broker with streaming payloads and WebSocket support</li>
+<li><a href="socks.html"><strong>SOCKS</strong></a> server and client -
+SOCKS4/4a/5 proxy with CONNECT, BIND, UDP ASSOCIATE, and tunneled client API</li>
+<li><a href="mailbox.html"><strong>Mailbox API</strong></a> - message
+storage abstraction for IMAP, POP3, and SMTP with mbox and Maildir
+implementations</li>
+<li><a href="telemetry.html"><strong>Telemetry and logging</strong></a> -
+OpenTelemetry distributed tracing and metrics with OTLP and gRPC export,
+and logging events</li>
+<li><a href="tls.html"><strong>QUIC, TLS &amp; DTLS</strong></a> - in-tree
+QUIC and TLS stack, cipher profiles, crypto layer, PQC, configuration, and
+RFC conformance</li>
+<li><a href="security.html"><strong>Security</strong></a> - IAM, rate limiting,
+quotas, authentication and authorisation with SASL mechanisms</li>
+<li><a href="ldap.html"><strong>LDAP</strong></a> client and realm -
+asynchronous LDAPv3 client, SASL bind, and LDAP-backed authentication realm</li>
+<li><a href="amqp.html"><strong>AMQP 0-9-1</strong></a> client - asynchronous
+0-9-1 (RabbitMQ) client with automatic connection recovery</li>
+<li><a href="amqp1.html"><strong>AMQP 1.0</strong></a> client - link-based 1.0
+client (RabbitMQ 4/Artemis) sender/receiver, credit, settlement with recovery
+and streaming messages</li>
+<li><a href="redis.html"><strong>Redis</strong></a> client</li>
+<li><a href="configuration.html"><strong>Configuration</strong></a> using
+application composition - wiring up <code>Gumdrop</code> runtime instance,
+listeners, and handlers</li>
 </ul>
 
 <h3 id="architecture">Architecture</h3>

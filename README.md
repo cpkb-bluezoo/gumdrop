@@ -440,8 +440,13 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - DefaultSOCKSServer for zero-config operation
     - composable SOCKS client handler for tunneling any protocol through
       a SOCKS proxy (HTTP, SMTP, IMAP, MQTT, Redis, LDAP, etc.)
-- OpenTelemetry
+- OpenTelemetry and logging
     - native implementation (no OpenTelemetry SDK required)
+    - structured log events with levels, routed to composable exporters:
+      console (java.util.logging), OTLP, JSONL, HTTP access log (CLF/ELFF)
+      and QUIC qlog
+    - one TelemetryConfig per runtime; asynchronous delivery that never
+      blocks connection threads
     - distributed tracing with W3C Trace Context propagation
     - metrics collection (counters, histograms, gauges)
     - OTLP/HTTP and OTLP/gRPC export to any OpenTelemetry Collector

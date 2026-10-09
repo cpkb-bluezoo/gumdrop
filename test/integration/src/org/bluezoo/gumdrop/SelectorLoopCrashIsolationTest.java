@@ -29,13 +29,12 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.logging.Handler;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.telemetry.LogLevel;
+import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -72,29 +71,11 @@ public class SelectorLoopCrashIsolationTest {
     @Test(timeout = 10000)
     public void runtimeExceptionOnOneDatagramHandlerDoesNotKillSelectorLoop()
             throws Exception {
-        Logger selectorLoopLog = Logger.getLogger(SelectorLoop.class.getName());
-        Level savedLevel = selectorLoopLog.getLevel();
-        boolean savedUseParentHandlers = selectorLoopLog.getUseParentHandlers();
-        final List<LogRecord> dispatchErrorLogs = new ArrayList<>();
-        Handler logCapture = new Handler() {
-            @Override
-            public void publish(LogRecord record) {
-                dispatchErrorLogs.add(record);
-            }
-
-            @Override
-            public void flush() {
-            }
-
-            @Override
-            public void close() {
-            }
-        };
-        selectorLoopLog.setUseParentHandlers(false);
-        selectorLoopLog.addHandler(logCapture);
-        selectorLoopLog.setLevel(Level.ALL);
-
         SelectorLoop loop = new SelectorLoop(99);
+        // A standalone loop has a telemetry configuration of its own:
+        // record what it reports rather than reading the console.
+        RecordingExporter events = new RecordingExporter();
+        loop.getTelemetryConfig().exporter(events);
         loop.start();
 
         UdpTransportFactory factory = new UdpTransportFactory();
@@ -177,7 +158,7 @@ public class SelectorLoopCrashIsolationTest {
                         + "dispatch failure",
                         faultyEndpoint.isOpen());
 
-                assertDispatchFailureWasLogged(dispatchErrorLogs);
+                assertDispatchFailureWasLogged(events.records);
             } finally {
                 client.close();
             }
@@ -186,16 +167,12 @@ public class SelectorLoopCrashIsolationTest {
             loop.awaitQuiesce(2000);
             healthyEndpoint.close();
             faultyEndpoint.close();
-            selectorLoopLog.removeHandler(logCapture);
-            logCapture.close();
-            selectorLoopLog.setUseParentHandlers(savedUseParentHandlers);
-            selectorLoopLog.setLevel(savedLevel);
         }
     }
 
     private static void assertDispatchFailureWasLogged(List<LogRecord> records) {
         for (LogRecord record : records) {
-            if (!Level.WARNING.equals(record.getLevel())) {
+            if (record.getLevel() != LogLevel.WARN) {
                 continue;
             }
             Throwable thrown = record.getThrown();

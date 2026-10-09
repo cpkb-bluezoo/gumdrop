@@ -22,23 +22,18 @@
 package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 
-import org.bluezoo.gumdrop.util.TlsUtils;
 
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -71,11 +66,8 @@ class OtlpEndpoint {
     private final boolean secure;
     private final Map<String, String> headers;
     
-    // TLS configuration
-    private Path truststoreFile;
-    private String truststorePass;
-    private KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
-    private volatile X509TrustManager trustManager;
+    // TLS configuration for https endpoints; null for the JVM defaults
+    private volatile TlsConfig tls;
 
     private HttpClient client;
     private volatile boolean connecting;
@@ -91,11 +83,11 @@ class OtlpEndpoint {
      * @param url the endpoint URL
      * @param defaultPath the default path if not specified in URL
      * @param headers custom headers to include in requests
-     * @param config the telemetry configuration (for TLS settings)
+     * @param tls the TLS configuration for https endpoints, or null for the JVM defaults
      * @return the endpoint, or null if the URL is invalid
      */
     static OtlpEndpoint create(Gumdrop gumdrop, String name, String url, String defaultPath,
-                               Map<String, String> headers, TelemetryConfig config) {
+                               Map<String, String> headers, TlsConfig tls) {
         if (url == null || url.isEmpty()) {
             return null;
         }
@@ -127,12 +119,7 @@ class OtlpEndpoint {
 
             OtlpEndpoint endpoint = new OtlpEndpoint(gumdrop, name, host, port, path, secure, headers);
             
-            // Copy TLS settings from config
-            if (config != null) {
-                endpoint.truststoreFile = config.getTruststoreFile();
-                endpoint.truststorePass = config.getTruststorePass();
-                endpoint.truststoreFormat = config.getTruststoreFormat();
-            }
+            endpoint.tls = tls;
             
             return endpoint;
 
@@ -198,43 +185,6 @@ class OtlpEndpoint {
      */
     boolean isSecure() {
         return secure;
-    }
-
-    /**
-     * Gets or creates a trust manager for secure connections.
-     *
-     * <p>If a truststore is configured, loads a trust manager that trusts
-     * certificates from that truststore. Otherwise returns null to use
-     * the JVM's default trust settings.
-     *
-     * @return the trust manager, or null to use defaults
-     */
-    private X509TrustManager getOrCreateTrustManager() {
-        X509TrustManager tm = trustManager;
-        if (tm != null) {
-            return tm;
-        }
-        synchronized (this) {
-            tm = trustManager;
-            if (tm != null) {
-                return tm;
-            }
-            if (truststoreFile != null && truststorePass != null) {
-                try {
-                    TrustManager[] managers = TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat);
-                    for (int i = 0; i < managers.length; i++) {
-                        if (managers[i] instanceof X509TrustManager) {
-                            trustManager = (X509TrustManager) managers[i];
-                            logger.fine(MessageFormat.format(L10N.getString("debug.truststore_loaded"), name, truststoreFile));
-                            return trustManager;
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.truststore_load_failed"), name), e);
-                }
-            }
-        }
-        return null;
     }
 
     /**
@@ -327,9 +277,8 @@ class OtlpEndpoint {
             client = new HttpClient(host, port);
             if (secure) {
                 client.setSecure(true);
-                X509TrustManager tm = getOrCreateTrustManager();
-                if (tm != null) {
-                    client.setTrustManager(tm);
+                if (tls != null) {
+                    client.importTls(tls);
                 }
             }
 

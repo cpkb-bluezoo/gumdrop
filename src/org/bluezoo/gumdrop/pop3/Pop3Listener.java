@@ -23,8 +23,6 @@ package org.bluezoo.gumdrop.pop3;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
@@ -33,6 +31,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import java.net.InetAddress;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 /**
  * TCP transport listener for POP3 connections.
  * This endpoint supports both standard POP3 (port 110) and POP3S (port 995),
@@ -56,8 +55,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public class Pop3Listener extends TcpListener {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(Pop3Listener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(Pop3Listener.class, Pop3ProtocolHandler.L10N);
+    }
 
     /**
      * The default POP3 port (cleartext or with STARTTLS).
@@ -152,7 +152,6 @@ public class Pop3Listener extends TcpListener {
         super.tls(tls);
         return this;
     }
-
 
     /**
      * Returns the authentication realm.
@@ -426,12 +425,7 @@ public class Pop3Listener extends TcpListener {
             try {
                 return sessionProvider.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            Pop3ProtocolHandler.L10N.getString(
-                                    "warn.failed_create_handler_from_session_provider"),
-                            e);
-                }
+                events().warn("warn.failed_create_handler_from_session_provider").thrown(e).emit();
             }
         }
         org.bluezoo.gumdrop.pop3.server.Pop3Server srv = getServer();
@@ -439,11 +433,7 @@ public class Pop3Listener extends TcpListener {
             try {
                 return srv.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            Pop3ProtocolHandler.L10N.getString("warn.failed_create_handler_from_server"),
-                            e);
-                }
+                events().warn("warn.failed_create_handler_from_server").thrown(e).emit();
             }
         }
         return null;

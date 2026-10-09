@@ -21,23 +21,18 @@
 
 package org.bluezoo.gumdrop.telemetry.otlp;
 
-import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 
-import org.bluezoo.gumdrop.util.TlsUtils;
 
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -75,10 +70,8 @@ class OtlpGrpcEndpoint {
     private final boolean secure;
     private final Map<String, String> headers;
 
-    private Path truststoreFile;
-    private String truststorePass;
-    private KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
-    private volatile X509TrustManager trustManager;
+    // TLS configuration for https endpoints; null for the JVM defaults
+    private volatile TlsConfig tls;
 
     private HttpClient client;
     private volatile boolean connecting;
@@ -94,11 +87,11 @@ class OtlpGrpcEndpoint {
      * @param url the endpoint URL (e.g. https://localhost:4317)
      * @param grpcPath the gRPC service path (e.g. /opentelemetry.proto.collector.trace.v1.TraceService/Export)
      * @param headers custom headers
-     * @param config the telemetry configuration
+     * @param tls the TLS configuration for https endpoints, or null for the JVM defaults
      * @return the endpoint, or null if the URL is invalid
      */
     static OtlpGrpcEndpoint create(Gumdrop gumdrop, String name, String url, String grpcPath,
-                                    Map<String, String> headers, TelemetryConfig config) {
+                                    Map<String, String> headers, TlsConfig tls) {
         if (url == null || url.isEmpty()) {
             return null;
         }
@@ -119,11 +112,7 @@ class OtlpGrpcEndpoint {
 
             OtlpGrpcEndpoint endpoint = new OtlpGrpcEndpoint(gumdrop, name, host, port, grpcPath, secure, headers);
 
-            if (config != null) {
-                endpoint.truststoreFile = config.getTruststoreFile();
-                endpoint.truststorePass = config.getTruststorePass();
-                endpoint.truststoreFormat = config.getTruststoreFormat();
-            }
+            endpoint.tls = tls;
 
             return endpoint;
 
@@ -164,34 +153,6 @@ class OtlpGrpcEndpoint {
 
     boolean isSecure() {
         return secure;
-    }
-
-    private X509TrustManager getOrCreateTrustManager() {
-        X509TrustManager tm = trustManager;
-        if (tm != null) {
-            return tm;
-        }
-        synchronized (this) {
-            tm = trustManager;
-            if (tm != null) {
-                return tm;
-            }
-            if (truststoreFile != null && truststorePass != null) {
-                try {
-                    TrustManager[] managers = TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat);
-                    for (int i = 0; i < managers.length; i++) {
-                        if (managers[i] instanceof X509TrustManager) {
-                            trustManager = (X509TrustManager) managers[i];
-                            logger.fine(MessageFormat.format(L10N.getString("debug.grpc_truststore_loaded"), name, truststoreFile));
-                            return trustManager;
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.grpc_truststore_load_failed"), name), e);
-                }
-            }
-        }
-        return null;
     }
 
     boolean isConnected() {
@@ -248,9 +209,8 @@ class OtlpGrpcEndpoint {
             client = new HttpClient(host, port);
             if (secure) {
                 client.setSecure(true);
-                X509TrustManager tm = getOrCreateTrustManager();
-                if (tm != null) {
-                    client.setTrustManager(tm);
+                if (tls != null) {
+                    client.importTls(tls);
                 }
             }
 

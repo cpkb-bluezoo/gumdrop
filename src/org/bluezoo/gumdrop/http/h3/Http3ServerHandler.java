@@ -99,6 +99,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     private final HttpAuthenticationProvider authenticationProvider;
     private final HttpServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
+    private TelemetryConfig standaloneTelemetry;
     private final boolean addSecurityHeaders;
     private final boolean compressResponses;
     private final String strictTransportSecurityValue;
@@ -698,11 +699,18 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     }
 
     /**
-     * Returns the telemetry configuration, or null if telemetry is
-     * not enabled.
+     * Returns the telemetry configuration: the one this handler was given,
+     * else one of its own, which prints log events through
+     * {@code java.util.logging}. Never null.
      */
-    TelemetryConfig getTelemetryConfig() {
-        return telemetryConfig;
+    synchronized TelemetryConfig getTelemetryConfig() {
+        if (telemetryConfig != null) {
+            return telemetryConfig;
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
     }
 
     boolean getAddSecurityHeaders() {
@@ -731,13 +739,6 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      */
     void setTrace(Trace trace) {
         this.trace = trace;
-    }
-
-    /**
-     * Returns true if telemetry tracing is enabled.
-     */
-    boolean isTelemetryEnabled() {
-        return telemetryConfig != null && telemetryConfig.isTracesEnabled();
     }
 
     /**

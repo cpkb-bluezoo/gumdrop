@@ -52,6 +52,7 @@ import org.bluezoo.gumdrop.mqtt.server.*;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageWriter;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Server-side MQTT protocol handler.
@@ -78,6 +79,10 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
 
     private static final Logger LOGGER =
             Logger.getLogger(MqttProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(MqttProtocolHandler.class, L10N);
+    }
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
@@ -221,8 +226,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString(LOG_CONNECTION_ERROR),
-                cause);
+        events().warn("log.connection_error").thrown(cause).emit();
         endSessionSpanError(cause.getMessage());
         Trace trace = endpoint.getTrace();
         if (trace != null) {
@@ -339,8 +343,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
                                 ? packet.getWillQoS() : QoS.AT_MOST_ONCE,
                         packet.isWillRetain());
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString(LOG_CONNECTION_ERROR), e);
+                events().warn("log.connection_error").thrown(e).emit();
             }
         }
 
@@ -404,8 +407,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
             try {
                 pubWriter.write(data);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString(LOG_CONNECTION_ERROR), e);
+                events().warn("log.connection_error").thrown(e).emit();
                 try {
                     pubWriter.discard();
                 } catch (IOException ignored) {
@@ -426,8 +428,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         try {
             content = pubWriter.commit();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString(LOG_CONNECTION_ERROR), e);
+            events().warn("log.connection_error").thrown(e).emit();
             return;
         } finally {
             pubWriter = null;
@@ -666,8 +667,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
 
     @Override
     public void parseError(String message) {
-        LOGGER.warning(MessageFormat.format(
-                L10N.getString("log.parse_error"), message));
+        events().warn("log.parse_error").attr("message", message).emit();
         endpoint.close();
     }
 
@@ -899,8 +899,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         if (qos != QoS.AT_MOST_ONCE) {
             packetId = targetSession.getQoSManager().nextPacketId();
             if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.mqtt_no_packet_id_drop"), topic));
+                events().warn("warn.mqtt_no_packet_id_drop").attr("topic", topic).emit();
                 return;
             }
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(
@@ -959,8 +958,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
             if (effectiveQoS != QoS.AT_MOST_ONCE) {
                 packetId = targetSession.getQoSManager().nextPacketId();
                 if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
-                    LOGGER.log(Level.WARNING, MessageFormat.format(
-                            L10N.getString("warn.mqtt_no_packet_id_skip"), topic));
+                    events().warn("warn.mqtt_no_packet_id_skip").attr("topic", topic).emit();
                     continue;
                 }
                 QoSManager.InFlightMessage inFlight =
@@ -1001,8 +999,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
                 buf.clear();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString(LOG_CONNECTION_ERROR), e);
+            events().warn("log.connection_error").thrown(e).emit();
         }
     }
 
@@ -1016,8 +1013,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         if (qos != QoS.AT_MOST_ONCE && session != null) {
             packetId = session.getQoSManager().nextPacketId();
             if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.mqtt_no_packet_id_drop"), topic));
+                events().warn("warn.mqtt_no_packet_id_drop").attr("topic", topic).emit();
                 return;
             }
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(
@@ -1049,8 +1045,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
                 buf.clear();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString(LOG_CONNECTION_ERROR), e);
+            events().warn("log.connection_error").thrown(e).emit();
         }
     }
 
@@ -1076,10 +1071,10 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
     // ═══════════════════════════════════════════════════════════════════
 
     private void initConnectionTrace() {
-        if (!endpoint.isTelemetryEnabled()) {
+        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
+        if (telemetryConfig == null) {
             return;
         }
-        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
         String spanName = L10N.getString("telemetry.mqtt_connection");
         Trace trace = telemetryConfig.createTrace(spanName, SpanKind.SERVER);
         endpoint.setTrace(trace);
@@ -1180,8 +1175,7 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
     }
 
     private void protocolViolation(String message) {
-        LOGGER.warning(MessageFormat.format(
-                L10N.getString("log.protocol_violation"), message));
+        events().warn("log.protocol_violation").attr("message", message).emit();
         endpoint.close();
     }
 

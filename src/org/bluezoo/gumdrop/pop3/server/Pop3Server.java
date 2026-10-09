@@ -23,14 +23,11 @@ package org.bluezoo.gumdrop.pop3.server;
 
 import org.bluezoo.gumdrop.pop3.Pop3Listener;
 
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
@@ -38,6 +35,8 @@ import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * POP3 protocol server — listeners, configuration, and session composition.
@@ -69,8 +68,11 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  */
 public class Pop3Server implements Server, Pop3ServerSessionProvider {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(Pop3Server.class.getName());
+    private volatile Gumdrop runtime;
+
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(Pop3Server.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
@@ -277,6 +279,7 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {
@@ -326,11 +329,9 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE,
-                        MessageFormat.format(
-                                L10N.getString("warn.failed_start_listener"),
-                                listener),
-                        e);
+                events().error("warn.failed_start_listener")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }
@@ -340,11 +341,9 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(
-                                L10N.getString("warn.error_stopping_listener"),
-                                listener),
-                        e);
+                events().warn("warn.error_stopping_listener")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }

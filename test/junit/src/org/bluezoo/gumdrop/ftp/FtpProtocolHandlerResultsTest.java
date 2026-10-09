@@ -304,7 +304,6 @@ public class FtpProtocolHandlerResultsTest {
         TelemetryConfig config = new TelemetryConfig();
         FTPProtocolHandlerTest.StubEndpoint ep =
                 new FTPProtocolHandlerTest.StubEndpoint() {
-            @Override public boolean isTelemetryEnabled() { return true; }
             @Override public TelemetryConfig getTelemetryConfig() {
                 return config;
             }
@@ -322,7 +321,6 @@ public class FtpProtocolHandlerResultsTest {
         final TelemetryConfig config = new TelemetryConfig();
         FTPProtocolHandlerTest.StubEndpoint ep =
                 new FTPProtocolHandlerTest.StubEndpoint() {
-            @Override public boolean isTelemetryEnabled() { return true; }
             @Override public TelemetryConfig getTelemetryConfig() {
                 return config;
             }

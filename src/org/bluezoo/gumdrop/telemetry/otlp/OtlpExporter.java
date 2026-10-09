@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
@@ -33,6 +34,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -66,7 +68,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OtlpExporter implements TelemetryExporter {
+public class OtlpExporter extends OtlpCollectorExporter<OtlpExporter> {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
@@ -75,27 +77,27 @@ public class OtlpExporter implements TelemetryExporter {
 
     private static final int DEFAULT_BUFFER_SIZE = 1024 * 1024; // 1 MB
 
-    private final TelemetryConfig config;
-    private final TraceSerializer traceSerializer;
-    private final LogSerializer logSerializer;
-    private final MetricSerializer metricSerializer;
+    private TelemetryConfig config;
+    private TraceSerializer traceSerializer;
+    private LogSerializer logSerializer;
+    private MetricSerializer metricSerializer;
 
     // Queues for incoming telemetry data
-    private final BlockingQueue<Trace> traceQueue;
-    private final BlockingQueue<LogRecord> logQueue;
-    private final BlockingQueue<List<MetricData>> metricQueue;
+    private BlockingQueue<Trace> traceQueue;
+    private BlockingQueue<LogRecord> logQueue;
+    private BlockingQueue<List<MetricData>> metricQueue;
 
     // Endpoints
-    private final OtlpEndpoint tracesEndpoint;
-    private final OtlpEndpoint logsEndpoint;
-    private final OtlpEndpoint metricsEndpoint;
+    private OtlpEndpoint tracesEndpoint;
+    private OtlpEndpoint logsEndpoint;
+    private OtlpEndpoint metricsEndpoint;
 
     // Active exports for flush synchronization
-    private final Set<OtlpResponseHandler> pendingExports;
+    private Set<OtlpResponseHandler> pendingExports;
     private final Object exportLock = new Object();
 
     // Background thread
-    private final ExportThread exportThread;
+    private volatile ExportThread exportThread;
 
     /** The export thread, for tests that step it by hand. */
     ExportThread exportThreadForTesting() {
@@ -109,23 +111,37 @@ public class OtlpExporter implements TelemetryExporter {
     // runtime, since export is a best-effort background concern with its
     // own lifecycle (started here, stopped in shutdown()), not tied to
     // the application's own listeners/servers.
-    private final Gumdrop gumdrop;
+    private Gumdrop gumdrop;
 
     /**
-     * Creates an OTLP exporter with the given configuration.
-     *
-     * @param config the telemetry configuration
+     * Creates an exporter with default settings. Set the endpoint and any
+     * other settings, then add the exporter to a {@link TelemetryConfig},
+     * whose {@code init()} starts it.
      */
-    public OtlpExporter(TelemetryConfig config) {
-        this(config, true);
+    public OtlpExporter() {
     }
 
     /**
-     * Package-private constructor; with {@code active} false no runtime is
+     * Starts the exporter: reads the settings and the identity of the
+     * service, boots the runtime that drives its connections, creates its
+     * endpoints and starts the export thread.
+     *
+     * @param config the telemetry configuration
+     */
+    @Override
+    public synchronized void init(TelemetryConfig config) {
+        start(config, true);
+    }
+
+    /**
+     * Package-private start; with {@code active} false no runtime is
      * booted and no export thread is started, so tests can exercise the
      * bookkeeping (response handlers, pending exports) without threads.
      */
-    OtlpExporter(TelemetryConfig config, boolean active) {
+    synchronized void start(TelemetryConfig config, boolean active) {
+        if (running) {
+            return;
+        }
         this.config = config;
         this.gumdrop = active ? Gumdrop.boot(GumdropConfig.create().workerThreads(1)) : null;
 
@@ -149,7 +165,8 @@ public class OtlpExporter implements TelemetryExporter {
                 config.getServiceName(),
                 config.getServiceVersion(),
                 config.getServiceNamespace(),
-                resourceAttrs);
+                resourceAttrs,
+                config.isIncludeExceptionDetails());
 
         this.metricSerializer = new MetricSerializer(
                 config.getServiceName(),
@@ -158,24 +175,25 @@ public class OtlpExporter implements TelemetryExporter {
                 resourceAttrs);
 
         // Create queues
-        this.traceQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
-        this.logQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
-        this.metricQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
+        this.traceQueue = new ArrayBlockingQueue<>(getMaxQueueSize());
+        this.logQueue = new ArrayBlockingQueue<>(getMaxQueueSize());
+        this.metricQueue = new ArrayBlockingQueue<>(getMaxQueueSize());
 
         // Parse and create endpoints
-        Map<String, String> headers = config.getParsedHeaders();
-        this.tracesEndpoint = createEndpoint(gumdrop, "traces", config.getTracesEndpoint(), "/v1/traces", headers);
-        this.logsEndpoint = createEndpoint(gumdrop, "logs", config.getLogsEndpoint(), "/v1/logs", headers);
-        this.metricsEndpoint = createEndpoint(gumdrop, "metrics", config.getMetricsEndpoint(), "/v1/metrics", headers);
+        Map<String, String> headers = parsedHeaders();
+        this.tracesEndpoint = createEndpoint(gumdrop, "traces", getTracesEndpoint(), "/v1/traces", headers);
+        this.logsEndpoint = createEndpoint(gumdrop, "logs", getLogsEndpoint(), "/v1/logs", headers);
+        this.metricsEndpoint = createEndpoint(gumdrop, "metrics", getMetricsEndpoint(), "/v1/metrics", headers);
 
         // Track pending exports
         this.pendingExports = ConcurrentHashMap.newKeySet();
 
         // Start export thread
+        ExportThread thread = new ExportThread();
+        this.exportThread = thread;
         this.running = true;
-        this.exportThread = new ExportThread();
         if (active) {
-            this.exportThread.start();
+            thread.start();
         }
 
         String endpoints = (tracesEndpoint != null ? ", traces: " + tracesEndpoint : "") +
@@ -190,7 +208,17 @@ public class OtlpExporter implements TelemetryExporter {
      */
     OtlpEndpoint createEndpoint(Gumdrop runtime, String endpointName, String url,
                                 String defaultPath, Map<String, String> headers) {
-        return OtlpEndpoint.create(runtime, endpointName, url, defaultPath, headers, config);
+        return OtlpEndpoint.create(runtime, endpointName, url, defaultPath, headers, getTls());
+    }
+
+    @Override
+    public boolean accepts(LogLevel level) {
+        return logsEndpoint != null && takesLevel(level);
+    }
+
+    @Override
+    public boolean acceptsTraces() {
+        return tracesEndpoint != null;
     }
 
     @Override
@@ -209,7 +237,7 @@ public class OtlpExporter implements TelemetryExporter {
 
     @Override
     public void export(LogRecord record) {
-        if (!running || record == null) {
+        if (!running || record == null || !accepts(record.getLevel())) {
             return;
         }
         if (!logQueue.offer(record)) {
@@ -233,12 +261,18 @@ public class OtlpExporter implements TelemetryExporter {
 
     @Override
     public void flush() {
+        if (exportThread == null) {
+            return;
+        }
         exportThread.requestFlush();
-        waitForPendingExports(config.getTimeoutMs());
+        waitForPendingExports(getTimeoutMs());
     }
 
     @Override
     public void shutdown() {
+        if (exportThread == null) {
+            return;
+        }
         // Final flush
         forceFlush();
 
@@ -246,7 +280,7 @@ public class OtlpExporter implements TelemetryExporter {
         exportThread.wake();
 
         try {
-            exportThread.join(config.getTimeoutMs());
+            exportThread.join(getTimeoutMs());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -284,7 +318,7 @@ public class OtlpExporter implements TelemetryExporter {
             return;
         }
         exportThread.requestFlush();
-        waitForPendingExports(config.getTimeoutMs());
+        waitForPendingExports(getTimeoutMs());
     }
 
     /**
@@ -430,9 +464,9 @@ public class OtlpExporter implements TelemetryExporter {
          */
         void pass(boolean mayBlock) throws InterruptedException {
             long now = System.currentTimeMillis();
-            long flushWait = config.getFlushIntervalMs() - (now - lastFlush);
+            long flushWait = getFlushIntervalMs() - (now - lastFlush);
             long metricsWait = config.isMetricsEnabled()
-                    ? config.getMetricsIntervalMs() - (now - lastMetricsCollection)
+                    ? getMetricsIntervalMs() - (now - lastMetricsCollection)
                     : flushWait;
             long waitTime = Math.min(flushWait, metricsWait);
 
@@ -447,7 +481,7 @@ public class OtlpExporter implements TelemetryExporter {
             now = System.currentTimeMillis();
 
             if (config.isMetricsEnabled()
-                    && (now - lastMetricsCollection) >= config.getMetricsIntervalMs()) {
+                    && (now - lastMetricsCollection) >= getMetricsIntervalMs()) {
                 collectMetrics();
                 drainQueue(metricQueue, metricBatches);
                 lastMetricsCollection = now;
@@ -461,10 +495,10 @@ public class OtlpExporter implements TelemetryExporter {
                 flushRequested = false;
             }
             boolean shouldFlush = requested ||
-                    traceBatch.size() >= config.getBatchSize() ||
-                    logBatch.size() >= config.getBatchSize() ||
+                    traceBatch.size() >= getBatchSize() ||
+                    logBatch.size() >= getBatchSize() ||
                     !metricBatches.isEmpty() ||
-                    (now - lastFlush) >= config.getFlushIntervalMs();
+                    (now - lastFlush) >= getFlushIntervalMs();
 
             if (shouldFlush) {
                 if (!traceBatch.isEmpty() && tracesEndpoint != null && tracesEndpoint.isConnected()) {
@@ -516,7 +550,7 @@ public class OtlpExporter implements TelemetryExporter {
             if (meters.isEmpty()) {
                 return;
             }
-            AggregationTemporality temporality = config.getMetricsTemporality();
+            AggregationTemporality temporality = getMetricsTemporality();
             List<MetricData> allMetrics = new ArrayList<>();
             for (Meter meter : meters.values()) {
                 allMetrics.addAll(meter.collect(temporality));

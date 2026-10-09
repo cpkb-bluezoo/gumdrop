@@ -133,6 +133,7 @@ import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * IMAP4rev2 server protocol handler (RFC 9051).
@@ -185,6 +186,12 @@ public final class ImapProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(ImapProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ImapProtocolHandler.class, L10N);
+    }
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
@@ -387,7 +394,7 @@ public final class ImapProtocolHandler
         try {
             sendGreeting();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_greeting"), e);
+            events().warn("warn.error_sending_greeting").thrown(e).emit();
             endpoint.close();
         }
     }
@@ -404,7 +411,7 @@ public final class ImapProtocolHandler
                 lexer.feed(ByteBuffer.wrap(plain));
             }
         } catch (DataFormatException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.compress_inflate_failed"), e);
+            events().warn("warn.compress_inflate_failed").thrown(e).emit();
             endpoint.close();
         }
     }
@@ -453,16 +460,14 @@ public final class ImapProtocolHandler
                     try {
                         mb.close(false);
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("warn.error_closing_mailbox_on_disconnect"), e);
+                        events().warn("warn.error_closing_mailbox_on_disconnect").thrown(e).emit();
                     }
                 }
                 if (st != null) {
                     try {
                         st.close();
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("warn.error_closing_store_on_disconnect"), e);
+                        events().warn("warn.error_closing_store_on_disconnect").thrown(e).emit();
                     }
                 }
                 return null;
@@ -487,10 +492,7 @@ public final class ImapProtocolHandler
             try {
                 sendGreeting();
             } catch (IOException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_greeting_after_tls"), e);
-                }
+                events().warn("warn.failed_send_greeting_after_tls").thrown(e).emit();
                 closeEndpoint();
             }
         }
@@ -606,7 +608,7 @@ public final class ImapProtocolHandler
         try {
             sendTaggedBad(tag, L10N.getString("imap.err.line_too_long"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_line_too_long_reply"), e);
+            events().warn("warn.error_sending_line_too_long_reply").thrown(e).emit();
         }
     }
 
@@ -810,8 +812,7 @@ public final class ImapProtocolHandler
                         @Override
                         public void failed(Throwable exc,
                                 ByteBuffer attachment) {
-                            LOGGER.log(Level.WARNING,
-                                    L10N.getString("warn.async_append_write_failed"), exc);
+                            events().warn("warn.async_append_write_failed").thrown(exc).emit();
                             endpoint.execute(new Runnable() {
                                 @Override
                                 public void run() {
@@ -866,8 +867,7 @@ public final class ImapProtocolHandler
                 }
             }
         } catch (RuntimeException e) {
-            String msg = L10N.getString("log.error_processing_data");
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("log.error_processing_data").thrown(e).emit();
         }
     }
 
@@ -953,8 +953,7 @@ public final class ImapProtocolHandler
             inGeneralLiteralContinuation = false;
             dispatchAssembledCommand();
         } catch (IOException e) {
-            String msg = L10N.getString("log.error_processing_data");
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("log.error_processing_data").thrown(e).emit();
         }
     }
 
@@ -1019,7 +1018,9 @@ public final class ImapProtocolHandler
         try {
             dispatchCommand(tag, command, arguments);
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, MessageFormat.format(L10N.getString("warn.error_processing_imap_command"), command), e);
+            events().error("warn.error_processing_imap_command")
+                    .attr("command", command)
+                    .thrown(e).emit();
             sendTaggedNo(tag, L10N.getString("imap.err.internal_error"));
         }
     }
@@ -1135,11 +1136,10 @@ public final class ImapProtocolHandler
     // ── Telemetry ──
 
     private void initConnectionTrace() {
-        if (!endpoint.isTelemetryEnabled()) {
+        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
+        if (telemetryConfig == null) {
             return;
         }
-
-        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
         String spanName = L10N.getString("telemetry.imap_connection");
         Trace trace = telemetryConfig.createTrace(spanName, SpanKind.SERVER);
         endpoint.setTrace(trace);
@@ -1608,7 +1608,7 @@ public final class ImapProtocolHandler
             endpoint.startTLS();
             starttlsUsed = true;
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("warn.failed_init_tls"), e);
+            events().error("warn.failed_init_tls").thrown(e).emit();
             closeEndpoint();
         }
     }
@@ -1651,19 +1651,18 @@ public final class ImapProtocolHandler
                                         + getAdvertisedCapabilities()
                                         + "] " + L10N.getString("imap.login_complete"));
                             } catch (IOException e) {
-                                LOGGER.log(Level.WARNING,
-                                        L10N.getString("warn.failed_send_login_completion"), e);
+                                events().warn("warn.failed_send_login_completion").thrown(e).emit();
                             }
                         }
                     });
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_open_mail_store"), e);
+                    events().warn("warn.failed_open_mail_store").thrown(e).emit();
                 }
             }
 
             @Override
             public void failed(Throwable t) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.login_auth_check_failed"), t);
+                events().warn("warn.login_auth_check_failed").thrown(t).emit();
                 sendLoginFailed(tag);
             }
         });
@@ -1674,7 +1673,7 @@ public final class ImapProtocolHandler
             sendTaggedNo(tag, "[AUTHENTICATIONFAILED] "
                     + L10N.getString("imap.err.auth_failed"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_login_failure"), e);
+            events().warn("warn.failed_send_login_failure").thrown(e).emit();
         }
     }
 
@@ -1785,7 +1784,7 @@ public final class ImapProtocolHandler
             authState = AuthState.CRAM_MD5_RESPONSE;
             sendContinuation(SaslUtils.encodeBase64(authChallenge));
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("warn.failed_generate_cram_md5"), e);
+            events().error("warn.failed_generate_cram_md5").thrown(e).emit();
             authFailed();
         }
     }
@@ -1814,8 +1813,7 @@ public final class ImapProtocolHandler
             authState = AuthState.DIGEST_MD5_RESPONSE;
             sendContinuation(SaslUtils.encodeBase64(challenge));
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE,
-                    L10N.getString("warn.failed_generate_digest_md5"), e);
+            events().error("warn.failed_generate_digest_md5").thrown(e).emit();
             authFailed();
         }
     }
@@ -1859,7 +1857,7 @@ public final class ImapProtocolHandler
         try {
             gssapiExchange = gssapiServer.createExchange();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.gssapi_exchange_failed"), e);
+            events().warn("warn.gssapi_exchange_failed").thrown(e).emit();
             sendTaggedNo(pendingAuthTag,
                     L10N.getString("imap.err.gssapi_unavailable"));
             return;
@@ -2021,17 +2019,17 @@ public final class ImapProtocolHandler
                             authFailed();
                         }
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.failed_complete_plain_auth"), e);
+                        events().warn("warn.failed_complete_plain_auth").thrown(e).emit();
                     }
                 }
 
                 @Override
                 public void failed(Throwable t) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.plain_auth_check_failed"), t);
+                    events().warn("warn.plain_auth_check_failed").thrown(t).emit();
                     try {
                         authFailed();
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_failure"), e);
+                        events().warn("warn.failed_send_auth_failure").thrown(e).emit();
                     }
                 }
             });
@@ -2065,17 +2063,17 @@ public final class ImapProtocolHandler
                             authFailed();
                         }
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.failed_complete_login_auth"), e);
+                        events().warn("warn.failed_complete_login_auth").thrown(e).emit();
                     }
                 }
 
                 @Override
                 public void failed(Throwable t) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.login_auth_check_failed"), t);
+                    events().warn("warn.login_auth_check_failed").thrown(t).emit();
                     try {
                         authFailed();
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_failure"), e);
+                        events().warn("warn.failed_send_auth_failure").thrown(e).emit();
                     }
                 }
             });
@@ -2147,8 +2145,7 @@ public final class ImapProtocolHandler
                                     "rspauth=" + digestRspAuth));
                             authSucceeded();
                         } catch (IOException e) {
-                            LOGGER.log(Level.WARNING,
-                                    L10N.getString("warn.failed_complete_digest_md5"), e);
+                            events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
                         }
                     }
                 });
@@ -2226,7 +2223,7 @@ public final class ImapProtocolHandler
                     authState = AuthState.SCRAM_FINAL;
                     sendContinuation(SaslUtils.encodeBase64(serverFirst));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_complete_scram_client_first"), e);
+                    events().warn("warn.failed_complete_scram_client_first").thrown(e).emit();
                 }
             }
 
@@ -2235,7 +2232,7 @@ public final class ImapProtocolHandler
                 try {
                     authFailed();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_failure"), e);
+                    events().warn("warn.failed_send_auth_failure").thrown(e).emit();
                 }
             }
         });
@@ -2285,13 +2282,12 @@ public final class ImapProtocolHandler
                                 sendContinuation(SaslUtils.encodeBase64(serverFinal));
                                 authSucceeded();
                             } catch (IOException e) {
-                                LOGGER.log(Level.WARNING,
-                                        L10N.getString("warn.failed_complete_scram_sha256"), e);
+                                events().warn("warn.failed_complete_scram_sha256").thrown(e).emit();
                             }
                         }
                     });
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_complete_scram_client_final"), e);
+                    events().warn("warn.failed_complete_scram_client_final").thrown(e).emit();
                 }
             }
 
@@ -2300,7 +2296,7 @@ public final class ImapProtocolHandler
                 try {
                     authFailed();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_failure"), e);
+                    events().warn("warn.failed_send_auth_failure").thrown(e).emit();
                 }
             }
         });
@@ -2352,8 +2348,7 @@ public final class ImapProtocolHandler
                 try {
                     authSucceeded();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_auth_ok"), e);
+                    events().warn("warn.failed_send_auth_ok").thrown(e).emit();
                 }
             }
         });
@@ -2516,9 +2511,9 @@ public final class ImapProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("warn.failed_open_mail_store_for_user"), username),
-                        error);
+                events().warn("warn.failed_open_mail_store_for_user")
+                        .attr("username", username)
+                        .thrown(error).emit();
                 recordSessionException(error);
                 authenticatedUser = null;
                 sendTaggedNoQuietly(tag, "imap.err.internal_error");
@@ -2804,9 +2799,9 @@ public final class ImapProtocolHandler
                     sendTaggedOk(tag, accessMode + " "
                             + L10N.getString("imap.select_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            MessageFormat.format(L10N.getString("warn.failed_complete_select_for"), mailboxName),
-                            e);
+                    events().warn("warn.failed_complete_select_for")
+                            .attr("mailbox_name", mailboxName)
+                            .thrown(e).emit();
                     recordSessionException(e);
                     sendTaggedNoQuietly(tag, "imap.err.mailbox_not_found");
                 }
@@ -2851,7 +2846,7 @@ public final class ImapProtocolHandler
         try {
             sendTaggedNo(tag, L10N.getString(messageKey));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_tagged_no"), e);
+            events().warn("warn.failed_send_tagged_no").thrown(e).emit();
         }
     }
 
@@ -2864,7 +2859,7 @@ public final class ImapProtocolHandler
         try {
             sendTaggedNo(tag, prefix + L10N.getString(messageKey));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_tagged_no"), e);
+            events().warn("warn.failed_send_tagged_no").thrown(e).emit();
         }
     }
 
@@ -2963,7 +2958,7 @@ public final class ImapProtocolHandler
                 try {
                     sendTaggedOk(tag, L10N.getString("imap.create_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_create_ok"), e);
+                    events().warn("warn.failed_send_create_ok").thrown(e).emit();
                 }
             }
 
@@ -3010,7 +3005,7 @@ public final class ImapProtocolHandler
                     metadataSupport.onMailboxDeleted(mailboxName);
                     sendTaggedOk(tag, L10N.getString("imap.delete_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_delete_ok"), e);
+                    events().warn("warn.failed_send_delete_ok").thrown(e).emit();
                 }
             }
 
@@ -3060,7 +3055,7 @@ public final class ImapProtocolHandler
                     metadataSupport.onMailboxRenamed(oldName, newName);
                     sendTaggedOk(tag, L10N.getString("imap.rename_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_rename_ok"), e);
+                    events().warn("warn.failed_send_rename_ok").thrown(e).emit();
                 }
             }
 
@@ -3137,8 +3132,7 @@ public final class ImapProtocolHandler
                             : "imap.subscribe_complete";
                     sendTaggedOk(tag, L10N.getString(key));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_subscribe_ok"), e);
+                    events().warn("warn.failed_send_subscribe_ok").thrown(e).emit();
                 }
             }
 
@@ -3240,8 +3234,7 @@ public final class ImapProtocolHandler
                             : "imap.list_complete";
                     sendTaggedOk(tag, L10N.getString(key));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_list_lsub_response"), e);
+                    events().warn("warn.failed_send_list_lsub_response").thrown(e).emit();
                 }
             }
 
@@ -3425,8 +3418,7 @@ public final class ImapProtocolHandler
                     sendTaggedOk(tag,
                             L10N.getString("imap.status_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_status_response"), e);
+                    events().warn("warn.failed_send_status_response").thrown(e).emit();
                 }
             }
 
@@ -3437,8 +3429,7 @@ public final class ImapProtocolHandler
                     sendTaggedNo(tag,
                             L10N.getString("imap.err.status_failed"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_status_error"), e);
+                    events().warn("warn.failed_send_status_error").thrown(e).emit();
                 }
             }
         });
@@ -3647,7 +3638,9 @@ public final class ImapProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_start_append"), mbxName), error);
+                events().warn("warn.failed_start_append")
+                        .attr("mailbox_name", mbxName)
+                        .thrown(error).emit();
                 recordSessionException(error);
                 appendMailbox = null;
                 appendWriter = null;
@@ -3695,8 +3688,7 @@ public final class ImapProtocolHandler
 
             @Override
             public void failed(Throwable exc, ByteBuffer attachment) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.async_append_flush_write_failed"), exc);
+                events().warn("warn.async_append_flush_write_failed").thrown(exc).emit();
                 endpoint.execute(new Runnable() {
                     @Override
                     public void run() {
@@ -3754,7 +3746,7 @@ public final class ImapProtocolHandler
                 sendTaggedNo(tag, "[TRYCREATE] "
                         + L10N.getString("imap.err.append_failed"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_append_error"), e);
+                events().warn("warn.failed_send_append_error").thrown(e).emit();
             }
             return;
         }
@@ -3909,14 +3901,13 @@ public final class ImapProtocolHandler
                             + expectedUidValidity + " " + uid + "] "
                             + L10N.getString("imap.append_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_append_ok"), e);
+                    events().warn("warn.failed_send_append_ok").thrown(e).emit();
                 }
             }
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_complete_append"), error);
+                events().warn("warn.failed_complete_append").thrown(error).emit();
                 addSessionEvent("APPEND_FAILED");
                 recordSessionException(error);
                 Throwable cause = (error instanceof IOException)
@@ -3929,8 +3920,7 @@ public final class ImapProtocolHandler
                 try {
                     sendTaggedNo(tag, msg);
                 } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_append_error"), e2);
+                    events().warn("warn.failed_send_append_error").thrown(e2).emit();
                 }
             }
         };
@@ -3990,7 +3980,7 @@ public final class ImapProtocolHandler
             sendTaggedNo(appendTag, "[TRYCREATE] "
                     + L10N.getString("imap.err.append_failed"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_append_error"), e);
+            events().warn("warn.failed_send_append_error").thrown(e).emit();
         }
     }
 
@@ -4457,8 +4447,7 @@ public final class ImapProtocolHandler
                         : "imap.unselect_complete";
                 sendTaggedOk(tag, L10N.getString(key));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_close_unselect_ok"), e);
+                events().warn("warn.failed_send_close_unselect_ok").thrown(e).emit();
             }
             return;
         }
@@ -4477,14 +4466,13 @@ public final class ImapProtocolHandler
                             : "imap.unselect_complete";
                     sendTaggedOk(tag, L10N.getString(key));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_close_unselect_ok"), e);
+                    events().warn("warn.failed_send_close_unselect_ok").thrown(e).emit();
                 }
             }
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_close_mailbox"), error);
+                events().warn("warn.failed_close_mailbox").thrown(error).emit();
                 recordSessionException(error);
                 sendTaggedNoQuietly(tag, "imap.err.internal_error");
             }
@@ -4633,8 +4621,7 @@ public final class ImapProtocolHandler
                     sendTaggedOk(tag,
                             L10N.getString("imap.expunge_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_expunge_response"), e);
+                    events().warn("warn.failed_send_expunge_response").thrown(e).emit();
                 }
             }
 
@@ -4747,8 +4734,7 @@ public final class ImapProtocolHandler
                     sendTaggedOk(tag,
                             L10N.getString("imap.search_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_search_response"), e);
+                    events().warn("warn.failed_send_search_response").thrown(e).emit();
                 }
             }
 
@@ -4758,7 +4744,7 @@ public final class ImapProtocolHandler
                     sendTaggedNoQuietly(tag,
                             "imap.err.search_not_supported");
                 } else {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.search_failed"), error);
+                    events().warn("warn.search_failed").thrown(error).emit();
                     recordSessionException(error);
                     sendTaggedNoQuietly(tag, "imap.err.internal_error");
                 }
@@ -4828,8 +4814,7 @@ public final class ImapProtocolHandler
                     sendTaggedOk(tag,
                             L10N.getString("imap.sort_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_sort_response"), e);
+                    events().warn("warn.failed_send_sort_response").thrown(e).emit();
                 }
             }
 
@@ -4838,8 +4823,7 @@ public final class ImapProtocolHandler
                 if (error instanceof UnsupportedOperationException) {
                     sendTaggedNoQuietly(tag, "imap.err.search_not_supported");
                 } else {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.sort_failed"), error);
+                    events().warn("warn.sort_failed").thrown(error).emit();
                     recordSessionException(error);
                     sendTaggedNoQuietly(tag, "imap.err.internal_error");
                 }
@@ -4905,9 +4889,7 @@ public final class ImapProtocolHandler
                     sendTaggedOk(tag,
                             L10N.getString("imap.thread_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_thread_response"),
-                            e);
+                    events().warn("warn.failed_send_thread_response").thrown(e).emit();
                 }
             }
 
@@ -4916,8 +4898,7 @@ public final class ImapProtocolHandler
                 if (error instanceof UnsupportedOperationException) {
                     sendTaggedNoQuietly(tag, "imap.err.search_not_supported");
                 } else {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.thread_failed"), error);
+                    events().warn("warn.thread_failed").thrown(error).emit();
                     recordSessionException(error);
                     sendTaggedNoQuietly(tag, "imap.err.internal_error");
                 }
@@ -5324,20 +5305,17 @@ public final class ImapProtocolHandler
                     }
                     sendTaggedOk(tag, L10N.getString("imap.fetch_complete"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_fetch_completion"), e);
+                    events().warn("warn.failed_send_fetch_completion").thrown(e).emit();
                 }
             }
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.error_content_free_fetch"), error);
+                events().warn("warn.error_content_free_fetch").thrown(error).emit();
                 try {
                     sendTaggedNo(tag, L10N.getString("imap.err.internal_error"));
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_fetch_error"), e);
+                    events().warn("warn.failed_send_fetch_error").thrown(e).emit();
                 }
             }
         });
@@ -5519,21 +5497,18 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.fetch_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_fetch_completion"), e);
+                events().warn("warn.failed_send_fetch_completion").thrown(e).emit();
             }
         }
 
         private void failFetch(Throwable e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.error_chunked_fetch_write"), e);
+            events().warn("warn.error_chunked_fetch_write").thrown(e).emit();
             endpoint.onWriteReady(null);
             try {
                 sendTaggedNo(tag,
                         L10N.getString("imap.err.internal_error"));
             } catch (IOException e2) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_fetch_error"), e2);
+                events().warn("warn.failed_send_fetch_error").thrown(e2).emit();
             }
         }
     }
@@ -5873,13 +5848,11 @@ public final class ImapProtocolHandler
          * instead of sending the suffix and the tagged completion.
          */
         private void abortShortLiteral(Throwable cause) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.async_literal_read_failed"), cause);
+            events().warn("warn.async_literal_read_failed").thrown(cause).emit();
             try {
                 content.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("debug.error_closing_async_content"), e);
+                events().warn("debug.error_closing_async_content").thrown(e).emit();
             }
             closeEndpoint();
         }
@@ -5888,8 +5861,7 @@ public final class ImapProtocolHandler
             try {
                 content.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("debug.error_closing_async_content"), e);
+                events().warn("debug.error_closing_async_content").thrown(e).emit();
             }
             completion.run();
         }
@@ -6251,8 +6223,7 @@ public final class ImapProtocolHandler
         try {
             asyncContent.close();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("debug.error_closing_unused_async_content"), e);
+            events().warn("debug.error_closing_unused_async_content").thrown(e).emit();
         }
         onComplete.run();
     }
@@ -6630,8 +6601,7 @@ public final class ImapProtocolHandler
                                 L10N.getString("imap.store_complete"));
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_store_response"), e);
+                    events().warn("warn.failed_send_store_response").thrown(e).emit();
                 }
             }
 
@@ -6640,7 +6610,7 @@ public final class ImapProtocolHandler
                 if (error instanceof UnsupportedOperationException) {
                     sendTaggedNoQuietly(tag, "imap.err.read_only");
                 } else {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.store_failed"), error);
+                    events().warn("warn.store_failed").thrown(error).emit();
                     recordSessionException(error);
                     sendTaggedNoQuietly(tag, "imap.err.internal_error");
                 }
@@ -6702,14 +6672,14 @@ public final class ImapProtocolHandler
                                 L10N.getString("imap.copy_complete"));
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_copy_reply"), e);
+                    events().warn("warn.failed_send_copy_reply").thrown(e).emit();
                 }
             }
 
             @Override
             public void failed(Throwable error) {
                 if (!(error instanceof UnsupportedOperationException)) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.copy_failed"), error);
+                    events().warn("warn.copy_failed").thrown(error).emit();
                 }
                 sendTaggedNoQuietly(tag, "[TRYCREATE] ",
                         "imap.err.mailbox_not_found");
@@ -6827,14 +6797,14 @@ public final class ImapProtocolHandler
                                 L10N.getString("imap.move_complete"));
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_move_reply"), e);
+                    events().warn("warn.failed_send_move_reply").thrown(e).emit();
                 }
             }
 
             @Override
             public void failed(Throwable error) {
                 if (!(error instanceof UnsupportedOperationException)) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.move_failed"), error);
+                    events().warn("warn.move_failed").thrown(error).emit();
                 }
                 sendTaggedNoQuietly(tag, "[TRYCREATE] ",
                         "imap.err.mailbox_not_found");
@@ -7834,7 +7804,7 @@ public final class ImapProtocolHandler
                 sendUntagged("OK [CAPABILITY " + getAdvertisedCapabilities()
                         + "] " + greeting);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_greeting"), e);
+                events().warn("warn.failed_send_greeting").thrown(e).emit();
                 closeEndpoint();
             }
         }
@@ -7847,7 +7817,7 @@ public final class ImapProtocolHandler
                 sendUntagged("PREAUTH [CAPABILITY "
                         + getAdvertisedCapabilities() + "] " + greeting);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_preauth_greeting"), e);
+                events().warn("warn.failed_send_preauth_greeting").thrown(e).emit();
                 closeEndpoint();
             }
         }
@@ -7862,7 +7832,7 @@ public final class ImapProtocolHandler
             try {
                 sendUntagged("BYE " + message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_bye"), e);
+                events().warn("warn.failed_send_bye").thrown(e).emit();
             }
             closeEndpoint();
         }
@@ -7904,8 +7874,7 @@ public final class ImapProtocolHandler
                                     + L10N.getString("imap.auth_complete"));
                         }
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("warn.failed_send_auth_ok"), e);
+                        events().warn("warn.failed_send_auth_ok").thrown(e).emit();
                     } finally {
                         resetAuthState();
                     }
@@ -7930,7 +7899,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag, "[CAPABILITY " + getAdvertisedCapabilities()
                         + "] " + message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_ok"), e);
+                events().warn("warn.failed_send_auth_ok").thrown(e).emit();
             }
         }
 
@@ -7942,7 +7911,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_rejected"), e);
+                events().warn("warn.failed_send_auth_rejected").thrown(e).emit();
             }
         }
 
@@ -7954,7 +7923,7 @@ public final class ImapProtocolHandler
                 sendUntagged("BYE " + message);
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_rejected"), e);
+                events().warn("warn.failed_send_auth_rejected").thrown(e).emit();
             }
             closeEndpoint();
         }
@@ -8026,7 +7995,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag, accessMode + " "
                         + L10N.getString("imap.select_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_select_response"), e);
+                events().warn("warn.failed_send_select_response").thrown(e).emit();
             }
         }
 
@@ -8037,7 +8006,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_select_no"), e);
+                events().warn("warn.failed_send_select_no").thrown(e).emit();
             }
         }
 
@@ -8047,8 +8016,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_select_access_denied"), e);
+                events().warn("warn.failed_send_select_access_denied").thrown(e).emit();
             }
         }
 
@@ -8058,7 +8026,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_select_no"), e);
+                events().warn("warn.failed_send_select_no").thrown(e).emit();
             }
         }
 
@@ -8074,8 +8042,7 @@ public final class ImapProtocolHandler
                 selectOk(mailbox, readOnly, flags, permanentFlags, exists,
                         recent, uidValidity, uidNext, handler);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_query_mailbox_for_select"), e);
+                events().warn("warn.failed_query_mailbox_for_select").thrown(e).emit();
                 selectFailed("Cannot query mailbox", authenticatedHandler);
             }
         }
@@ -8086,7 +8053,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_select_failed"), e);
+                events().warn("warn.failed_send_select_failed").thrown(e).emit();
             }
         }
 
@@ -8117,14 +8084,12 @@ public final class ImapProtocolHandler
                 executeFetch(tag, selectedMailbox, seqSet,
                         fetchItems, uid);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_execute_fetch"), e);
+                events().warn("warn.failed_execute_fetch").thrown(e).emit();
                 try {
                     sendTaggedNo(tag,
                             L10N.getString("imap.err.internal_error"));
                 } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_fetch_error"), e2);
+                    events().warn("warn.failed_send_fetch_error").thrown(e2).emit();
                 }
             }
         }
@@ -8135,8 +8100,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_fetch_denied"), e);
+                events().warn("warn.failed_send_fetch_denied").thrown(e).emit();
             }
         }
 
@@ -8174,7 +8138,7 @@ public final class ImapProtocolHandler
                 executeStore(tag, selectedMailbox, seqSet, action, flags,
                         silent, uid, unchangedSince);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_execute_store"), e);
+                events().warn("warn.failed_execute_store").thrown(e).emit();
                 sendTaggedNoQuietly(tag, "imap.err.internal_error");
             }
         }
@@ -8185,8 +8149,7 @@ public final class ImapProtocolHandler
                 sendUntagged(sequenceNumber + " FETCH (FLAGS ("
                         + formatFlags(flags) + "))");
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_store_fetch_response"), e);
+                events().warn("warn.failed_send_store_fetch_response").thrown(e).emit();
             }
         }
 
@@ -8197,8 +8160,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.store_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_store_ok"), e);
+                events().warn("warn.failed_send_store_ok").thrown(e).emit();
             }
         }
 
@@ -8209,8 +8171,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_store_no"), e);
+                events().warn("warn.failed_send_store_no").thrown(e).emit();
             }
         }
 
@@ -8240,7 +8201,7 @@ public final class ImapProtocolHandler
             try {
                 executeCopy(tag, selectedMailbox, seqSet, targetMailbox, uid);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_execute_copy"), e);
+                events().warn("warn.failed_execute_copy").thrown(e).emit();
                 sendTaggedNoQuietly(tag, "imap.err.internal_error");
             }
         }
@@ -8252,8 +8213,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.copy_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_copy_ok"), e);
+                events().warn("warn.failed_send_copy_ok").thrown(e).emit();
             }
         }
 
@@ -8266,8 +8226,7 @@ public final class ImapProtocolHandler
                         + sourceUids + " " + destUids + "] "
                         + L10N.getString("imap.copy_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_copy_ok"), e);
+                events().warn("warn.failed_send_copy_ok").thrown(e).emit();
             }
         }
 
@@ -8278,8 +8237,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, "[TRYCREATE] " + message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_copy_no"), e);
+                events().warn("warn.failed_send_copy_no").thrown(e).emit();
             }
         }
 
@@ -8290,8 +8248,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_copy_no"), e);
+                events().warn("warn.failed_send_copy_no").thrown(e).emit();
             }
         }
 
@@ -8321,7 +8278,7 @@ public final class ImapProtocolHandler
             try {
                 executeMove(tag, selectedMailbox, seqSet, targetMailbox, uid);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_execute_move"), e);
+                events().warn("warn.failed_execute_move").thrown(e).emit();
                 sendTaggedNoQuietly(tag, "imap.err.internal_error");
             }
         }
@@ -8331,8 +8288,7 @@ public final class ImapProtocolHandler
             try {
                 sendUntagged(sequenceNumber + " EXPUNGE");
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_move_expunge"), e);
+                events().warn("warn.failed_send_move_expunge").thrown(e).emit();
             }
         }
 
@@ -8343,8 +8299,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.move_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_move_ok"), e);
+                events().warn("warn.failed_send_move_ok").thrown(e).emit();
             }
         }
 
@@ -8357,8 +8312,7 @@ public final class ImapProtocolHandler
                         + sourceUids + " " + destUids + "] "
                         + L10N.getString("imap.move_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_move_ok"), e);
+                events().warn("warn.failed_send_move_ok").thrown(e).emit();
             }
         }
 
@@ -8369,8 +8323,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, "[TRYCREATE] " + message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_move_no"), e);
+                events().warn("warn.failed_send_move_no").thrown(e).emit();
             }
         }
 
@@ -8381,8 +8334,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_move_no"), e);
+                events().warn("warn.failed_send_move_no").thrown(e).emit();
             }
         }
 
@@ -8421,8 +8373,7 @@ public final class ImapProtocolHandler
                         : "imap.unselect_complete";
                 sendTaggedOk(tag, L10N.getString(key));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_close_unselect_ok"), e);
+                events().warn("warn.failed_send_close_unselect_ok").thrown(e).emit();
             }
         }
 
@@ -8432,8 +8383,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_close_unselect_no"), e);
+                events().warn("warn.failed_send_close_unselect_no").thrown(e).emit();
             }
         }
 
@@ -8463,8 +8413,7 @@ public final class ImapProtocolHandler
             try {
                 sendUntagged(sequenceNumber + " EXPUNGE");
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_expunge_notification"), e);
+                events().warn("warn.failed_send_expunge_notification").thrown(e).emit();
             }
         }
 
@@ -8475,8 +8424,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.expunge_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_expunge_ok"), e);
+                events().warn("warn.failed_send_expunge_ok").thrown(e).emit();
             }
         }
 
@@ -8486,8 +8434,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_expunge_no"), e);
+                events().warn("warn.failed_send_expunge_no").thrown(e).emit();
             }
         }
 
@@ -8517,14 +8464,12 @@ public final class ImapProtocolHandler
             try {
                 executeSearchWithCriteria(tag, criteria, uid);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_execute_search"), e);
+                events().warn("warn.failed_execute_search").thrown(e).emit();
                 try {
                     sendTaggedNo(tag,
                             L10N.getString("imap.err.internal_error"));
                 } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_search_error"), e2);
+                    events().warn("warn.failed_send_search_error").thrown(e2).emit();
                 }
             }
         }
@@ -8535,8 +8480,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_search_denied"), e);
+                events().warn("warn.failed_send_search_denied").thrown(e).emit();
             }
         }
 
@@ -8568,8 +8512,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.create_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_create_ok"), e);
+                events().warn("warn.failed_send_create_ok").thrown(e).emit();
             }
         }
 
@@ -8579,8 +8522,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedOk(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_create_ok"), e);
+                events().warn("warn.failed_send_create_ok").thrown(e).emit();
             }
         }
 
@@ -8591,8 +8533,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_create_no"), e);
+                events().warn("warn.failed_send_create_no").thrown(e).emit();
             }
         }
 
@@ -8603,8 +8544,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_create_no"), e);
+                events().warn("warn.failed_send_create_no").thrown(e).emit();
             }
         }
 
@@ -8636,8 +8576,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.delete_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_delete_ok"), e);
+                events().warn("warn.failed_send_delete_ok").thrown(e).emit();
             }
         }
 
@@ -8648,8 +8587,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_delete_no"), e);
+                events().warn("warn.failed_send_delete_no").thrown(e).emit();
             }
         }
 
@@ -8660,8 +8598,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_delete_no"), e);
+                events().warn("warn.failed_send_delete_no").thrown(e).emit();
             }
         }
 
@@ -8695,8 +8632,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.rename_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_rename_ok"), e);
+                events().warn("warn.failed_send_rename_ok").thrown(e).emit();
             }
         }
 
@@ -8707,8 +8643,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_rename_no"), e);
+                events().warn("warn.failed_send_rename_no").thrown(e).emit();
             }
         }
 
@@ -8719,8 +8654,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_rename_no"), e);
+                events().warn("warn.failed_send_rename_no").thrown(e).emit();
             }
         }
 
@@ -8731,8 +8665,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_rename_no"), e);
+                events().warn("warn.failed_send_rename_no").thrown(e).emit();
             }
         }
 
@@ -8767,8 +8700,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.subscribe_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_subscribe_ok"), e);
+                events().warn("warn.failed_send_subscribe_ok").thrown(e).emit();
             }
         }
 
@@ -8779,8 +8711,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_subscribe_no"), e);
+                events().warn("warn.failed_send_subscribe_no").thrown(e).emit();
             }
         }
 
@@ -8791,8 +8722,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_subscribe_no"), e);
+                events().warn("warn.failed_send_subscribe_no").thrown(e).emit();
             }
         }
 
@@ -8844,8 +8774,7 @@ public final class ImapProtocolHandler
                         + delimiter + "\" " + quotedName;
                 sendUntagged(response);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_list_lsub_entry"), e);
+                events().warn("warn.failed_send_list_lsub_entry").thrown(e).emit();
             }
         }
 
@@ -8857,8 +8786,7 @@ public final class ImapProtocolHandler
                         : "imap.list_complete";
                 sendTaggedOk(tag, L10N.getString(key));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_list_lsub_ok"), e);
+                events().warn("warn.failed_send_list_lsub_ok").thrown(e).emit();
             }
         }
 
@@ -8869,8 +8797,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_list_lsub_no"), e);
+                events().warn("warn.failed_send_list_lsub_no").thrown(e).emit();
             }
         }
 
@@ -8913,8 +8840,7 @@ public final class ImapProtocolHandler
             try {
                 executeStatus(tag, mailboxName, attrs);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_execute_status"), e);
+                events().warn("warn.failed_execute_status").thrown(e).emit();
             }
         }
 
@@ -8924,8 +8850,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_status_no"), e);
+                events().warn("warn.failed_send_status_no").thrown(e).emit();
             }
         }
 
@@ -8936,8 +8861,7 @@ public final class ImapProtocolHandler
                 sendTaggedNo(tag,
                         L10N.getString("imap.err.status_failed"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_status_no"), e);
+                events().warn("warn.failed_send_status_no").thrown(e).emit();
             }
         }
 
@@ -8966,8 +8890,7 @@ public final class ImapProtocolHandler
             try {
                 executeStatus(tag, mailboxName, attrs);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_execute_status"), e);
+                events().warn("warn.failed_execute_status").thrown(e).emit();
             }
         }
 
@@ -8977,8 +8900,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_status_no"), e);
+                events().warn("warn.failed_send_status_no").thrown(e).emit();
             }
         }
 
@@ -8989,8 +8911,7 @@ public final class ImapProtocolHandler
                 sendTaggedNo(tag,
                         L10N.getString("imap.err.status_failed"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_status_no"), e);
+                events().warn("warn.failed_send_status_no").thrown(e).emit();
             }
         }
 
@@ -9026,7 +8947,7 @@ public final class ImapProtocolHandler
                 executeAppendDirect(tag, mailboxName, flags, internalDate,
                         literalSize, nonSync);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.failed_execute_append"), e);
+                events().warn("warn.failed_execute_append").thrown(e).emit();
                 sendTaggedNoQuietly(tag, "[TRYCREATE] ",
                         "imap.err.append_failed");
             }
@@ -9065,14 +8986,14 @@ public final class ImapProtocolHandler
                 // in executeAppendDirect() for the synchronous path.
                 lexer.enterLiteral(literalSize);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("warn.failed_start_append"), mailboxName), e);
+                events().warn("warn.failed_start_append")
+                        .attr("mailbox_name", mailboxName)
+                        .thrown(e).emit();
                 try {
                     sendTaggedNo(tag, "[TRYCREATE] "
                             + L10N.getString("imap.err.append_failed"));
                 } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_append_error"), e2);
+                    events().warn("warn.failed_send_append_error").thrown(e2).emit();
                 }
             }
         }
@@ -9084,8 +9005,7 @@ public final class ImapProtocolHandler
                 sendTaggedNo(tag, "[TRYCREATE] "
                         + L10N.getString("imap.err.append_failed"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_trycreate"), e);
+                events().warn("warn.failed_send_append_trycreate").thrown(e).emit();
             }
         }
 
@@ -9096,8 +9016,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_no"), e);
+                events().warn("warn.failed_send_append_no").thrown(e).emit();
             }
         }
 
@@ -9113,8 +9032,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, "[TRYCREATE] " + message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_no"), e);
+                events().warn("warn.failed_send_append_no").thrown(e).emit();
             }
         }
 
@@ -9125,8 +9043,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_no"), e);
+                events().warn("warn.failed_send_append_no").thrown(e).emit();
             }
         }
 
@@ -9138,8 +9055,7 @@ public final class ImapProtocolHandler
                 sendTaggedNo(tag, "[TOOBIG] "
                         + L10N.getString("imap.err.literal_too_large"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_no"), e);
+                events().warn("warn.failed_send_append_no").thrown(e).emit();
             }
         }
 
@@ -9163,8 +9079,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedOk(tag, L10N.getString("imap.append_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_ok"), e);
+                events().warn("warn.failed_send_append_ok").thrown(e).emit();
             }
         }
 
@@ -9178,8 +9093,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag, "[APPENDUID " + uidValidity + " " + uid
                         + "] " + L10N.getString("imap.append_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_ok"), e);
+                events().warn("warn.failed_send_append_ok").thrown(e).emit();
             }
         }
 
@@ -9190,8 +9104,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_append_no"), e);
+                events().warn("warn.failed_send_append_no").thrown(e).emit();
             }
         }
 
@@ -9264,14 +9177,12 @@ public final class ImapProtocolHandler
                     }
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_execute_quota_command"), e);
+                events().warn("warn.failed_execute_quota_command").thrown(e).emit();
                 try {
                     sendTaggedNo(tag,
                             L10N.getString("imap.err.quota_failed"));
                 } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_quota_error"), e2);
+                    events().warn("warn.failed_send_quota_error").thrown(e2).emit();
                 }
             }
         }
@@ -9283,8 +9194,7 @@ public final class ImapProtocolHandler
                 sendTaggedNo(tag,
                         L10N.getString("imap.err.quota_not_supported"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_quota_not_supported"), e);
+                events().warn("warn.failed_send_quota_not_supported").thrown(e).emit();
             }
         }
 
@@ -9320,8 +9230,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.quota_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_quota_response"), e);
+                events().warn("warn.failed_send_quota_response").thrown(e).emit();
             }
         }
 
@@ -9374,8 +9283,7 @@ public final class ImapProtocolHandler
                 sendTaggedOk(tag,
                         L10N.getString("imap.quotaroot_complete"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_quotaroot_response"), e);
+                events().warn("warn.failed_send_quotaroot_response").thrown(e).emit();
             }
         }
 
@@ -9386,8 +9294,7 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, message);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_quota_no"), e);
+                events().warn("warn.failed_send_quota_no").thrown(e).emit();
             }
         }
 
@@ -9402,7 +9309,7 @@ public final class ImapProtocolHandler
             sendUntagged("BYE "
                     + L10N.getString("imap.server_shutting_down"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_shutdown_bye"), e);
+            events().warn("warn.failed_send_shutdown_bye").thrown(e).emit();
         }
         closeEndpoint();
     }

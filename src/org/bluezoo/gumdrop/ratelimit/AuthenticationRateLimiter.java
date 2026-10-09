@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.ratelimit;
 
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+
 import java.net.InetAddress;
 import java.text.MessageFormat;
 import java.util.Iterator;
@@ -79,7 +82,26 @@ import java.util.logging.Logger;
  */
 public class AuthenticationRateLimiter {
 
+    private volatile TelemetryConfig telemetryConfig;
+
+    /**
+     * Sets the telemetry configuration this limiter's events go to; a
+     * listener sets it when it starts. Left unset, the limiter reports
+     * through a configuration of its own, which prints events through
+     * {@code java.util.logging}.
+     *
+     * @param telemetryConfig the configuration
+     */
+    public void setTelemetryConfig(TelemetryConfig telemetryConfig) {
+        this.telemetryConfig = telemetryConfig;
+    }
+
     private static final Logger LOGGER = Logger.getLogger(AuthenticationRateLimiter.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = telemetryConfig != null ? telemetryConfig : new TelemetryConfig();
+        return telemetry.getLogger(AuthenticationRateLimiter.class, L10N);
+    }
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ratelimit.L10N");
 
     /** Default maximum failed attempts before lockout */
@@ -417,8 +439,7 @@ public class AuthenticationRateLimiter {
             try {
                 cleanup();
             } catch (RuntimeException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("ratelimit.err.cleanup_failed"), e);
+                events().warn("ratelimit.err.cleanup_failed").thrown(e).emit();
             }
         }
     }
@@ -477,7 +498,7 @@ public class AuthenticationRateLimiter {
     public void unlock(String key) {
         if (key != null) {
             trackers.remove(key);
-            LOGGER.info(MessageFormat.format(L10N.getString("ratelimit.auth_unlocked"), key));
+            events().info("ratelimit.auth_unlocked").attr("key", key).emit();
         }
     }
 }

@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.telemetry.export;
+package org.bluezoo.gumdrop.telemetry;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -44,18 +44,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.telemetry.Attribute;
-import org.bluezoo.gumdrop.telemetry.LogRecord;
-import org.bluezoo.gumdrop.telemetry.QlogAttributes;
-import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
-import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 
 /**
- * Writes the log records tagged for the qlog channel as qlog files
+ * Writes the log records of level {@link LogLevel#QLOG} as qlog files
  * (draft-ietf-quic-qlog-main-schema-14, JSON-SEQ serialisation): one file
  * per connection, named {@code {group id}_{vantage point}.sqlog}. Traces,
- * metrics and untagged records are not its business and are ignored.
+ * metrics and records of other levels are not its business and are ignored.
  *
  * <p>A file starts with a {@code QlogFileSeq} record describing the trace
  * and continues with one record per event ({@code time}, {@code name},
@@ -131,13 +126,18 @@ public final class QlogExporter implements TelemetryExporter {
     }
 
     @Override
-    public boolean claimsChannel(String channel) {
-        return QlogAttributes.CHANNEL.equals(channel);
+    public boolean accepts(LogLevel level) {
+        return level == LogLevel.QLOG;
+    }
+
+    @Override
+    public boolean acceptsTraces() {
+        return false;
     }
 
     @Override
     public void export(LogRecord record) {
-        if (!running || record == null || !QlogAttributes.CHANNEL.equals(record.getChannel())) {
+        if (!running || record == null || record.getLevel() != LogLevel.QLOG) {
             return;
         }
         if (!queue.offer(record)) {
@@ -251,15 +251,6 @@ public final class QlogExporter implements TelemetryExporter {
         }
     }
 
-    private static String attribute(LogRecord record, String key) {
-        for (Attribute attribute : record.getAttributes()) {
-            if (attribute.getType() == Attribute.TYPE_STRING && attribute.getKey().equals(key)) {
-                return attribute.getStringValue();
-            }
-        }
-        return null;
-    }
-
     // Keeps a group id to what can safely be part of a file name.
     private static String safeName(String value) {
         if (value == null || value.isEmpty()) {
@@ -284,12 +275,9 @@ public final class QlogExporter implements TelemetryExporter {
 
     // The caller holds writeLock.
     private void write(LogRecord record) {
-        String name = attribute(record, QlogAttributes.NAME);
-        if (name == null) {
-            return;
-        }
-        String group = safeName(attribute(record, QlogAttributes.GROUP_ID));
-        String vantage = vantagePoint(attribute(record, QlogAttributes.VANTAGE_POINT));
+        String name = record.getKey();
+        String group = safeName(record.getString(QlogAttributes.GROUP_ID));
+        String vantage = vantagePoint(record.getString(QlogAttributes.VANTAGE_POINT));
         String stem = group + "_" + vantage;
         TraceFile file = open.get(stem);
         if (file == null) {

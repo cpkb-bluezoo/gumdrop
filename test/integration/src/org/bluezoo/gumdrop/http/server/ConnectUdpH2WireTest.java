@@ -102,8 +102,7 @@ public class ConnectUdpH2WireTest {
         @Override public SelectorLoop getSelectorLoop() { return loop; }
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public TelemetryConfig getTelemetryConfig() { return null; }
+        @Override public TelemetryConfig getTelemetryConfig() { return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG; }
     }
 
     private static final class StubSecurityInfo implements SecurityInfo {

@@ -57,6 +57,8 @@ import org.bluezoo.gumdrop.amqp.client.TuneHandler;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * AMQP client facade with automatic reconnect and topology recovery.
@@ -120,6 +122,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 public class AmqpClientRecovery {
 
     private static final Logger LOGGER = Logger.getLogger(AmqpClientRecovery.class.getName());
+
+    private EventLogger events() {
+        return (selectorLoop != null ? selectorLoop.getTelemetryConfig() : new TelemetryConfig()).getLogger(AmqpClientRecovery.class, L10N);
+    }
     private static final ResourceBundle L10N = AmqpClientProtocolHandler.L10N;
 
     /**
@@ -408,7 +414,6 @@ public class AmqpClientRecovery {
         }
     }
 
-
     // ── test seams (package-private; production never sets them) ──
 
     /** Replaces the endpoint's connect (the endpoint itself is still created). */
@@ -459,8 +464,7 @@ public class AmqpClientRecovery {
         }
         logRetryableConnectionLoss(cause);
         long delay = policy.delayFor(attempt);
-        LOGGER.log(Level.INFO, L10N.getString("info.reconnecting"),
-                new Object[] { delay, attempt });
+        events().info("info.reconnecting").attr("delay_ms", delay).attr("attempt", attempt).emit();
         if (listener != null) {
             listener.onReconnecting(attempt, delay);
         }
@@ -493,7 +497,7 @@ public class AmqpClientRecovery {
             if (detail != null && !detail.isEmpty()) {
                 LOGGER.log(Level.INFO, L10N.getString("warn.connection_lost") + ": " + detail);
             } else {
-                LOGGER.log(Level.INFO, L10N.getString("warn.connection_lost"));
+                events().info("warn.connection_lost").emit();
             }
         }
     }

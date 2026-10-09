@@ -25,6 +25,8 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.HttpConstants;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.io.*;
 import java.net.URI;
@@ -34,12 +36,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.time.ZoneId;
-import java.text.MessageFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletOutputStream;
@@ -58,7 +57,11 @@ import java.util.ResourceBundle;
 class Response implements HttpServletResponse {
 
         private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
-private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = handler != null ? handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(Response.class, L10N);
+    }
 
     // HttpDateFormat is thread-safe; these formatters are shared across worker
     // threads. expiresDateFormat is an immutable java.time formatter, and UTF-8
@@ -350,7 +353,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
                 buf.append("</p>\r\n");
             }
             if (err != null) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.generic_error"), err);
+                events().error("severe.generic_error").thrown(err).emit();
                 boolean showStackTraces = context != null
                         && "true".equals(context.getInitParameter("org.bluezoo.gumdrop.show-stack-traces"));
                 if (showStackTraces) {
@@ -539,8 +542,9 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             // CR/LF) rather than propagating the exception to the servlet.
             // This prevents HTTP response splitting/header injection via
             // unsanitized header values.
-            LOGGER.warning(MessageFormat.format(
-                    Context.L10N.getString("warn.ignoring_invalid_header"), name, e.getMessage()));
+            events().warn("warn.ignoring_invalid_header")
+                    .attr("name", name)
+                    .attr("reason", e.getMessage()).emit();
         }
     }
 

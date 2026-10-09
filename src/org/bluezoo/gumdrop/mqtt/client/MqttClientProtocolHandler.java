@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.mqtt.client;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -37,6 +36,8 @@ import org.bluezoo.gumdrop.mqtt.codec.*;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageWriter;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Client-side MQTT protocol handler.
@@ -56,6 +57,10 @@ public final class MqttClientProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(MqttClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(MqttClientProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
     private static final String LOG_CLIENT_ERROR = "log.client_error";
@@ -141,7 +146,7 @@ public final class MqttClientProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString(LOG_CLIENT_ERROR), cause);
+        events().warn("log.client_error").thrown(cause).emit();
         state = State.DISCONNECTED;
         cancelKeepAlive();
         if (callback != null) {
@@ -200,8 +205,7 @@ public final class MqttClientProtocolHandler
             try {
                 rxPubWriter.write(data);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString(LOG_CLIENT_ERROR), e);
+                events().warn("log.client_error").thrown(e).emit();
                 try {
                     rxPubWriter.discard();
                 } catch (IOException ignored) {
@@ -222,8 +226,7 @@ public final class MqttClientProtocolHandler
         try {
             content = rxPubWriter.commit();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString(LOG_CLIENT_ERROR), e);
+            events().warn("log.client_error").thrown(e).emit();
             return;
         } finally {
             rxPubWriter = null;
@@ -375,8 +378,7 @@ public final class MqttClientProtocolHandler
 
     @Override
     public void parseError(String message) {
-        LOGGER.warning(MessageFormat.format(
-                L10N.getString("log.client_parse_error"), message));
+        events().warn("log.client_parse_error").attr("message", message).emit();
         endpoint.close();
     }
 

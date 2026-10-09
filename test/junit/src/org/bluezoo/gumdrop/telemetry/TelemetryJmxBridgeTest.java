@@ -71,14 +71,14 @@ public class TelemetryJmxBridgeTest {
 
     private TelemetryConfig metricsConfig() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setMetricsEnabled(true);
+        c.metricsEnabled(true);
         return c;
     }
 
     @Test
     public void registerRefusedWhenMetricsDisabled() {
         config = new TelemetryConfig();
-        config.setMetricsEnabled(false);
+        config.metricsEnabled(false);
         bridge = new TelemetryJMXBridge(config);
         assertFalse(bridge.register());
         assertFalse(bridge.isRegistered());
@@ -213,7 +213,7 @@ public class TelemetryJmxBridgeTest {
     @Test
     public void configInitRegistersBridgeAndShutdownUnregistersIt() throws Exception {
         config = metricsConfig();
-        config.setJmxBridgeEnabled(true);
+        config.jmxBridgeEnabled(true);
         config.init();
         TelemetryJMXBridge created = config.getJmxBridge();
         assertNotNull(created);

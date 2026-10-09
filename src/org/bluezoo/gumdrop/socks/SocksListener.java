@@ -24,8 +24,6 @@ package org.bluezoo.gumdrop.socks;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -34,6 +32,7 @@ import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import java.net.InetAddress;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * TCP transport listener for SOCKS proxy connections.
@@ -50,8 +49,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public class SocksListener extends TcpListener {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(SocksListener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(SocksListener.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -132,7 +132,6 @@ public class SocksListener extends TcpListener {
         return this;
     }
 
-
     /**
      * Returns the authentication realm for this listener.
      * Used for SOCKS5 authentication per RFC 1928 §3, RFC 1929, RFC 1961.
@@ -197,32 +196,13 @@ public class SocksListener extends TcpListener {
         this.server = server;
     }
 
-    private Gumdrop gumdrop;
-
-    @Override
-    public void start(Gumdrop gumdrop) {
-        this.gumdrop = gumdrop;
-        super.start(gumdrop);
-    }
-
-    /**
-     * Returns the runtime this listener is running under, for relays
-     * (UDP ASSOCIATE, BIND) created by accepted connections.
-     *
-     * @return the runtime, or null if not yet started
-     */
-    public Gumdrop getGumdrop() {
-        return gumdrop;
-    }
-
     @Override
     protected ProtocolHandler createHandler() {
         if (server != null) {
             try {
                 return server.createProtocolHandler(this);
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.handler_create_failed"), e);
+                events().warn("log.handler_create_failed").thrown(e).emit();
             }
         }
         throw new IllegalStateException(

@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -114,6 +115,11 @@ public class Cluster {
 
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.session.L10N");
     private static final Logger LOGGER = Logger.getLogger(Cluster.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = telemetryConfig != null ? telemetryConfig : new TelemetryConfig();
+        return telemetry.getLogger(Cluster.class, L10N);
+    }
 
     private static final int UUID_SIZE_BYTES = 16;
     private static final int DIGEST_SIZE_BYTES = 16;
@@ -282,8 +288,7 @@ public class Cluster {
     public void registerContext(UUID contextUuid, SessionManager sessionManager) {
         sessionManagers.put(contextUuid, sessionManager);
         if (LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("info.cluster_context_registered");
-            message = MessageFormat.format(message, contextUuid,
+            String message = MessageFormat.format(L10N.getString("info.cluster_context_registered"), contextUuid,
                     sessionManager.getContext().getServletContextName());
             LOGGER.fine(message);
         }
@@ -298,8 +303,7 @@ public class Cluster {
     public void unregisterContext(UUID contextUuid) {
         SessionManager removed = sessionManagers.remove(contextUuid);
         if (removed != null && LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("info.cluster_context_unregistered");
-            message = MessageFormat.format(message, contextUuid);
+            String message = MessageFormat.format(L10N.getString("info.cluster_context_unregistered"), contextUuid);
             LOGGER.fine(message);
         }
     }
@@ -415,11 +419,9 @@ public class Cluster {
 
         member.endpoint = transportFactory.createServerEndpoint(gumdrop, channel, new ClusterProtocolHandler(member));
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            String message = L10N.getString("info.cluster_started");
-            message = MessageFormat.format(message, port, member.group.getHostAddress());
-            LOGGER.info(message);
-        }
+        events().info("info.cluster_started")
+                .attr("port", port)
+                .attr("host_address", member.group.getHostAddress()).emit();
     }
 
     /**
@@ -500,7 +502,7 @@ public class Cluster {
         try {
             ping();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("err.cluster_ping"), e);
+            events().warn("err.cluster_ping").thrown(e).emit();
         }
 
         // Expire old nodes
@@ -545,9 +547,10 @@ public class Cluster {
             // spoofing the local node's identity.
             long now = System.currentTimeMillis();
             if (Math.abs(now - msgTimestamp) > MAX_TIMESTAMP_DRIFT_MS) {
-                String message = L10N.getString("warn.cluster_timestamp_rejected");
-                message = MessageFormat.format(message, remoteNodeUuid, msgTimestamp, now);
-                LOGGER.warning(message);
+                events().warn("warn.cluster_timestamp_rejected")
+                        .attr("remote_node_uuid", String.valueOf(remoteNodeUuid))
+                        .attr("msg_timestamp", msgTimestamp)
+                        .attr("now", now).emit();
                 if (metrics != null) {
                     metrics.recordTimestampError();
                 }
@@ -559,9 +562,9 @@ public class Cluster {
                 return;
             }
             if (sequenceResult == SEQUENCE_REPLAY) {
-                String message = L10N.getString("warn.cluster_replay_detected");
-                message = MessageFormat.format(message, remoteNodeUuid, msgSequence);
-                LOGGER.warning(message);
+                events().warn("warn.cluster_replay_detected")
+                        .attr("remote_node_uuid", String.valueOf(remoteNodeUuid))
+                        .attr("msg_sequence", msgSequence).emit();
                 if (metrics != null) {
                     metrics.recordReplayError();
                 }
@@ -626,13 +629,12 @@ public class Cluster {
                 }
             }
         } catch (GeneralSecurityException e) {
-            String message = L10N.getString("err.cluster_decrypt");
-            LOGGER.severe(message);
+            events().error("err.cluster_decrypt").emit();
             if (metrics != null) {
                 metrics.recordDecryptError();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("err.cluster_message"), e);
+            events().warn("err.cluster_message").thrown(e).emit();
         }
     }
 
@@ -748,8 +750,7 @@ public class Cluster {
         long fragmentSetId = secureRandom.nextLong();
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("debug.cluster_fragmenting");
-            message = MessageFormat.format(message, totalSize, totalFragments);
+            String message = MessageFormat.format(L10N.getString("debug.cluster_fragmenting"), totalSize, totalFragments);
             LOGGER.fine(message);
         }
 
@@ -797,8 +798,7 @@ public class Cluster {
         buf.get(digest);
         SessionManager sessionManager = getSessionManagerByDigest(digest);
         if (sessionManager == null) {
-            String message = L10N.getString("warn.no_context_with_digest");
-            LOGGER.warning(message);
+            events().warn("warn.no_context_with_digest").emit();
             return;
         }
         SessionContext context = sessionManager.getContext();
@@ -817,8 +817,7 @@ public class Cluster {
                     for (int i = 0; i < numSessions; i++) {
                         Session session = Session.deserialize(context, buf);
                         if (LOGGER.isLoggable(Level.FINE)) {
-                            String message = L10N.getString("info.cluster_received_session");
-                            message = MessageFormat.format(message, session.id);
+                            String message = MessageFormat.format(L10N.getString("info.cluster_received_session"), session.id);
                             LOGGER.finest(message);
                         }
                         sessionManager.addClusterSession(session);
@@ -848,8 +847,7 @@ public class Cluster {
         buf.get(digest);
         SessionManager sessionManager = getSessionManagerByDigest(digest);
         if (sessionManager == null) {
-            String message = L10N.getString("warn.no_context_with_digest");
-            LOGGER.warning(message);
+            events().warn("warn.no_context_with_digest").emit();
             return;
         }
         SessionContext context = sessionManager.getContext();
@@ -868,8 +866,7 @@ public class Cluster {
                 if (session.applyDelta(delta.version, delta.updatedAttributes,
                         delta.removedAttributes)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        String message = L10N.getString("debug.cluster_applied_delta");
-                        message = MessageFormat.format(message, delta.sessionId,
+                        String message = MessageFormat.format(L10N.getString("debug.cluster_applied_delta"), delta.sessionId,
                                 delta.updatedAttributes.size(), delta.removedAttributes.size());
                         LOGGER.fine(message);
                     }
@@ -878,15 +875,13 @@ public class Cluster {
                     }
                 } else {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        String message = L10N.getString("debug.cluster_stale_delta");
-                        message = MessageFormat.format(message, delta.sessionId, delta.version);
+                        String message = MessageFormat.format(L10N.getString("debug.cluster_stale_delta"), delta.sessionId, delta.version);
                         LOGGER.fine(message);
                     }
                 }
             } else {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    String message = L10N.getString("debug.cluster_missing_session");
-                    message = MessageFormat.format(message, delta.sessionId);
+                    String message = MessageFormat.format(L10N.getString("debug.cluster_missing_session"), delta.sessionId);
                     LOGGER.fine(message);
                 }
             }
@@ -908,7 +903,7 @@ public class Cluster {
             if (pendingFragments.size() >= MAX_PENDING_FRAGMENTS) {
                 cleanupExpiredFragments();
                 if (pendingFragments.size() >= MAX_PENDING_FRAGMENTS) {
-                    LOGGER.warning(L10N.getString("warn.cluster_too_many_fragments"));
+                    events().warn("warn.cluster_too_many_fragments").emit();
                     return;
                 }
             }
@@ -917,9 +912,9 @@ public class Cluster {
         }
 
         if (fragmentIndex >= totalFragments || totalFragments != fragmentSet.totalFragments) {
-            String message = L10N.getString("warn.cluster_invalid_fragment");
-            message = MessageFormat.format(message, fragmentIndex, totalFragments);
-            LOGGER.warning(message);
+            events().warn("warn.cluster_invalid_fragment")
+                    .attr("fragment_index", fragmentIndex)
+                    .attr("total_fragments", totalFragments).emit();
             return;
         }
 
@@ -928,8 +923,7 @@ public class Cluster {
         fragmentSet.addFragment(fragmentIndex, fragmentData);
 
         if (LOGGER.isLoggable(Level.FINEST)) {
-            String message = L10N.getString("debug.cluster_received_fragment");
-            message = MessageFormat.format(message, fragmentIndex + 1, totalFragments);
+            String message = MessageFormat.format(L10N.getString("debug.cluster_received_fragment"), fragmentIndex + 1, totalFragments);
             LOGGER.finest(message);
         }
 
@@ -942,8 +936,7 @@ public class Cluster {
             ByteBuffer reassembled = fragmentSet.reassemble();
 
             if (LOGGER.isLoggable(Level.FINE)) {
-                String message = L10N.getString("debug.cluster_reassembled");
-                message = MessageFormat.format(message, totalFragments, reassembled.remaining());
+                String message = MessageFormat.format(L10N.getString("debug.cluster_reassembled"), totalFragments, reassembled.remaining());
                 LOGGER.fine(message);
             }
 
@@ -1075,15 +1068,13 @@ public class Cluster {
                 ByteBuffer loopbackBuffer = ciphertext.duplicate();
                 member.endpoint.sendTo(loopbackBuffer, member.loopbackSocketAddress);
                 if (log && LOGGER.isLoggable(Level.FINEST)) {
-                    String message = L10N.getString("info.cluster_send_unicast");
-                    message = MessageFormat.format(message, len, member.loopbackSocketAddress);
+                    String message = MessageFormat.format(L10N.getString("info.cluster_send_unicast"), len, member.loopbackSocketAddress);
                     LOGGER.finest(message);
                 }
 
                 member.endpoint.sendTo(ciphertext.duplicate(), member.groupSocketAddress);
                 if (log && LOGGER.isLoggable(Level.FINEST)) {
-                    String message = L10N.getString("info.cluster_send");
-                    message = MessageFormat.format(message, len, member.groupSocketAddress);
+                    String message = MessageFormat.format(L10N.getString("info.cluster_send"), len, member.groupSocketAddress);
                     LOGGER.finest(message);
                 }
             }
@@ -1093,8 +1084,7 @@ public class Cluster {
                 metrics.recordMessageSent(len, messageType);
             }
         } catch (GeneralSecurityException e) {
-            String message = L10N.getString("err.cluster_encrypt");
-            LOGGER.severe(message);
+            events().error("err.cluster_encrypt").emit();
         }
     }
 
@@ -1199,7 +1189,7 @@ public class Cluster {
 
         @Override
         public void error(Exception cause) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.cluster_endpoint_error"), cause);
+            events().warn("warn.cluster_endpoint_error").thrown(cause).emit();
         }
     }
 
@@ -1236,8 +1226,7 @@ public class Cluster {
                 long offset = highestSeq - seq;
                 if (offset >= SEQUENCE_WINDOW_SIZE) {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        String message = L10N.getString("debug.cluster_seq_too_old");
-                        message = MessageFormat.format(message, seq, highestSeq, SEQUENCE_WINDOW_SIZE);
+                        String message = MessageFormat.format(L10N.getString("debug.cluster_seq_too_old"), seq, highestSeq, SEQUENCE_WINDOW_SIZE);
                         LOGGER.fine(message);
                     }
                     return false;

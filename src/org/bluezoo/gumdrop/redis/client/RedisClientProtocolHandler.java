@@ -41,6 +41,8 @@ import org.bluezoo.gumdrop.redis.codec.RespDecoder;
 import org.bluezoo.gumdrop.redis.codec.RespEncoder;
 import org.bluezoo.gumdrop.redis.codec.RespException;
 import org.bluezoo.gumdrop.redis.codec.RespValue;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Redis client protocol handler using RESP (Redis Serialization Protocol).
@@ -78,6 +80,10 @@ import org.bluezoo.gumdrop.redis.codec.RespValue;
 public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession {
 
     private static final Logger LOGGER = Logger.getLogger(RedisClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(RedisClientProtocolHandler.class, L10N);
+    }
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.redis.client.L10N");
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
 
@@ -132,7 +138,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
                 processResponse(response);
             }
         } catch (RespException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("err.protocol_error"), e);
+            events().warn("err.protocol_error").thrown(e).emit();
             handler.onError(e);
             close();
         } catch (RuntimeException e) {
@@ -142,7 +148,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             // unchecked exceptions: treat it as a protocol error rather
             // than let it escape into the selector loop.
             RespException malformed = new RespException("Malformed server reply", e);
-            LOGGER.log(Level.WARNING, L10N.getString("err.protocol_error"), malformed);
+            events().warn("err.protocol_error").thrown(malformed).emit();
             handler.onError(malformed);
             close();
         }
@@ -229,10 +235,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         // Regular command response
         PendingCommand pending = pendingCommands.poll();
         if (pending == null) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                String msg = MessageFormat.format(L10N.getString("warn.response_no_pending"), response);
-                LOGGER.warning(msg);
-            }
+            events().warn("warn.response_no_pending").attr("response", String.valueOf(response)).emit();
             return;
         }
         dispatchResponse(pending, response);

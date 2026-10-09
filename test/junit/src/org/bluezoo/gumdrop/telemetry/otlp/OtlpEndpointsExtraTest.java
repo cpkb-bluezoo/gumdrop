@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.Test;
 
 /**
@@ -44,8 +45,8 @@ import org.junit.Test;
  */
 public class OtlpEndpointsExtraTest {
 
-    private static TelemetryConfig tlsConfig() throws Exception {
-        return new TelemetryConfig();
+    private static TlsConfig tlsConfig() throws Exception {
+        return new TlsConfig();
     }
 
     @Test
@@ -62,7 +63,8 @@ public class OtlpEndpointsExtraTest {
         assertTrue(e.toString().contains("https://localhost:4318/v1/traces"));
         assertNull(e.getClient());
         assertFalse(e.connectAndWait(10L));
-        OtlpExporter exporter = new OtlpExporter(new TelemetryConfig(), false);
+        OtlpExporter exporter = new OtlpExporter();
+        exporter.start(new TelemetryConfig(), false);
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", exporter);
             e.send(ByteBuffer.allocate(4), h);
@@ -100,7 +102,8 @@ public class OtlpEndpointsExtraTest {
         assertTrue(e.toString().contains("gRPC"));
         assertNull(e.getClient());
         assertFalse(e.connectAndWait(10L));
-        OtlpGrpcExporter exporter = new OtlpGrpcExporter(new TelemetryConfig(), false);
+        OtlpGrpcExporter exporter = new OtlpGrpcExporter();
+        exporter.start(new TelemetryConfig(), false);
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("traces", exporter);
             e.send(ByteBuffer.allocate(4), h);

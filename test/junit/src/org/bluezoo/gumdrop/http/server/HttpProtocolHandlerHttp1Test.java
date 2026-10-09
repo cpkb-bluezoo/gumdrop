@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 
 /**
@@ -806,7 +807,7 @@ public class HttpProtocolHandlerHttp1Test {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setTracesEnabled(true);
+        config.exporter(new RecordingExporter());
         return config;
     }
 
@@ -964,7 +965,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         org.bluezoo.gumdrop.telemetry.TelemetryConfig tc =
                 new org.bluezoo.gumdrop.telemetry.TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         java.lang.reflect.Field field = Http2Listener.class.getDeclaredField("metrics");
         field.setAccessible(true);
         field.set(f.listener, new HttpServerMetrics(tc));

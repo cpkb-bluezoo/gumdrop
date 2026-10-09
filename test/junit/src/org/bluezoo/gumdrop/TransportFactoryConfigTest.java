@@ -109,7 +109,6 @@ public class TransportFactoryConfigTest {
         assertEquals("abc", f.getPinnedCertFingerprint());
         f.setPinnedCertFingerprint(null);
         assertNull(f.getPinnedCertFingerprint());
-        assertFalse(f.isTelemetryEnabled());
         assertNull(f.getTelemetryConfig());
         f.setMaxNetInSize(5);
         f.setMaxNetOutSize(6);

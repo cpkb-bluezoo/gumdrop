@@ -45,6 +45,8 @@ import org.bluezoo.gumdrop.socks.server.ConnectState;
 import org.bluezoo.gumdrop.socks.server.SocksServer;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.util.CidrNetwork;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 
 import static org.junit.Assert.*;
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
@@ -67,8 +69,9 @@ public class SocksProtocolHandlerExtraTest {
         server = new SocksServer();
         listener = new SocksListener();
         listener.setServer(server);
-        listener.setTelemetryConfig(telemetryConfig());
-        listener.start();
+        Gumdrop g = TestGumdrop.create();
+        g.telemetryConfig(telemetryConfig());
+        listener.start(g);
         handler = server.createProtocolHandler(listener);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);

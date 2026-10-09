@@ -30,11 +30,12 @@ import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,8 +45,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * HTTP request handler for the servlet container.
@@ -63,7 +62,9 @@ import java.util.logging.Logger;
  */
 public class ServletHandler extends DefaultHttpRequestHandler {
 
-    private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(ServletHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -72,6 +73,15 @@ public class ServletHandler extends DefaultHttpRequestHandler {
 
     // The HTTP response state - provides connection info and response sending
     private final HttpResponse state;
+
+    /**
+     * Returns the telemetry configuration this request's events go to: its
+     * loop's, else its container's. Never null.
+     */
+    TelemetryConfig getTelemetryConfig() {
+        SelectorLoop loop = state.getSelectorLoop();
+        return loop != null ? loop.getTelemetryConfig() : container.getTelemetryConfig();
+    }
 
     // Non-blocking bridge for delivering request body to the servlet
     private RequestBodyStream bodyStream;
@@ -217,8 +227,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             container.serviceRequest(this);
 
         } catch (IOException e) {
-            String message = L10N.getString("error.create_pipe");
-            LOGGER.log(Level.SEVERE, message, e);
+            events().error("error.create_pipe").thrown(e).emit();
             sendError(HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -492,8 +501,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         });
         try {
             if (!latch.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.backpressure_timeout"));
+                events().warn("warn.backpressure_timeout").emit();
                 state.execute(new Runnable() {
                     @Override
                     public void run() {
@@ -701,8 +709,8 @@ public class ServletHandler extends DefaultHttpRequestHandler {
                     try {
                         trailerFields = trailerFieldsSupplier.get();
                     } catch (Exception e) {
-                        LOGGER.warning(MessageFormat.format(
-                                Context.L10N.getString("warn.trailer_fields_error"), e.getMessage()));
+                        events().warn("warn.trailer_fields_error")
+                                .attr("reason", e.getMessage()).emit();
                     }
                 }
                 if (trailerFields != null && !trailerFields.isEmpty()) {
@@ -720,7 +728,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             state.endMessage();
 
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("severe.error_sending_response"), e);
+            events().error("severe.error_sending_response").thrown(e).emit();
             state.cancel();
         }
     }

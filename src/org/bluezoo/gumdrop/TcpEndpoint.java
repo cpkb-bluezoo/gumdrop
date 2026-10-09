@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.TlsProtocolError;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.DirectByteBufferPool;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -77,6 +78,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     private static final Logger LOGGER =
             Logger.getLogger(TcpEndpoint.class.getName());
+
+    private final Object telemetryLock = new Object();
+    private TelemetryConfig standaloneTelemetry;
 
     private static final int DEFAULT_BUFFER_SIZE = 8192;
 
@@ -637,14 +641,32 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         this.trace = trace;
     }
 
-    @Override
-    public boolean isTelemetryEnabled() {
-        return factory != null && factory.isTelemetryEnabled();
-    }
-
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The factory's configuration, else the loop's, else one of this
+     * endpoint's own for an endpoint outside any runtime, as in tests.
+     */
     @Override
     public TelemetryConfig getTelemetryConfig() {
-        return factory != null ? factory.getTelemetryConfig() : null;
+        TelemetryConfig telemetry = factory != null ? factory.getTelemetryConfig() : null;
+        if (telemetry != null) {
+            return telemetry;
+        }
+        SelectorLoop loop = selectorLoop;
+        if (loop != null) {
+            return loop.getTelemetryConfig();
+        }
+        synchronized (telemetryLock) {
+            if (standaloneTelemetry == null) {
+                standaloneTelemetry = new TelemetryConfig();
+            }
+            return standaloneTelemetry;
+        }
+    }
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(TcpEndpoint.class, L10N);
     }
 
     // -- Flow control --
@@ -876,11 +898,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      * connection. Called outside {@link #netOutLock}.
      */
     private void handleNetOutOverflow() {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    Gumdrop.L10N.getString("warn.outbound_buffer_overflow"),
-                    getMaxNetOutSize(), getRemoteAddress()));
-        }
+        events().warn("warn.outbound_buffer_overflow")
+                .attr("max_bytes", getMaxNetOutSize())
+                .attr("peer", String.valueOf(getRemoteAddress())).emit();
         close();
     }
 
@@ -954,10 +974,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                     LOGGER.fine(MessageFormat.format(L10N.getString("log.client_disconnected_0"), sa));
                 }
             } else if (LOGGER.isLoggable(Level.WARNING)) {
-                Object sa = channel.socket().getRemoteSocketAddress();
-                String message = Gumdrop.L10N.getString("err.read");
-                message = MessageFormat.format(message, sa);
-                LOGGER.log(Level.WARNING, message, e);
+                events().warn("err.read")
+                        .attr("peer", String.valueOf(channel.socket().getRemoteSocketAddress()))
+                        .thrown(e).emit();
             }
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e, category);
@@ -984,10 +1003,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                     LOGGER.fine(MessageFormat.format(L10N.getString("log.client_disconnected_0_1"), sa));
                 }
             } else if (LOGGER.isLoggable(Level.WARNING)) {
-                Object sa = channel.socket().getRemoteSocketAddress();
-                String message = Gumdrop.L10N.getString("err.write");
-                message = MessageFormat.format(message, sa);
-                LOGGER.log(Level.WARNING, message, e);
+                events().warn("err.write")
+                        .attr("peer", String.valueOf(channel.socket().getRemoteSocketAddress()))
+                        .thrown(e).emit();
             }
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e, category);
@@ -1030,12 +1048,10 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      */
     void handleDispatchError(Exception e) {
         try {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                Object sa = channel != null
-                        ? channel.socket().getRemoteSocketAddress() : null;
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("log.tcp_dispatch_error"), sa), e);
-            }
+            events().warn("log.tcp_dispatch_error")
+                    .attr("peer", channel != null
+                            ? String.valueOf(channel.socket().getRemoteSocketAddress()) : null)
+                    .thrown(e).emit();
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e,
                         ErrorCategory.INTERNAL_ERROR);
@@ -1146,7 +1162,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         try {
             handler.disconnected();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("log.error_in_disconnected_handler"), e);
+            events().warn("log.error_in_disconnected_handler").thrown(e).emit();
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e);
             }
@@ -1161,7 +1177,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                 channel.close();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, e.getMessage(), e);
+            events().warn("err.close").attr("what", "socket channel").thrown(e).emit();
         }
         if (key != null) {
             key.cancel();
@@ -1292,11 +1308,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public final void onProtocolError(TlsProtocolError error) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    Gumdrop.L10N.getString("log.tls_protocol_error"),
-                    getRemoteAddress(), error));
-        }
+        events().warn("log.tls_protocol_error")
+                .attr("peer", String.valueOf(getRemoteAddress()))
+                .attr("error", String.valueOf(error)).emit();
         handler.error(new javax.net.ssl.SSLException(error.toString()));
         if (error.isFromPeer() || selectorLoop == null || pendingNetOutBytes() == 0) {
             // The peer is already tearing down, or there is nothing queued.

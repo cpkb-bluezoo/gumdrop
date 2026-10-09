@@ -27,12 +27,11 @@ import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
 import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
 import org.bluezoo.gumdrop.ftp.FtpFileSystem;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Simple FTP connection handler for demonstration purposes.
@@ -51,7 +50,12 @@ import java.util.logging.Logger;
  */
 public class SimpleFTPHandler implements FtpConnectionHandler {
     
-    private static final Logger LOGGER = Logger.getLogger(SimpleFTPHandler.class.getName());
+
+    private EventLogger events(FtpConnectionMetadata metadata) {
+        // a caller with no connection description reports through a configuration of its own
+        TelemetryConfig telemetry = metadata != null ? metadata.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(SimpleFTPHandler.class, L10N);
+    }
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final FtpFileSystem fileSystem;
@@ -70,10 +74,9 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
     public String connected(FtpConnectionMetadata metadata) {
         String clientHost = metadata.getClientAddress() != null ? 
                            metadata.getClientAddress().getHostString() : "unknown";
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_connection"),
-                clientHost,
-                realm != null ? L10N.getString("info.realm_auth") : L10N.getString("info.simple_auth")));
+        events(metadata).info("info.simple_ftp_connection")
+                .attr("client_host", clientHost)
+                .attr("auth_mode", realm != null ? L10N.getString("info.realm_auth") : L10N.getString("info.simple_auth")).emit();
         return null; // Use default welcome message
     }
     
@@ -98,12 +101,13 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
                 boolean authenticated = realm.passwordMatch(username.trim(), password);
                 
                 if (authenticated) {
-                    LOGGER.info(MessageFormat.format(
-                            L10N.getString("info.simple_ftp_realm_auth_success"), username, clientHost));
+                    events(metadata).info("info.simple_ftp_realm_auth_success")
+                            .attr("username", username)
+                            .attr("client_host", clientHost).emit();
                     return FtpAuthenticationResult.SUCCESS;
                 } else {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.simple_ftp_auth_failed"), clientHost));
+                    events(metadata).warn("warn.simple_ftp_auth_failed")
+                            .attr("client_host", clientHost).emit();
                     return FtpAuthenticationResult.INVALID_PASSWORD;
                 }
             } else {
@@ -112,14 +116,16 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
                     return FtpAuthenticationResult.INVALID_PASSWORD;
                 }
 
-                LOGGER.info(MessageFormat.format(
-                        L10N.getString("info.simple_ftp_simple_auth_success"), username, clientHost));
+                events(metadata).info("info.simple_ftp_simple_auth_success")
+                        .attr("username", username)
+                        .attr("client_host", clientHost).emit();
                 return FtpAuthenticationResult.SUCCESS;
             }
 
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.simple_ftp_auth_error"), clientHost), e);
+            events(metadata).warn("warn.simple_ftp_auth_error")
+                    .attr("client_host", clientHost)
+                    .thrown(e).emit();
             return FtpAuthenticationResult.INVALID_PASSWORD;
         }
     }
@@ -134,9 +140,11 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
                                FtpConnectionMetadata metadata) {
         String direction = upload ? "upload" : "download";
         String sizeStr = (size >= 0) ? " (" + size + " bytes)" : "";
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_transfer_starting"),
-                direction, path, sizeStr, metadata.getAuthenticatedUser()));
+        events(metadata).info("info.simple_ftp_transfer_starting")
+                .attr("direction", direction)
+                .attr("path", path)
+                .attr("size_str", sizeStr)
+                .attr("authenticated_user", metadata.getAuthenticatedUser()).emit();
     }
     
     @Override
@@ -145,9 +153,10 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
         // Log progress every 1MB for demo purposes
         if (totalBytesTransferred % (1024 * 1024) == 0) {
             String direction = upload ? "upload" : "download";
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.simple_ftp_transfer_progress"),
-                    direction, path, totalBytesTransferred));
+            events(metadata).info("info.simple_ftp_transfer_progress")
+                    .attr("direction", direction)
+                    .attr("path", path)
+                    .attr("total_bytes_transferred", totalBytesTransferred).emit();
         }
     }
     
@@ -156,16 +165,20 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
                                 boolean success, FtpConnectionMetadata metadata) {
         String direction = upload ? "upload" : "download";
         String status = success ? "completed" : "failed";
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_transfer_completed"),
-                status, direction, path, totalBytesTransferred, metadata.getAuthenticatedUser()));
+        events(metadata).info("info.simple_ftp_transfer_completed")
+                .attr("status", status)
+                .attr("direction", direction)
+                .attr("path", path)
+                .attr("total_bytes_transferred", totalBytesTransferred)
+                .attr("authenticated_user", metadata.getAuthenticatedUser()).emit();
     }
     
     @Override
     public FtpFileOperationResult handleSiteCommand(String command, FtpConnectionMetadata metadata) {
         // Demo SITE command handling
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_site_command"), metadata.getAuthenticatedUser(), command));
+        events(metadata).info("info.simple_ftp_site_command")
+                .attr("authenticated_user", metadata.getAuthenticatedUser())
+                .attr("command", command).emit();
         
         if (command.toUpperCase().startsWith("HELP")) {
             return FtpFileOperationResult.SUCCESS;
@@ -176,8 +189,8 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
     
     @Override
     public void disconnected(FtpConnectionMetadata metadata) {
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_disconnected"),
-                metadata.getClientAddress(), metadata.getAuthenticatedUser()));
+        events(metadata).info("info.simple_ftp_disconnected")
+                .attr("client_address", String.valueOf(metadata.getClientAddress()))
+                .attr("authenticated_user", metadata.getAuthenticatedUser()).emit();
     }
 }

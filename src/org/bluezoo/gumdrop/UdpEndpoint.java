@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 import org.bluezoo.gumdrop.tls.Dtls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls13HandshakeConfig;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -74,6 +75,9 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(UdpEndpoint.class.getName());
+
+    private final Object telemetryLock = new Object();
+    private TelemetryConfig standaloneTelemetry;
 
     private static final int DEFAULT_BUFFER_SIZE = 65535;
 
@@ -516,9 +520,7 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
             try {
                 channel.close();
             } catch (IOException e) {
-                String message = MessageFormat.format(
-                        Gumdrop.L10N.getString("err.close"), "datagram channel");
-                LOGGER.log(Level.WARNING, message, e);
+                events().warn("err.close").attr("what", "datagram channel").thrown(e).emit();
             }
         }
         if (key != null) {
@@ -607,11 +609,9 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     }
 
     private void handlePendingDatagramOverflow() {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    Gumdrop.L10N.getString("warn.outbound_buffer_overflow"),
-                    Integer.valueOf(getMaxNetOutSize()), getRemoteAddress()));
-        }
+        events().warn("warn.outbound_buffer_overflow")
+                .attr("max_bytes", getMaxNetOutSize())
+                .attr("peer", String.valueOf(getRemoteAddress())).emit();
         close();
     }
 
@@ -721,14 +721,32 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         this.trace = trace;
     }
 
-    @Override
-    public boolean isTelemetryEnabled() {
-        return factory != null && factory.isTelemetryEnabled();
-    }
-
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The factory's configuration, else the loop's, else one of this
+     * endpoint's own for an endpoint outside any runtime, as in tests.
+     */
     @Override
     public TelemetryConfig getTelemetryConfig() {
-        return factory != null ? factory.getTelemetryConfig() : null;
+        TelemetryConfig telemetry = factory != null ? factory.getTelemetryConfig() : null;
+        if (telemetry != null) {
+            return telemetry;
+        }
+        SelectorLoop loop = selectorLoop;
+        if (loop != null) {
+            return loop.getTelemetryConfig();
+        }
+        synchronized (telemetryLock) {
+            if (standaloneTelemetry == null) {
+                standaloneTelemetry = new TelemetryConfig();
+            }
+            return standaloneTelemetry;
+        }
+    }
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(UdpEndpoint.class, Gumdrop.L10N);
     }
 
     // -- Flow control (not supported for datagrams) --
@@ -887,8 +905,10 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     private void onDtlsFailure(InetSocketAddress peer, Exception cause) {
         if (clientMode) {
             handler.error(cause);
-        } else if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.log(Level.WARNING, cause.getMessage(), cause);
+        } else {
+            events().warn("warn.dtls_session_failed")
+                    .attr("peer", String.valueOf(peer)).attr("error", String.valueOf(cause))
+                    .thrown(cause).emit();
         }
     }
 

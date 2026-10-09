@@ -32,10 +32,14 @@
  * automatically -- each has a dedicated {@code *ServerMetrics} class --
  * once telemetry is configured with an OTLP endpoint; HTTPS is strongly
  * recommended for that endpoint to protect telemetry data in transit.
- * {@link org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory} is the
- * SPI other export formats plug into; OTLP/HTTP, OTLP/gRPC, and JSONL
- * exporters ship in the optional {@code gumdrop-telemetry.jar}, loaded
- * via {@link java.util.ServiceLoader}.
+ * Operational log events are {@link org.bluezoo.gumdrop.telemetry.LogRecord}s
+ * emitted through an {@link org.bluezoo.gumdrop.telemetry.EventLogger}.
+ * Exporters implement {@link org.bluezoo.gumdrop.telemetry.TelemetryExporter}
+ * and are composed into a tree with {@link
+ * org.bluezoo.gumdrop.telemetry.TeeExporter}; a runtime with nothing
+ * configured has the {@link org.bluezoo.gumdrop.telemetry.DefaultExporter},
+ * which prints through {@code java.util.logging}. OTLP/HTTP, OTLP/gRPC,
+ * and JSONL exporters ship in the optional {@code gumdrop-telemetry.jar}.
  *
  * <p>When metrics are enabled, {@link
  * org.bluezoo.gumdrop.telemetry.TelemetryJMXBridge} also exposes them

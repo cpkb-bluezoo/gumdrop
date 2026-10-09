@@ -39,6 +39,8 @@ import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
 import org.bluezoo.gumdrop.quota.QuotaSource;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * FTP connection handler with role-based access control.
@@ -75,6 +77,12 @@ import org.bluezoo.gumdrop.quota.QuotaSource;
 public class RoleBasedFTPHandler implements FtpConnectionHandler {
     
     private static final Logger LOGGER = Logger.getLogger(RoleBasedFTPHandler.class.getName());
+
+    private EventLogger events(FtpConnectionMetadata metadata) {
+        // a caller with no connection description reports through a configuration of its own
+        TelemetryConfig telemetry = metadata != null ? metadata.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(RoleBasedFTPHandler.class, L10N);
+    }
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final Realm realm;
@@ -255,9 +263,12 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         if (LOGGER.isLoggable(Level.INFO)) {
             String direction = upload ? "uploaded" : "downloaded";
             String status = success ? "completed" : "failed";
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.role_based_transfer_completed"),
-                    status, direction, path, totalBytesTransferred, metadata.getAuthenticatedUser()));
+            events(metadata).info("info.role_based_transfer_completed")
+                    .attr("status", status)
+                    .attr("direction", direction)
+                    .attr("path", path)
+                    .attr("total_bytes_transferred", totalBytesTransferred)
+                    .attr("authenticated_user", metadata.getAuthenticatedUser()).emit();
         }
     }
     
@@ -421,8 +432,9 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         if (LOGGER.isLoggable(Level.INFO)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.role_based_auth_success"), username, clientHost));
+            events(metadata).info("info.role_based_auth_success")
+                    .attr("username", username)
+                    .attr("client_host", clientHost).emit();
         }
     }
     
@@ -430,8 +442,9 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         if (LOGGER.isLoggable(Level.WARNING)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.role_based_auth_failed"), clientHost, reason));
+            events(metadata).warn("warn.role_based_auth_failed")
+                    .attr("client_host", clientHost)
+                    .attr("reason", reason).emit();
         }
     }
 }

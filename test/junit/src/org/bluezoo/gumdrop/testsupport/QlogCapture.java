@@ -25,7 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.telemetry.Attribute;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.QlogAttributes;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
@@ -34,7 +34,8 @@ import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import org.bluezoo.json.JSONException;
 
 /**
- * A telemetry exporter that keeps the qlog events it is given, for tests.
+ * An exporter that keeps the qlog records it is given, for tests that
+ * look at what the transport reports.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -43,13 +44,20 @@ public final class QlogCapture implements TelemetryExporter {
     private final List<LogRecord> records = new ArrayList<LogRecord>();
 
     @Override
-    public boolean claimsChannel(String channel) {
-        return QlogAttributes.CHANNEL.equals(channel);
+    public boolean accepts(LogLevel level) {
+        return level == LogLevel.QLOG;
+    }
+
+    @Override
+    public boolean acceptsTraces() {
+        return false;
     }
 
     @Override
     public synchronized void export(LogRecord record) {
-        records.add(record);
+        if (record != null && record.getLevel() == LogLevel.QLOG) {
+            records.add(record);
+        }
     }
 
     @Override
@@ -68,40 +76,27 @@ public final class QlogCapture implements TelemetryExporter {
     public void shutdown() {
     }
 
-    /** Returns the value of a string attribute of a record, or null. */
-    public static String attribute(LogRecord record, String key) {
-        for (Attribute a : record.getAttributes()) {
-            if (a.getKey().equals(key) && a.getType() == Attribute.TYPE_STRING) {
-                return a.getStringValue();
-            }
-        }
-        return null;
-    }
-
-    /** Returns the data of every event of this name, flattened, in the order they were reported. */
     public synchronized List<Map<String, String>> events(String name) throws JSONException {
         List<Map<String, String>> result = new ArrayList<Map<String, String>>();
         for (LogRecord r : records) {
-            if (name.equals(attribute(r, QlogAttributes.NAME))) {
+            if (name.equals(r.getKey())) {
                 result.add(FlatJson.flatten(r.getBody()));
             }
         }
         return result;
     }
 
-    /** Returns the event schema URI of the first event of this name, or null. */
     public synchronized String schemaOf(String name) {
         for (LogRecord r : records) {
-            if (name.equals(attribute(r, QlogAttributes.NAME))) {
-                return attribute(r, QlogAttributes.SCHEMA);
+            if (name.equals(r.getKey())) {
+                return r.getString(QlogAttributes.SCHEMA);
             }
         }
         return null;
     }
 
-    /** Returns the group id of the first event, or null if there is none. */
     public synchronized String firstGroupId() {
-        return records.isEmpty() ? null : attribute(records.get(0), QlogAttributes.GROUP_ID);
+        return records.isEmpty() ? null : records.get(0).getString(QlogAttributes.GROUP_ID);
     }
 
     public synchronized int size() {

@@ -24,13 +24,11 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.nio.file.Path;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Abstract base class for transport endpoint factories.
@@ -61,8 +59,6 @@ import java.util.logging.Logger;
  */
 public abstract class TransportFactory {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(TransportFactory.class.getName());
 
     /** Default maximum network input buffer size: 1 MB */
     public static final int DEFAULT_MAX_NET_IN_SIZE = 1024 * 1024;
@@ -145,6 +141,28 @@ public abstract class TransportFactory {
     // -- Telemetry --
 
     protected TelemetryConfig telemetryConfig;
+    private TelemetryConfig standaloneTelemetry;
+
+    /**
+     * Returns the telemetry configuration this factory's events go to:
+     * the one it was given, else one of its own, which prints events
+     * through {@code java.util.logging}. Never null.
+     *
+     * @return the configuration
+     */
+    protected synchronized TelemetryConfig eventTelemetry() {
+        if (telemetryConfig != null) {
+            return telemetryConfig;
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
+    }
+
+    private EventLogger events() {
+        return eventTelemetry().getLogger(TransportFactory.class, Gumdrop.L10N);
+    }
 
     // -- Buffer limits --
 
@@ -344,15 +362,6 @@ public abstract class TransportFactory {
     }
 
     /**
-     * Returns true if telemetry is enabled.
-     *
-     * @return true if a TelemetryConfig has been set
-     */
-    public boolean isTelemetryEnabled() {
-        return telemetryConfig != null;
-    }
-
-    /**
      * Returns true if metrics collection is enabled.
      *
      * @return true if telemetry is configured with metrics enabled
@@ -464,7 +473,7 @@ public abstract class TransportFactory {
      * @return the resolved groups, or null if none were configured or
      *         recognised (the engine's own default order then applies)
      */
-    static List<NamedGroup> resolveNamedGroups(String raw) {
+    List<NamedGroup> resolveNamedGroups(String raw) {
         if (raw == null || raw.isEmpty()) {
             return null;
         }
@@ -478,9 +487,8 @@ public abstract class TransportFactory {
             NamedGroup group = NamedGroup.fromName(name);
             if (group != null) {
                 resolved.add(group);
-            } else if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        Gumdrop.L10N.getString("warn.unrecognized_named_group"), name));
+            } else {
+                events().warn("warn.unrecognized_named_group").attr("group", name).emit();
             }
         }
         return resolved.isEmpty() ? null : resolved;
@@ -499,7 +507,7 @@ public abstract class TransportFactory {
      * @return the usable groups, or null for the engine's default
      *         (x25519 then secp256r1)
      */
-    static List<NamedGroup> resolveTls12NamedGroups(String raw, boolean warn) {
+    List<NamedGroup> resolveTls12NamedGroups(String raw, boolean warn) {
         List<NamedGroup> all = resolveNamedGroups(raw);
         if (all == null) {
             return null;
@@ -511,15 +519,13 @@ public abstract class TransportFactory {
                 if (!usable.contains(group)) {
                     usable.add(group);
                 }
-            } else if (warn && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        Gumdrop.L10N.getString("warn.tls12_named_groups_ignored"), group.getName()));
+            } else if (warn) {
+                events().warn("warn.tls12_named_groups_ignored").attr("group", group.getName()).emit();
             }
         }
         if (usable.isEmpty()) {
-            if (warn && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        Gumdrop.L10N.getString("warn.tls12_named_groups_default"), raw));
+            if (warn) {
+                events().warn("warn.tls12_named_groups_default").attr("named_groups", raw).emit();
             }
             return null;
         }

@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.grpc.server;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
@@ -43,6 +42,9 @@ import org.bluezoo.protobuf.ByteBufferChannel;
 import org.bluezoo.protobuf.ProtobufParseException;
 import org.bluezoo.protobuf.ProtobufParser;
 import org.bluezoo.protobuf.ProtobufWriter;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 /**
  * HttpRequestHandler that processes gRPC requests using push parsers.
@@ -58,6 +60,12 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.grpc.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(GrpcHandler.class.getName());
+
+    private EventLogger events() {
+        SelectorLoop loop = response != null ? response.getSelectorLoop() : null;
+        TelemetryConfig telemetry = loop != null ? loop.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(GrpcHandler.class, L10N);
+    }
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
     private static final int GRPC_STATUS_UNIMPLEMENTED = 12;
 
@@ -110,7 +118,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         try {
             protoAdapter.startRootMessage(requestTypeName);
         } catch (ProtoParseException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("log.grpc_start_request_failed"), e);
+            events().warn("log.grpc_start_request_failed").thrown(e).emit();
             reject(HttpStatus.BAD_REQUEST, "Invalid request type");
             return;
         }
@@ -156,7 +164,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             try {
                 protobufParser.receive(data);
             } catch (ProtobufParseException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.grpc_protobuf_parse_error"), e);
+                events().warn("log.grpc_protobuf_parse_error").thrown(e).emit();
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
         }
@@ -167,14 +175,14 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 protobufParser.close();
                 protoAdapter.endRootMessage();
             } catch (ProtoParseException | ProtobufParseException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.grpc_complete_request_failed"), e);
+                events().warn("log.grpc_complete_request_failed").thrown(e).emit();
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
         }
 
         @Override
         public void parseError(String message) {
-            LOGGER.warning(message);
+            events().warn("log.grpc_parse_error").attr("message", message).emit();
             reject(HttpStatus.BAD_REQUEST, "Invalid gRPC frame");
         }
     }
@@ -235,7 +243,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 return;
             }
             if (cause != null) {
-                LOGGER.log(Level.SEVERE, L10N.getString("log.grpc_internal_error"), cause);
+                events().error("log.grpc_internal_error").thrown(cause).emit();
             }
             sendError(13, "Internal error");
         }

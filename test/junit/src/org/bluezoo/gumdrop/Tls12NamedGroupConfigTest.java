@@ -23,9 +23,6 @@ package org.bluezoo.gumdrop;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.logging.Handler;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 
 import org.junit.Test;
 
@@ -34,99 +31,75 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.bluezoo.gumdrop.crypto.NamedGroup;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 /**
  * Mapping of the {@code named-groups} setting onto the TLS 1.2 / DTLS 1.2
- * engine's classical ECDHE groups.
+ * engine's classical ECDHE groups. The warnings a factory emits about
+ * entries it drops are read back from its telemetry configuration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Tls12NamedGroupConfigTest {
 
-    private static final class Capture extends Handler {
-        int warnings;
-        java.util.logging.Level previousLevel;
+    private final RecordingExporter warnings = new RecordingExporter(LogLevel.WARN);
+    private final TcpTransportFactory factory = new TcpTransportFactory();
 
-        @Override
-        public void publish(LogRecord record) {
-            if (record.getLevel().intValue() >= java.util.logging.Level.WARNING.intValue()) {
-                warnings++;
-            }
-        }
-
-        @Override
-        public void flush() {
-        }
-
-        @Override
-        public void close() {
-        }
-    }
-
-    private static Capture capture() {
-        Capture c = new Capture();
-        Logger log = Logger.getLogger(TransportFactory.class.getName());
-        c.previousLevel = log.getLevel();
-        log.setLevel(java.util.logging.Level.WARNING);
-        log.addHandler(c);
-        return c;
-    }
-
-    private static void release(Capture c) {
-        Logger log = Logger.getLogger(TransportFactory.class.getName());
-        log.removeHandler(c);
-        log.setLevel(c.previousLevel);
+    public Tls12NamedGroupConfigTest() {
+        TelemetryConfig telemetry = new TelemetryConfig();
+        telemetry.exporter(warnings);
+        factory.setTelemetryConfig(telemetry);
     }
 
     @Test
     public void unsetUsesEngineDefault() {
-        assertNull(TransportFactory.resolveTls12NamedGroups(null, true));
+        assertNull(factory.resolveTls12NamedGroups(null, true));
     }
 
     @Test
     public void x25519AloneIsApplied() {
-        List<NamedGroup> g = TransportFactory.resolveTls12NamedGroups("x25519", true);
+        List<NamedGroup> g = factory.resolveTls12NamedGroups("x25519", true);
         assertEquals(Arrays.asList(NamedGroup.X25519), g);
     }
 
     @Test
     public void classicalOrderIsKept() {
-        List<NamedGroup> g = TransportFactory.resolveTls12NamedGroups("secp256r1:x25519", true);
+        List<NamedGroup> g = factory.resolveTls12NamedGroups("secp256r1:x25519", true);
         assertEquals(Arrays.asList(NamedGroup.SECP256R1, NamedGroup.X25519), g);
     }
 
     @Test
     public void hybridsOnlyWarnsAndFallsBackToDefault() {
-        Capture c = capture();
-        try {
-            assertNull(TransportFactory.resolveTls12NamedGroups("X25519MLKEM768:SecP256r1MLKEM768", true));
-            assertTrue("warned", c.warnings >= 1);
-        } finally {
-            release(c);
-        }
+        assertNull(factory.resolveTls12NamedGroups("X25519MLKEM768:SecP256r1MLKEM768", true));
+        assertTrue("warned", warnings.records.size() >= 1);
+        assertEquals(1, warnings.named("warn.tls12_named_groups_default").size());
+        assertEquals("X25519MLKEM768:SecP256r1MLKEM768",
+                warnings.named("warn.tls12_named_groups_default").get(0).getString("named_groups"));
     }
 
     @Test
     public void mixedListKeepsClassicalEntriesAndWarnsAboutTheRest() {
-        Capture c = capture();
-        try {
-            List<NamedGroup> g = TransportFactory.resolveTls12NamedGroups("X25519MLKEM768:secp256r1:x25519", true);
-            assertEquals(Arrays.asList(NamedGroup.SECP256R1, NamedGroup.X25519), g);
-            assertEquals(1, c.warnings);
-        } finally {
-            release(c);
-        }
+        List<NamedGroup> g = factory.resolveTls12NamedGroups("X25519MLKEM768:secp256r1:x25519", true);
+        assertEquals(Arrays.asList(NamedGroup.SECP256R1, NamedGroup.X25519), g);
+        assertEquals(1, warnings.records.size());
+        assertEquals("warn.tls12_named_groups_ignored", warnings.records.get(0).getKey());
+        assertEquals("X25519MLKEM768", warnings.records.get(0).getString("group"));
+        assertEquals(TransportFactory.class.getName(), warnings.records.get(0).getScope());
     }
 
     @Test
     public void silentWhenSameValueAlsoDrivesTls13() {
-        Capture c = capture();
-        try {
-            List<NamedGroup> g = TransportFactory.resolveTls12NamedGroups("X25519MLKEM768:x25519", false);
-            assertEquals(Arrays.asList(NamedGroup.X25519), g);
-            assertEquals(0, c.warnings);
-        } finally {
-            release(c);
-        }
+        List<NamedGroup> g = factory.resolveTls12NamedGroups("X25519MLKEM768:x25519", false);
+        assertEquals(Arrays.asList(NamedGroup.X25519), g);
+        assertEquals(0, warnings.records.size());
+    }
+
+    @Test
+    public void unknownGroupIsReported() {
+        assertNull(factory.resolveTls12NamedGroups("nosuchgroup", true));
+        assertEquals("warn.unrecognized_named_group", warnings.records.get(0).getKey());
+        assertEquals("nosuchgroup", warnings.records.get(0).getString("group"));
     }
 }

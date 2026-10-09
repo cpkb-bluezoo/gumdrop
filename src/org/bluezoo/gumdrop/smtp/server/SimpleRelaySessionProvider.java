@@ -25,15 +25,14 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Stock {@link SmtpServerSessionProvider} for MX-based open relay.
@@ -56,8 +55,9 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
  */
 public final class SimpleRelaySessionProvider implements SmtpServerSessionProvider {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(SimpleRelaySessionProvider.class.getName());
+    private EventLogger events() {
+        return (gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig()).getLogger(SimpleRelaySessionProvider.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
@@ -231,8 +231,9 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
                 try {
                     dnsResolver.addServer(legacyDnsServer);
                 } catch (UnknownHostException e) {
-                    LOGGER.log(Level.WARNING, MessageFormat.format(
-                            L10N.getString("warn.invalid_dns_server"), legacyDnsServer), e);
+                    events().warn("warn.invalid_dns_server")
+                            .attr("dns_server", legacyDnsServer)
+                            .thrown(e).emit();
                 }
             } else {
                 dnsResolver.useSystemResolvers();
@@ -252,17 +253,13 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
                 dnsResolver.setSelectorLoop(gumdrop.nextWorkerLoop());
                 dnsResolver.open();
             } catch (IOException e) {
-                LOGGER.log(Level.SEVERE,
-                        L10N.getString("err.dns_resolver_init_failed"), e);
+                events().error("err.dns_resolver_init_failed").thrown(e).emit();
                 throw new RuntimeException(
                         L10N.getString("err.dns_resolver_init_failed"), e);
             }
         }
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.simple_relay_service_initialized"), hostname));
-        }
+        events().info("info.simple_relay_service_initialized").attr("hostname", hostname).emit();
     }
 
     @Override

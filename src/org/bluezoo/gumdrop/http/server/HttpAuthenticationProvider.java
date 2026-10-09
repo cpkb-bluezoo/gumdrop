@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -42,8 +44,6 @@ import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Abstract base class for HTTP authentication providers.
@@ -96,7 +96,11 @@ import java.util.logging.Logger;
  */
 public abstract class HttpAuthenticationProvider {
 
-    private static final Logger LOGGER = Logger.getLogger(HttpAuthenticationProvider.class.getName());
+    private TelemetryConfig telemetryConfig;
+
+    private EventLogger events() {
+        return telemetry().getLogger(HttpAuthenticationProvider.class, L10N);
+    }
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     /** Cryptographically strong randomness for Digest nonce generation. */
@@ -222,6 +226,25 @@ public abstract class HttpAuthenticationProvider {
      * @return the authentication method (e.g., "BASIC", "DIGEST"), or null if none configured
      */
     protected abstract String getAuthMethod();
+
+    /**
+     * Gives this provider the telemetry configuration its events go to,
+     * which the listener it is set on does when it starts. A provider
+     * used outside a listener has a configuration of its own, which
+     * prints events through {@code java.util.logging}.
+     */
+    synchronized void attach(TelemetryConfig telemetryConfig) {
+        if (telemetryConfig != null) {
+            this.telemetryConfig = telemetryConfig;
+        }
+    }
+
+    private synchronized TelemetryConfig telemetry() {
+        if (telemetryConfig == null) {
+            telemetryConfig = new TelemetryConfig();
+        }
+        return telemetryConfig;
+    }
 
     /**
      * Gets the realm name for this provider.
@@ -381,7 +404,8 @@ public abstract class HttpAuthenticationProvider {
 
         } catch (Exception e) {
             String message = MessageFormat.format(L10N.getString("auth.err.authentication_failed"), e.getMessage());
-            LOGGER.log(Level.WARNING, message, e);
+            events().warn("auth.err.authentication_failed")
+                    .attr("reason", e.getMessage()).thrown(e).emit();
             return AuthenticationResult.failure(message);
         }
     }
@@ -410,14 +434,14 @@ public abstract class HttpAuthenticationProvider {
             case HttpAuthenticationMethods.DIGEST_AUTH:
                 // Check if the Realm supports Digest authentication
                 if (!supportsDigestAuth()) {
-                    LOGGER.severe(L10N.getString("auth.err.digest_not_supported_by_realm"));
+                    events().error("auth.err.digest_not_supported_by_realm").emit();
                     return null; // Cannot generate challenge - realm doesn't support Digest
                 }
                 try {
                     String nonce = generateNonce();
                     return "Digest realm=\"" + realmName + "\", nonce=\"" + nonce + "\", qop=\"auth\"";
                 } catch (NoSuchAlgorithmException e) {
-                    LOGGER.log(Level.SEVERE, L10N.getString("auth.err.generate_digest_challenge"), e);
+                    events().error("auth.err.generate_digest_challenge").thrown(e).emit();
                     return null;
                 }
 
@@ -523,7 +547,7 @@ public abstract class HttpAuthenticationProvider {
             if (passwordMatch(getRealmName(), username, password)) {
                 return AuthenticationResult.success(username, getRealmName(), "Basic");
             } else {
-                LOGGER.warning(MessageFormat.format(L10N.getString("auth.warn.auth_failed_for_user"), username));
+                events().warn("auth.warn.auth_failed_for_user").attr("username", username).emit();
                 return AuthenticationResult.failure(
                     MessageFormat.format(L10N.getString("auth.err.invalid_credentials"), username));
             }
@@ -544,7 +568,7 @@ public abstract class HttpAuthenticationProvider {
             String requestMethod, String digestUri) {
         // Check if the Realm supports Digest authentication
         if (!supportsDigestAuth()) {
-            LOGGER.severe(L10N.getString("auth.err.digest_not_supported_by_realm"));
+            events().error("auth.err.digest_not_supported_by_realm").emit();
             return AuthenticationResult.failure("Digest", getRealmName(),
                 L10N.getString("auth.err.digest_not_supported_by_realm"));
         }
@@ -601,7 +625,8 @@ public abstract class HttpAuthenticationProvider {
                     requestMethod, digestUri, requestDigest)) {
                 return AuthenticationResult.success(username, realm, "Digest");
             } else {
-                LOGGER.warning(MessageFormat.format(L10N.getString("auth.warn.digest_verification_failed"), username));
+                events().warn("auth.warn.digest_verification_failed")
+                        .attr("username", username).emit();
                 return AuthenticationResult.failure(
                     MessageFormat.format(L10N.getString("auth.err.digest_verification_failed"), username));
             }

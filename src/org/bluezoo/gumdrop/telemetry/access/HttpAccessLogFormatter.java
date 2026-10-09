@@ -21,13 +21,17 @@
 
 package org.bluezoo.gumdrop.telemetry.access;
 
+import org.bluezoo.gumdrop.telemetry.Attribute;
+import org.bluezoo.gumdrop.telemetry.LogRecord;
+
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Formats {@link HttpAccessRecord} as CLF or ELFF lines.
-  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * Formats an access record (see {@link HttpAccessLog}) as a CLF or ELFF line.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpAccessLogFormatter {
 
@@ -62,19 +66,19 @@ public final class HttpAccessLogFormatter {
         };
     }
 
-    public String formatLine(HttpAccessRecord record) {
+    public String formatLine(LogRecord record) {
         if (format == AccessLogFormat.ELFF) {
             return formatElff(record);
         }
         return formatClf(record);
     }
 
-    private String formatClf(HttpAccessRecord record) {
+    private String formatClf(LogRecord record) {
         String user = selectClfUser(record);
-        String date = CLF_DATE.format(Instant.ofEpochMilli(record.getTimeEpochMillis()));
+        String date = CLF_DATE.format(instant(record));
         String requestLine = formatRequestLine(record);
         StringBuilder buf = new StringBuilder();
-        buf.append(safeToken(record.getClientHost()));
+        buf.append(safeToken(record.getString(HttpAccessLog.CLIENT_ADDRESS)));
         buf.append(' ');
         buf.append('-'); // rfc931 ident
         buf.append(' ');
@@ -86,14 +90,14 @@ public final class HttpAccessLogFormatter {
         buf.append(requestLine);
         buf.append('"');
         buf.append(' ');
-        buf.append(String.format("%03d", record.getStatusCode()));
+        buf.append(String.format("%03d", Long.valueOf(number(record, HttpAccessLog.STATUS_CODE))));
         buf.append(' ');
-        buf.append(Long.toString(record.getResponseBytes()));
+        buf.append(Long.toString(number(record, HttpAccessLog.RESPONSE_BYTES)));
         return buf.toString();
     }
 
-    private String formatElff(HttpAccessRecord record) {
-        Instant instant = Instant.ofEpochMilli(record.getTimeEpochMillis());
+    private String formatElff(LogRecord record) {
+        Instant instant = instant(record);
         String date = DateTimeFormatter.ISO_LOCAL_DATE.format(instant.atZone(ZoneId.systemDefault()));
         String time = DateTimeFormatter.ofPattern("HH:mm:ss").format(instant.atZone(ZoneId.systemDefault()));
         String clfUser = selectClfUser(record);
@@ -102,37 +106,47 @@ public final class HttpAccessLogFormatter {
         buf.append('\t');
         buf.append(time);
         buf.append('\t');
-        buf.append(safeToken(record.getClientHost()));
+        buf.append(safeToken(record.getString(HttpAccessLog.CLIENT_ADDRESS)));
         buf.append('\t');
-        buf.append(safeToken(record.getMethod()));
+        buf.append(safeToken(record.getString(HttpAccessLog.METHOD)));
         buf.append('\t');
-        buf.append(safeToken(record.getRequestTarget()));
+        buf.append(safeToken(record.getString(HttpAccessLog.TARGET)));
         buf.append('\t');
-        buf.append(record.getStatusCode());
+        buf.append(number(record, HttpAccessLog.STATUS_CODE));
         buf.append('\t');
-        buf.append(record.getResponseBytes());
+        buf.append(number(record, HttpAccessLog.RESPONSE_BYTES));
         buf.append('\t');
         buf.append(clfUser == null ? "-" : clfUser);
         if (userSelection == AccessLogUserSelection.BOTH) {
             buf.append('\t');
-            String app = record.getApplicationUser();
+            String app = record.getString(HttpAccessLog.APPLICATION_USER);
             buf.append(app == null || app.isEmpty() ? "-" : app);
         }
         buf.append('\t');
-        buf.append(safeToken(record.getProtocolVersion()));
+        buf.append(safeToken(record.getString(HttpAccessLog.PROTOCOL_VERSION)));
         return buf.toString();
     }
 
-    private String formatRequestLine(HttpAccessRecord record) {
-        String method = record.getMethod() != null ? record.getMethod() : "-";
-        String target = record.getRequestTarget() != null ? record.getRequestTarget() : "-";
-        String version = record.getProtocolVersion() != null ? record.getProtocolVersion() : "HTTP/1.1";
-        return method + ' ' + target + ' ' + version;
+    private static Instant instant(LogRecord record) {
+        return Instant.ofEpochMilli(Math.floorDiv(record.getTimeUnixNano(), 1_000_000L));
     }
 
-    String selectClfUser(HttpAccessRecord record) {
-        String protocol = emptyToNull(record.getProtocolUser());
-        String application = emptyToNull(record.getApplicationUser());
+    private static long number(LogRecord record, String name) {
+        Attribute attribute = record.getAttribute(name);
+        return attribute != null && attribute.getType() == Attribute.TYPE_INT ? attribute.getIntValue() : 0L;
+    }
+
+    private String formatRequestLine(LogRecord record) {
+        String method = record.getString(HttpAccessLog.METHOD);
+        String target = record.getString(HttpAccessLog.TARGET);
+        String version = record.getString(HttpAccessLog.PROTOCOL_VERSION);
+        return (method != null ? method : "-") + ' ' + (target != null ? target : "-") + ' '
+                + (version != null ? version : "HTTP/1.1");
+    }
+
+    String selectClfUser(LogRecord record) {
+        String protocol = emptyToNull(record.getString(HttpAccessLog.PROTOCOL_USER));
+        String application = emptyToNull(record.getString(HttpAccessLog.APPLICATION_USER));
         switch (userSelection) {
             case PROTOCOL:
                 return protocol;

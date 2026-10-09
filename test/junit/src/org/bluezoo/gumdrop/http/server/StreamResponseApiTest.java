@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 
 /**
@@ -607,13 +608,12 @@ public class StreamResponseApiTest {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setTracesEnabled(true);
+        config.exporter(new RecordingExporter());
         return config;
     }
 
     private static Env traced(String traceparent, boolean preTrace, String status) {
         Env e = new Env(HttpVersion.HTTP_2_0);
-        e.conn.telemetryEnabled = true;
         e.conn.telemetryConfig = tracing();
         if (preTrace) {
             e.conn.trace = e.conn.telemetryConfig.createTrace("pre",

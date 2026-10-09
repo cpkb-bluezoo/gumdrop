@@ -415,7 +415,7 @@ public class WebSocketRequestHandlerTest {
     @Test
     public void metricsSourceCreatedWhenMetricsEnabled() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         WebSocketRequestHandler h = builder(appHandler).metrics(config)
                 .build();
         HttpRequestHandler rh = h.openStream(state);
@@ -425,7 +425,7 @@ public class WebSocketRequestHandlerTest {
     @Test
     public void metricsDisabledConfigYieldsNoMetrics() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(false);
+        config.metricsEnabled(false);
         WebSocketRequestHandler h = builder(appHandler).metrics(config)
                 .build();
         HttpRequestHandler rh = h.openStream(state);

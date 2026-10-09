@@ -30,8 +30,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import java.net.UnixDomainSocketAddress;
 import java.util.ResourceBundle;
@@ -62,8 +60,6 @@ public abstract class TcpListener extends Listener {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
-    private static final Logger LOGGER =
-            Logger.getLogger(TcpListener.class.getName());
 
     // ── UNIX domain socket path ──
 
@@ -215,7 +211,8 @@ public abstract class TcpListener extends Listener {
                     Files.deleteIfExists(socketPath);
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_server_channel"), e);
+                eventTelemetry().getLogger(TcpListener.class, L10N)
+                        .warn("log.error_closing_server_channel").thrown(e).emit();
             }
         }
         serverChannels.clear();
