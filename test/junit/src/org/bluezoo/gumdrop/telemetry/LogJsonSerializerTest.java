@@ -112,7 +112,7 @@ public class LogJsonSerializerTest {
     public void eventNameAndScopeComeFromTheRecord() throws IOException {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         config.getLogger(LogJsonSerializerTest.class, EventLoggerTest.BUNDLE)
                 .warn("warn.thing").attr("uri", "/x").emit();
         String json = serializeLog(exporter.records.get(0), "svc");
@@ -130,7 +130,7 @@ public class LogJsonSerializerTest {
     public void recordsAreGroupedByScope() throws IOException {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         config.getLogger(LogJsonSerializerTest.class, EventLoggerTest.BUNDLE).info("a").emit();
         config.getLogger(LogRecordTest.class, EventLoggerTest.BUNDLE).info("b").emit();
         config.getLogger(LogJsonSerializerTest.class, EventLoggerTest.BUNDLE).info("c").emit();

@@ -99,16 +99,16 @@ public class TelemetryIntegrationTest {
 
         // Configure telemetry to send to our mock collector
         telemetryConfig = new TelemetryConfig();
-        telemetryConfig.setServiceName(SERVICE_NAME);
-        telemetryConfig.setServiceVersion(SERVICE_VERSION);
+        telemetryConfig.serviceName(SERVICE_NAME);
+        telemetryConfig.serviceVersion(SERVICE_VERSION);
 
         exporter = new OtlpExporter();
-        exporter.setTracesEndpoint(collector.getTracesEndpoint());
-        exporter.setLogsEndpoint(collector.getLogsEndpoint());
-        exporter.setMetricsEndpoint(collector.getMetricsEndpoint());
-        exporter.setFlushIntervalMs(100); // Fast flush for testing
-        exporter.setBatchSize(1); // Send immediately
-        exporter.setTimeoutMs(5000);
+        exporter.tracesEndpoint(collector.getTracesEndpoint());
+        exporter.logsEndpoint(collector.getLogsEndpoint());
+        exporter.metricsEndpoint(collector.getMetricsEndpoint());
+        exporter.flushIntervalMs(100); // Fast flush for testing
+        exporter.batchSize(1); // Send immediately
+        exporter.timeoutMs(5000);
 
         // Configure truststore for HTTPS endpoints
         if (collector.isSecure()) {
@@ -123,10 +123,10 @@ public class TelemetryIntegrationTest {
                     tls.trustManager((X509TrustManager) managers[i]);
                 }
             }
-            exporter.setTls(tls);
+            exporter.tls(tls);
         }
 
-        telemetryConfig.setExporter(exporter);
+        telemetryConfig.exporter(exporter);
         telemetryConfig.init();
 
         // Create HTTP server with telemetry enabled

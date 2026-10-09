@@ -237,7 +237,7 @@ public class ImapListenerCoverageTest {
     public void testStartWithMetricsEnabled() {
         ImapListener l = new ImapListener();
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();
         g.setTelemetryConfig(tc);
         l.start(g);

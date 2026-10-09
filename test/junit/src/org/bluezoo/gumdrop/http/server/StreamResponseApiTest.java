@@ -608,7 +608,7 @@ public class StreamResponseApiTest {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(new RecordingExporter());
+        config.exporter(new RecordingExporter());
         return config;
     }
 

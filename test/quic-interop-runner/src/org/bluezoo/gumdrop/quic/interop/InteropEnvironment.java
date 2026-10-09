@@ -190,7 +190,7 @@ final class InteropEnvironment {
         }
         Path path = Path.of(directory);
         TelemetryConfig telemetry = new TelemetryConfig();
-        telemetry.setExporter(new QlogExporter(path, QlogExporter.DEFAULT_QUEUE_SIZE));
+        telemetry.exporter(new QlogExporter(path, QlogExporter.DEFAULT_QUEUE_SIZE));
         return telemetry;
     }
 

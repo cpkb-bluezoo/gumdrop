@@ -75,7 +75,7 @@ public class SelectorLoopCrashIsolationTest {
         // A standalone loop has a telemetry configuration of its own:
         // record what it reports rather than reading the console.
         RecordingExporter events = new RecordingExporter();
-        loop.getTelemetryConfig().setExporter(events);
+        loop.getTelemetryConfig().exporter(events);
         loop.start();
 
         UdpTransportFactory factory = new UdpTransportFactory();

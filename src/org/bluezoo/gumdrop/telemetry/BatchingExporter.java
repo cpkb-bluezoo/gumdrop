@@ -33,12 +33,13 @@ import java.util.EnumSet;
  * them. The OTLP exporters and the JSONL file exporter extend it.
  *
  * <p>The settings are made on the exporter, before {@link
- * TelemetryConfig#init()} starts it. They are read once, when the
- * exporter starts.
+ * TelemetryConfig#init()} starts it, and each returns the exporter so that
+ * they can be chained. They are read once, when the exporter starts.
  *
+ * @param <E> the concrete exporter, which the settings return
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public abstract class BatchingExporter implements TelemetryExporter {
+public abstract class BatchingExporter<E extends BatchingExporter<E>> implements TelemetryExporter {
 
     private final EnumSet<LogLevel> levels = EnumSet.of(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR);
     private int batchSize = 512;
@@ -48,18 +49,31 @@ public abstract class BatchingExporter implements TelemetryExporter {
     private AggregationTemporality metricsTemporality = AggregationTemporality.CUMULATIVE;
 
     /**
+     * Returns this exporter as its concrete type, for the settings to
+     * return.
+     *
+     * @return this exporter
+     */
+    @SuppressWarnings("unchecked") // E is, by its bound, the concrete subclass of this
+    protected final E self() {
+        return (E) this;
+    }
+
+    /**
      * Sets the levels of log record this exporter takes. The default is
      * the operational levels: INFO, WARN and ERROR.
      *
      * @param levels the levels
+     * @return this exporter
      */
-    public void setLevels(LogLevel... levels) {
+    public E levels(LogLevel... levels) {
         synchronized (this.levels) {
             this.levels.clear();
             for (LogLevel level : levels) {
                 this.levels.add(level);
             }
         }
+        return self();
     }
 
     /**
@@ -88,9 +102,11 @@ public abstract class BatchingExporter implements TelemetryExporter {
      * Sets the number of items sent in one batch. The default is 512.
      *
      * @param batchSize the batch size
+     * @return this exporter
      */
-    public void setBatchSize(int batchSize) {
+    public E batchSize(int batchSize) {
         this.batchSize = batchSize;
+        return self();
     }
 
     /**
@@ -107,9 +123,11 @@ public abstract class BatchingExporter implements TelemetryExporter {
      * is 5000.
      *
      * @param flushIntervalMs the interval
+     * @return this exporter
      */
-    public void setFlushIntervalMs(long flushIntervalMs) {
+    public E flushIntervalMs(long flushIntervalMs) {
         this.flushIntervalMs = flushIntervalMs;
+        return self();
     }
 
     /**
@@ -127,9 +145,11 @@ public abstract class BatchingExporter implements TelemetryExporter {
      * exported; what does not fit is dropped. The default is 2048.
      *
      * @param maxQueueSize the queue size
+     * @return this exporter
      */
-    public void setMaxQueueSize(int maxQueueSize) {
+    public E maxQueueSize(int maxQueueSize) {
         this.maxQueueSize = maxQueueSize;
+        return self();
     }
 
     /**
@@ -146,9 +166,11 @@ public abstract class BatchingExporter implements TelemetryExporter {
      * and exported. The default is 60000.
      *
      * @param metricsIntervalMs the interval
+     * @return this exporter
      */
-    public void setMetricsIntervalMs(long metricsIntervalMs) {
+    public E metricsIntervalMs(long metricsIntervalMs) {
         this.metricsIntervalMs = metricsIntervalMs;
+        return self();
     }
 
     /**
@@ -165,9 +187,11 @@ public abstract class BatchingExporter implements TelemetryExporter {
      * default is {@link AggregationTemporality#CUMULATIVE}.
      *
      * @param metricsTemporality DELTA or CUMULATIVE
+     * @return this exporter
      */
-    public void setMetricsTemporality(AggregationTemporality metricsTemporality) {
+    public E metricsTemporality(AggregationTemporality metricsTemporality) {
         this.metricsTemporality = metricsTemporality;
+        return self();
     }
 
 }

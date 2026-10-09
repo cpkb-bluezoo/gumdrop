@@ -49,7 +49,7 @@ final class ImapTelemetryEndpoint {
         final List<Trace> traces = new ArrayList<Trace>();
 
         CapturingConfig() {
-            setExporter(new RecordingExporter());
+            exporter(new RecordingExporter());
         }
 
         @Override

@@ -89,12 +89,12 @@ public class HttpAccessLogTest {
     public void recordGoesToTheExporterOnlyWhenItAcceptsAccessRecords() {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter operational = new RecordingExporter(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR);
-        config.setExporter(operational);
+        config.exporter(operational);
         HttpAccessLog.record(config, null, 1L, null, "GET", "/", "HTTP/1.1", null, null, 200, 0L);
         assertTrue(operational.records.isEmpty());
 
         RecordingExporter access = new RecordingExporter(LogLevel.ACCESS);
-        config.setExporter(access);
+        config.exporter(access);
         HttpAccessLog.record(config, null, 1L, null, "GET", "/", "HTTP/1.1", null, null, 200, 0L);
         assertEquals(1, access.records.size());
         assertEquals(HttpAccessLog.EVENT_NAME, access.records.get(0).getKey());

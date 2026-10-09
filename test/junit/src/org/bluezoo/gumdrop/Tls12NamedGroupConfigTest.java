@@ -49,7 +49,7 @@ public class Tls12NamedGroupConfigTest {
 
     public Tls12NamedGroupConfigTest() {
         TelemetryConfig telemetry = new TelemetryConfig();
-        telemetry.setExporter(warnings);
+        telemetry.exporter(warnings);
         factory.setTelemetryConfig(telemetry);
     }
 

@@ -308,16 +308,17 @@ and hand the result to the runtime:
 TelemetryConfig telemetry = new TelemetryConfig();
 
 // Service identification, shared by every exporter
-telemetry.setServiceName("mail-gateway");
-telemetry.setServiceVersion("2.1.0");
-telemetry.setDeploymentEnvironment("production");
+telemetry.serviceName("mail-gateway")
+         .serviceVersion("2.1.0")
+         .deploymentEnvironment("production");
 
 // An exporter and its own settings - use HTTPS in production
-OtlpExporter otlp = new OtlpExporter();
-otlp.setEndpoint("https://otel-collector:4318");
+OtlpExporter otlp = new OtlpExporter()
+        .endpoint("https://otel-collector:4318")
+        .batchSize(256);
 
 // The exporter tree: a collector, plus the console
-telemetry.setExporter(new TeeExporter(otlp, new DefaultExporter()));
+telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
 
 // Starts the exporters
 telemetry.init();
@@ -328,12 +329,12 @@ gumdrop.addServer(server);
 </pre>
 
 <p>
-Five things are worth knowing about this arrangement.
+Six things are worth knowing about this arrangement.
 </p>
 
 <ul>
 <li><b>There is always an exporter.</b> A new configuration starts with a
-<code>DefaultExporter</code>, and <code>setExporter</code> will not accept
+<code>DefaultExporter</code>, and <code>exporter</code> will not accept
 null. If you replace it with an <code>OtlpExporter</code> alone, operational
 events no longer reach the console; add the <code>DefaultExporter</code>
 back, as above, if you want both.</li>
@@ -345,11 +346,17 @@ to a collector and to a file in one emit.</li>
 <li><b>The tree is made of two-way tees.</b> A <code>TeeExporter</code> has
 exactly two children. For three destinations nest one tee inside another:
 <pre>
-telemetry.setExporter(new TeeExporter(
+telemetry.exporter(new TeeExporter(
         new TeeExporter(otlp, new DefaultExporter()),
         accessLog));
 </pre>
 A failure in one child does not stop delivery to the other.</li>
+<li><b>Settings are fluent methods named for the setting.</b> As on
+listeners and clients (<code>port(8080)</code>, <code>tls(...)</code>,
+<code>secure(true)</code>), a setting is a method named for it, such as
+<code>endpoint(...)</code> or <code>batchSize(...)</code>, which takes the
+value and returns the object, so calls chain. The matching getters are
+<code>getEndpoint()</code> and so on.</li>
 <li><b>Each exporter is configured on itself.</b> An endpoint, a batch
 size or a TLS configuration is a setting of the exporter that uses it,
 made on the exporter object, so a tree can hold two exporters configured
@@ -372,7 +379,7 @@ has run is started at once.</li>
 The exporters that carry operational events (<code>DefaultExporter</code>,
 <code>OtlpExporter</code>, <code>OtlpGrpcExporter</code>,
 <code>OtlpFileExporter</code>) take <code>INFO</code>, <code>WARN</code> and
-<code>ERROR</code> by default. <code>setLevels</code> changes that. For example,
+<code>ERROR</code> by default. <code>levels</code> changes that. For example,
 to keep the console to warnings and errors while the collector gets
 everything, and to send the access log to the collector as well as to a
 file:
@@ -380,17 +387,17 @@ file:
 
 <pre>
 DefaultExporter console = new DefaultExporter();
-console.setLevels(LogLevel.WARN, LogLevel.ERROR);
+console.levels(LogLevel.WARN, LogLevel.ERROR);
 
 OtlpExporter otlp = new OtlpExporter();
-otlp.setEndpoint("https://otel-collector:4318");
-otlp.setLevels(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.ACCESS);
+otlp.endpoint("https://otel-collector:4318");
+otlp.levels(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.ACCESS);
 
 AccessLogExporter accessLog = new AccessLogExporter(
         Path.of("/var/log/gumdrop/access.log"),
         AccessLogFormat.CLF, AccessLogUserSelection.PROTOCOL_FIRST);
 
-telemetry.setExporter(new TeeExporter(
+telemetry.exporter(new TeeExporter(
         new TeeExporter(console, otlp),
         accessLog));
 </pre>
@@ -427,16 +434,16 @@ to the runtime, not to any one destination:
 </p>
 
 <table border="1" cellpadding="5">
-<tr><th>Setter</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>setServiceName</code></td><td>"gumdrop"</td><td>Service name in resource attributes</td></tr>
-<tr><td><code>setServiceVersion</code></td><td>-</td><td>Service version</td></tr>
-<tr><td><code>setServiceNamespace</code></td><td>-</td><td>Service namespace</td></tr>
-<tr><td><code>setServiceInstanceId</code></td><td>-</td><td>Unique instance identifier</td></tr>
-<tr><td><code>setDeploymentEnvironment</code></td><td>-</td><td>Environment (prod, staging, dev)</td></tr>
+<tr><th>Method</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>serviceName</code></td><td>"gumdrop"</td><td>Service name in resource attributes</td></tr>
+<tr><td><code>serviceVersion</code></td><td>-</td><td>Service version</td></tr>
+<tr><td><code>serviceNamespace</code></td><td>-</td><td>Service namespace</td></tr>
+<tr><td><code>serviceInstanceId</code></td><td>-</td><td>Unique instance identifier</td></tr>
+<tr><td><code>deploymentEnvironment</code></td><td>-</td><td>Environment (prod, staging, dev)</td></tr>
 <tr><td><code>addResourceAttribute</code></td><td>-</td><td>Any further resource attribute (key, value)</td></tr>
-<tr><td><code>setMetricsEnabled</code></td><td>true</td><td>Collect metrics (see <a href="#metrics">Metrics</a>)</td></tr>
-<tr><td><code>setJmxBridgeEnabled</code></td><td>true</td><td>Expose metrics via JMX MBeans for jconsole, VisualVM, Prometheus JMX exporter</td></tr>
-<tr><td><code>setIncludeExceptionDetails</code></td><td>false</td><td>When false, exceptions are recorded as their class name only (<code>exception.type</code>), in spans and in exported log events; when true, the message and stack trace are recorded too. Set to <code>true</code> only when where the data goes is trusted (an internal collector, say). It does not affect the console, where the stack trace is printed locally.</td></tr>
+<tr><td><code>metricsEnabled</code></td><td>true</td><td>Collect metrics (see <a href="#metrics">Metrics</a>)</td></tr>
+<tr><td><code>jmxBridgeEnabled</code></td><td>true</td><td>Expose metrics via JMX MBeans for jconsole, VisualVM, Prometheus JMX exporter</td></tr>
+<tr><td><code>includeExceptionDetails</code></td><td>false</td><td>When false, exceptions are recorded as their class name only (<code>exception.type</code>), in spans and in exported log events; when true, the message and stack trace are recorded too. Set to <code>true</code> only when where the data goes is trusted (an internal collector, say). It does not affect the console, where the stack trace is printed locally.</td></tr>
 </table>
 
 <p>
@@ -492,7 +499,7 @@ so that logs can be correlated with traces by trace and span ID.</li>
 operational levels deliberately. Access records are numerous and belong in an
 access log, not on the console; qlog events are numerous again. An exporter
 that wants them must ask: for example
-<code>otlp.setLevels(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.ACCESS)</code>
+<code>otlp.levels(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.ACCESS)</code>
 sends access records to a collector too.
 </p>
 
@@ -612,7 +619,7 @@ OTLP/HTTP, OTLP/gRPC and JSONL all serialise an operational record as an OTLP
 <tr><td>attributes</td><td>The named attributes of the event</td></tr>
 <tr><td>trace ID, span ID</td><td>Present when the event was tied to a span</td></tr>
 <tr><td><code>exception.type</code></td><td>The class name of the throwable, if any</td></tr>
-<tr><td><code>exception.message</code>, <code>exception.stacktrace</code></td><td>Only when <code>setIncludeExceptionDetails(true)</code></td></tr>
+<tr><td><code>exception.message</code>, <code>exception.stacktrace</code></td><td>Only when <code>includeExceptionDetails(true)</code></td></tr>
 <tr><td>resource</td><td>Service name, version, namespace, instance ID, environment and any added resource attributes</td></tr>
 </table>
 
@@ -672,7 +679,7 @@ ends. Protocol connections use try-finally so that spans are ended even
 when exceptions occur.</li>
 <li><b>Forcing a flush.</b> <code>telemetry.getExporter().forceFlush()</code>
 exports everything pending immediately. During development, a lower
-<code>setFlushIntervalMs</code> makes data visible sooner.</li>
+<code>flushIntervalMs</code> makes data visible sooner.</li>
 </ul>
 
 <p>
@@ -711,19 +718,19 @@ send it in batches. They share these settings, made on the exporter before
 </p>
 
 <table border="1" cellpadding="5">
-<tr><th>Setter</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>setLevels</code></td><td>INFO, WARN, ERROR</td><td>The log levels the exporter takes (see <a href="#log-events">Log events and levels</a>)</td></tr>
-<tr><td><code>setBatchSize</code></td><td>512</td><td>Items per export batch</td></tr>
-<tr><td><code>setFlushIntervalMs</code></td><td>5000</td><td>Maximum time between exports</td></tr>
-<tr><td><code>setMaxQueueSize</code></td><td>2048</td><td>Items of each signal that may wait before further ones are dropped</td></tr>
-<tr><td><code>setMetricsIntervalMs</code></td><td>60000</td><td>Metrics collection interval</td></tr>
-<tr><td><code>setMetricsTemporality</code></td><td>CUMULATIVE</td><td>Aggregation: <code>DELTA</code> or <code>CUMULATIVE</code></td></tr>
+<tr><th>Method</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>levels</code></td><td>INFO, WARN, ERROR</td><td>The log levels the exporter takes (see <a href="#log-events">Log events and levels</a>)</td></tr>
+<tr><td><code>batchSize</code></td><td>512</td><td>Items per export batch</td></tr>
+<tr><td><code>flushIntervalMs</code></td><td>5000</td><td>Maximum time between exports</td></tr>
+<tr><td><code>maxQueueSize</code></td><td>2048</td><td>Items of each signal that may wait before further ones are dropped</td></tr>
+<tr><td><code>metricsIntervalMs</code></td><td>60000</td><td>Metrics collection interval</td></tr>
+<tr><td><code>metricsTemporality</code></td><td>CUMULATIVE</td><td>Aggregation: <code>DELTA</code> or <code>CUMULATIVE</code></td></tr>
 </table>
 
 <p>
 Two exporters in one tree may be set differently, for instance a collector
 that is sent metrics every ten seconds and a file that is sent them every
-minute. The <code>DefaultExporter</code> has only <code>setLevels</code>; the
+minute. The <code>DefaultExporter</code> has only <code>levels</code>; the
 access log and qlog exporters take their destination and queue size as
 constructor arguments.
 </p>
@@ -753,8 +760,8 @@ all keep working. See <a href="#log-jul">Fine-grained logging</a>.
 
 <pre>
 DefaultExporter console = new DefaultExporter();       // queue of 4096 records
-console.setLevels(LogLevel.WARN, LogLevel.ERROR);      // quieter console
-telemetry.setExporter(console);
+console.levels(LogLevel.WARN, LogLevel.ERROR);      // quieter console
+telemetry.exporter(console);
 </pre>
 
 <p>
@@ -773,7 +780,7 @@ child of more than one tee.
 </p>
 
 <pre>
-telemetry.setExporter(new TeeExporter(
+telemetry.exporter(new TeeExporter(
         new TeeExporter(otlp, console),
         new TeeExporter(accessLog, jsonl)));
 </pre>
@@ -802,14 +809,14 @@ class and the port, nothing else. As well as the batching settings above:
 </p>
 
 <table border="1" cellpadding="5">
-<tr><th>Setter</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>setEndpoint</code></td><td>-</td><td>Base endpoint URL (use https:// in production)</td></tr>
-<tr><td><code>setTracesEndpoint</code></td><td>endpoint + /v1/traces</td><td>Traces-specific endpoint</td></tr>
-<tr><td><code>setLogsEndpoint</code></td><td>endpoint + /v1/logs</td><td>Logs-specific endpoint</td></tr>
-<tr><td><code>setMetricsEndpoint</code></td><td>endpoint + /v1/metrics</td><td>Metrics-specific endpoint</td></tr>
-<tr><td><code>setHeaders</code></td><td>-</td><td>Extra request headers (<code>key1=value1,key2=value2</code>) for authentication</td></tr>
-<tr><td><code>setTimeoutMs</code></td><td>10000</td><td>How long a flush or shutdown waits for exports in flight</td></tr>
-<tr><td><code>setTls</code></td><td>JVM defaults</td><td>The <code>TlsConfig</code> for https endpoints (see <a href="#otlp-tls">TLS Configuration</a>)</td></tr>
+<tr><th>Method</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>endpoint</code></td><td>-</td><td>Base endpoint URL (use https:// in production)</td></tr>
+<tr><td><code>tracesEndpoint</code></td><td>endpoint + /v1/traces</td><td>Traces-specific endpoint</td></tr>
+<tr><td><code>logsEndpoint</code></td><td>endpoint + /v1/logs</td><td>Logs-specific endpoint</td></tr>
+<tr><td><code>metricsEndpoint</code></td><td>endpoint + /v1/metrics</td><td>Metrics-specific endpoint</td></tr>
+<tr><td><code>headers</code></td><td>-</td><td>Extra request headers (<code>key1=value1,key2=value2</code>) for authentication</td></tr>
+<tr><td><code>timeoutMs</code></td><td>10000</td><td>How long a flush or shutdown waits for exports in flight</td></tr>
+<tr><td><code>tls</code></td><td>JVM defaults</td><td>The <code>TlsConfig</code> for https endpoints (see <a href="#otlp-tls">TLS Configuration</a>)</td></tr>
 </table>
 
 <p>
@@ -821,14 +828,14 @@ including trace context, service identifiers, and custom attributes.
 
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
-telemetry.setServiceName("my-service");
+telemetry.serviceName("my-service");
 
 OtlpExporter otlp = new OtlpExporter();
-otlp.setEndpoint("https://otel-collector:4318");   // /v1/... is appended
-otlp.setTls(new TlsConfig().trustManager(
+otlp.endpoint("https://otel-collector:4318");   // /v1/... is appended
+otlp.tls(new TlsConfig().trustManager(
         PemCredentials.loadTrustManager(Path.of("/etc/gumdrop/otel-ca.pem"))));
 
-telemetry.setExporter(new TeeExporter(otlp, new DefaultExporter()));
+telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
 telemetry.init();
 </pre>
 
@@ -836,15 +843,15 @@ telemetry.init();
 
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
-telemetry.setServiceName("my-service");
+telemetry.serviceName("my-service");
 
 OtlpGrpcExporter otlp = new OtlpGrpcExporter();
-otlp.setEndpoint("https://otel-collector:4317");
-otlp.setTls(new TlsConfig().trustManager(
+otlp.endpoint("https://otel-collector:4317");
+otlp.tls(new TlsConfig().trustManager(
         PemCredentials.loadTrustManager(Path.of("/etc/gumdrop/otel-ca.pem"))));
-otlp.setHeaders("Authorization=Bearer token123");
+otlp.headers("Authorization=Bearer token123");
 
-telemetry.setExporter(new TeeExporter(otlp, new DefaultExporter()));
+telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
 telemetry.init();
 </pre>
 
@@ -861,8 +868,8 @@ connection. With no port in the URL, 4317 is used.
 
 <p>
 Each signal goes to its own endpoint, taken from the base
-<code>setEndpoint</code> of the exporter unless <code>setTracesEndpoint</code>,
-<code>setLogsEndpoint</code> or <code>setMetricsEndpoint</code> overrides it.
+<code>endpoint</code> of the exporter unless <code>tracesEndpoint</code>,
+<code>logsEndpoint</code> or <code>metricsEndpoint</code> overrides it.
 A signal with no endpoint is not exported: with no logs endpoint the exporter
 takes no log records, and with no traces endpoint it does not ask for traces.
 To export only metrics to one collector and logs to another, set the two
@@ -877,10 +884,10 @@ uses Gumdrop's native HTTP client on it, with TLS and ALPN. Exporting never
 borrows the selector loops that serve your connections, and an exporter that
 fails cannot disturb them.</li>
 <li>Records, traces and metric batches are queued per signal (up to
-<code>setMaxQueueSize</code>) and sent in batches of up to
-<code>setBatchSize</code>, or every <code>setFlushIntervalMs</code>,
+<code>maxQueueSize</code>) and sent in batches of up to
+<code>batchSize</code>, or every <code>flushIntervalMs</code>,
 whichever comes first. Metrics are collected every
-<code>setMetricsIntervalMs</code>.</li>
+<code>metricsIntervalMs</code>.</li>
 <li>The exporter starts at <code>init()</code>, not when it is constructed.
 Until then it takes nothing, so an exporter that is never initialised costs
 nothing and sends nothing.</li>
@@ -896,14 +903,14 @@ protobuf encoding with gRPC framing.</li>
 <p>
 TLS is configured with a <code>TlsConfig</code>, the same object used for
 Gumdrop's listeners and clients, set on the exporter with
-<code>setTls</code>. For an HTTPS endpoint the part that matters is the trust
+<code>tls</code>. For an HTTPS endpoint the part that matters is the trust
 the exporter extends to the collector. Give it a trust manager built from the
 CA certificate that signed the collector's certificate, in PEM form:
 </p>
 
 <pre>
 X509TrustManager trust = PemCredentials.loadTrustManager(Path.of("/etc/gumdrop/otel-ca.pem"));
-otlp.setTls(new TlsConfig().trustManager(trust));
+otlp.tls(new TlsConfig().trustManager(trust));
 </pre>
 
 <p>
@@ -969,32 +976,32 @@ service:
 <h5>Authentication</h5>
 
 <p>
-For authenticated endpoints, call <code>setHeaders</code> on the exporter. The headers are sent
+For authenticated endpoints, call <code>headers</code> on the exporter. The headers are sent
 with every export request, on both transports:
 </p>
 
 <pre>
-otlp.setHeaders("Authorization=Bearer token123,X-Org-Id=my-org");
+otlp.headers("Authorization=Bearer token123,X-Org-Id=my-org");
 </pre>
 
 <h5>Complete example</h5>
 
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
-telemetry.setServiceName("mail-gateway");
-telemetry.setServiceVersion("2.1.0");
-telemetry.setDeploymentEnvironment("production");
-telemetry.setServiceInstanceId("mail-gw-01");
+telemetry.serviceName("mail-gateway");
+telemetry.serviceVersion("2.1.0");
+telemetry.deploymentEnvironment("production");
+telemetry.serviceInstanceId("mail-gw-01");
 
 OtlpGrpcExporter otlp = new OtlpGrpcExporter();
-otlp.setEndpoint("https://otel-collector.monitoring:4317");
-otlp.setTls(new TlsConfig().trustManager(
+otlp.endpoint("https://otel-collector.monitoring:4317");
+otlp.tls(new TlsConfig().trustManager(
         PemCredentials.loadTrustManager(Path.of("/etc/gumdrop/otel-ca.pem"))));
-otlp.setBatchSize(256);
-otlp.setFlushIntervalMs(3000);
-otlp.setMetricsIntervalMs(30000);
+otlp.batchSize(256);
+otlp.flushIntervalMs(3000);
+otlp.metricsIntervalMs(30000);
 
-telemetry.setExporter(new TeeExporter(otlp, new DefaultExporter()));
+telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
 telemetry.init();
 
 Gumdrop gumdrop = Gumdrop.boot();
@@ -1054,7 +1061,7 @@ metrics) as required by the specification</li>
 <li>A signal with no path is written to stdout</li>
 <li>A background thread handles serialization and flushing, avoiding blocking the
 caller</li>
-<li>Buffered I/O with configurable buffer size (<code>setFileBufferSize</code>,
+<li>Buffered I/O with configurable buffer size (<code>fileBufferSize</code>,
 default 8KB)</li>
 <li>Files are opened in append mode; parent directories are created
 automatically</li>
@@ -1065,22 +1072,22 @@ automatically</li>
 
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
-telemetry.setServiceName("my-service");
+telemetry.serviceName("my-service");
 
 OtlpFileExporter files = new OtlpFileExporter(
         Path.of("/var/log/otel/traces.jsonl"),
         Path.of("/var/log/otel/logs.jsonl"),
         Path.of("/var/log/otel/metrics.jsonl"));
-files.setFileBufferSize(16384);
-files.setMetricsIntervalMs(60000);
+files.fileBufferSize(16384);
+files.metricsIntervalMs(60000);
 
-telemetry.setExporter(files);
+telemetry.exporter(files);
 telemetry.init();
 </pre>
 
 <p>
 Besides the batching settings, the file exporter has one of its own:
-<code>setFileBufferSize</code>, the size in bytes of the I/O buffer of each
+<code>fileBufferSize</code>, the size in bytes of the I/O buffer of each
 file (default 8192). The files are opened, and the thread that writes them
 started, by <code>init()</code>.
 </p>
@@ -1134,7 +1141,7 @@ AccessLogExporter accessLog = new AccessLogExporter(
         Path.of("/var/log/gumdrop/access.log"),
         AccessLogFormat.CLF,
         AccessLogUserSelection.PROTOCOL_FIRST);
-telemetry.setExporter(new TeeExporter(new DefaultExporter(), accessLog));
+telemetry.exporter(new TeeExporter(new DefaultExporter(), accessLog));
 </pre>
 
 <p>
@@ -1205,8 +1212,8 @@ sampling: a request that was not sampled is still logged.
 
 <pre>
 // access log file for operators, access events to the collector for analysis
-otlp.setLevels(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.ACCESS);
-telemetry.setExporter(new TeeExporter(
+otlp.levels(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.ACCESS);
+telemetry.exporter(new TeeExporter(
         new TeeExporter(otlp, new DefaultExporter()),
         accessLog));
 </pre>
@@ -1224,7 +1231,7 @@ drafts followed is <code>QlogExporter.QLOG_REVISION</code>.
 </p>
 
 <pre>
-telemetry.setExporter(new TeeExporter(
+telemetry.exporter(new TeeExporter(
         new DefaultExporter(),
         new QlogExporter(Path.of("/var/log/gumdrop/qlog"),
                 QlogExporter.DEFAULT_QUEUE_SIZE)));
@@ -1256,8 +1263,8 @@ syslog daemon, a message queue, a test fixture). The interface has three
 two questions <code>accepts(LogLevel)</code> and <code>acceptsTraces()</code>,
 <code>init</code>, which <code>TelemetryConfig.init()</code> calls to start
 the exporter, and <code>flush</code>, <code>forceFlush</code> and
-<code>shutdown</code>. Give the exporter its own setters for its settings, as
-the provided ones have, and start its threads and open its files in
+<code>shutdown</code>. Give the exporter its own methods for its settings, named
+for the setting and returning the exporter as the provided ones are, and start its threads and open its files in
 <code>init</code> so that they can be set after construction. To share the
 batching settings, extend <code>BatchingExporter</code>.
 Rules for a well-behaved exporter:
@@ -1817,8 +1824,8 @@ sends the metrics, so each destination can have its own:
 </p>
 
 <pre>
-otlp.setMetricsTemporality(AggregationTemporality.DELTA);
-otlp.setMetricsIntervalMs(30000);
+otlp.metricsTemporality(AggregationTemporality.DELTA);
+otlp.metricsIntervalMs(30000);
 </pre>
 
 <h3 id="distributed">Distributed Tracing</h3>
@@ -1946,8 +1953,8 @@ The JMX bridge is enabled by default when metrics are enabled. Disable it with:
 
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
-telemetry.setMetricsEnabled(true);
-telemetry.setJmxBridgeEnabled(false);
+telemetry.metricsEnabled(true);
+telemetry.jmxBridgeEnabled(false);
 telemetry.init();
 </pre>
 

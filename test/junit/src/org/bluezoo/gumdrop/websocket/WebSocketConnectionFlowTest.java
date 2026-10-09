@@ -514,7 +514,7 @@ public class WebSocketConnectionFlowTest {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(new RecordingExporter());
+        config.exporter(new RecordingExporter());
         return config;
     }
 
@@ -587,7 +587,7 @@ public class WebSocketConnectionFlowTest {
     @Test
     public void serverMetricsSeeFramesAndMessagesBothWays() throws Exception {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         WebSocketServerMetrics metrics = new WebSocketServerMetrics(config);
         Conn c = open();
         c.setServerMetrics(metrics);

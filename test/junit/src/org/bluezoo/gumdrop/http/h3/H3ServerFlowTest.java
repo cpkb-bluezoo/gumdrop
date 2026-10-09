@@ -610,7 +610,7 @@ public class H3ServerFlowTest {
     @Test
     public void testTelemetryAndMetrics() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setExporter(new RecordingExporter());
+        tc.exporter(new RecordingExporter());
         HttpServerMetrics metrics = new HttpServerMetrics(tc);
         Fixture f = new Fixture(null, metrics, tc, false, false, null);
         H3Stream stream = f.open();

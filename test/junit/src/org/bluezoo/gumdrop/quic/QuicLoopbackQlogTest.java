@@ -127,7 +127,7 @@ public class QuicLoopbackQlogTest {
         lb = new QuicLoopback();
         capture = new Capture(qlog);
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(capture);
+        config.exporter(capture);
         lb.serverFactory.setTelemetryConfig(config);
         lb.clientFactory.setTelemetryConfig(config);
         lb.startFactories();

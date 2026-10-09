@@ -306,7 +306,7 @@ public class DnsServerPresentationTest {
     @Test
     public void testMetricsRecordedForQueriesAndResponses() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         listener.telemetry = tc;
         server.addListener(listener);
         server.setHandler(new DnsQueryHandler() {

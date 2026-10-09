@@ -37,7 +37,7 @@ public class SocksProtocolHandlerNoMetricsTest extends SocksProtocolHandlerExtra
     @Override
     TelemetryConfig telemetryConfig() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(false);
+        config.metricsEnabled(false);
         return config;
     }
 

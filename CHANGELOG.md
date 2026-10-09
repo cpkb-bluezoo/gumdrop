@@ -164,10 +164,13 @@ user-visible themes since 2.2.x.
   endpoints, headers and timeout; `OtlpFileExporter` for the file buffer
   size). `TelemetryConfig` keeps the identity of the service, metrics, the
   JMX bridge and the exception detail policy. TLS for the OTLP exporters is a
-  `TlsConfig` set with `setTls`, replacing the truststore file, password and
+  `TlsConfig` set with `tls`, replacing the truststore file, password and
   format settings; a truststore file is loaded into a trust manager first.
   Exporters are constructed without a configuration and started by
   `TelemetryConfig.init()` through the new `TelemetryExporter.init` method.
+  Settings on `TelemetryConfig` and the exporters follow the composition
+  style of listeners and clients: methods named for the setting that return
+  the object (`otlp.endpoint(url).tls(tls)`), not `setX`.
 - **QUIC compatible version negotiation follows the server's preference**:
   a server now switches a client onto the first version in its own
   `setVersions` order that the client offers, instead of the client's most

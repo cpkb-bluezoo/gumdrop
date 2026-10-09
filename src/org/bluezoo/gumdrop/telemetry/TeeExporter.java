@@ -35,7 +35,7 @@ import java.util.logging.Logger;
  * tees, and the same exporter may be a child of more than one tee.
  *
  * <pre>
- * telemetry.setExporter(new TeeExporter(new QlogExporter(dir), new DefaultExporter()));
+ * telemetry.exporter(new TeeExporter(new QlogExporter(dir), new DefaultExporter()));
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

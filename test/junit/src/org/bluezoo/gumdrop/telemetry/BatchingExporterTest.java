@@ -82,11 +82,11 @@ public class BatchingExporterTest {
     @Test
     public void settingsRoundTrip() {
         Probe p = new Probe();
-        p.setBatchSize(10);
-        p.setFlushIntervalMs(20L);
-        p.setMaxQueueSize(30);
-        p.setMetricsIntervalMs(1000L);
-        p.setMetricsTemporality(AggregationTemporality.DELTA);
+        p.batchSize(10);
+        p.flushIntervalMs(20L);
+        p.maxQueueSize(30);
+        p.metricsIntervalMs(1000L);
+        p.metricsTemporality(AggregationTemporality.DELTA);
         assertEquals(10, p.getBatchSize());
         assertEquals(20L, p.getFlushIntervalMs());
         assertEquals(30, p.getMaxQueueSize());
@@ -107,7 +107,7 @@ public class BatchingExporterTest {
     @Test
     public void levelsAreReplacedNotAdded() {
         Probe p = new Probe();
-        p.setLevels(LogLevel.ACCESS);
+        p.levels(LogLevel.ACCESS);
         assertTrue(p.accepts(LogLevel.ACCESS));
         assertFalse(p.accepts(LogLevel.INFO));
     }

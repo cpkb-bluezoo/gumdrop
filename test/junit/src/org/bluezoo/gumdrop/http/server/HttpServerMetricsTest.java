@@ -37,7 +37,7 @@ public class HttpServerMetricsTest {
     @Test
     public void testRecordingDoesNotThrow() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         HttpServerMetrics m = new HttpServerMetrics(config);
         assertNotNull(m);
         m.connectionOpened();
@@ -53,7 +53,7 @@ public class HttpServerMetricsTest {
     @Test
     public void testWorksWithMetricsDisabled() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(false);
+        config.metricsEnabled(false);
         HttpServerMetrics m = new HttpServerMetrics(config);
         m.requestStarted("GET");
         m.requestCompleted("GET", 200, 1.0, 1L, 1L);

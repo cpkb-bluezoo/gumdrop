@@ -54,7 +54,7 @@ public class QuicLoopbackMetricsTest {
     private void setUp(boolean retry) throws Exception {
         lb = new QuicLoopback();
         config = new TelemetryConfig();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         lb.serverFactory.setTelemetryConfig(config);
         lb.serverFactory.setRequireRetry(retry);
     }
@@ -106,7 +106,7 @@ public class QuicLoopbackMetricsTest {
     @Test
     public void nothingIsRecordedUnlessMetricsAreEnabled() throws Exception {
         setUp(false);
-        config.setMetricsEnabled(false);
+        config.metricsEnabled(false);
         connect();
         assertEquals(0, total("quic.server.connections"));
     }

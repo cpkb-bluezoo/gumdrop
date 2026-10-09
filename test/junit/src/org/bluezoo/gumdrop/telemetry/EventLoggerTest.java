@@ -44,7 +44,7 @@ public class EventLoggerTest {
     public void loggerCarriesScopeAndBundleOntoEachRecord() {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         EventLogger events = config.getLogger(EventLoggerTest.class, BUNDLE);
         assertEquals(EventLoggerTest.class.getName(), events.getScope());
         assertSame(BUNDLE, events.getResourceBundle());
@@ -70,7 +70,7 @@ public class EventLoggerTest {
     public void eachLevelHasItsStarter() {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         EventLogger events = config.getLogger(EventLoggerTest.class, BUNDLE);
         events.info("i").emit();
         events.warn("w").emit();
@@ -107,7 +107,7 @@ public class EventLoggerTest {
     public void nothingIsBuiltForALevelNobodyAccepts() {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter(LogLevel.ERROR);
-        config.setExporter(exporter);
+        config.exporter(exporter);
         EventLogger events = config.getLogger(EventLoggerTest.class, BUNDLE);
         assertFalse(events.accepts(LogLevel.INFO));
         assertTrue(events.accepts(LogLevel.ERROR));
@@ -121,7 +121,7 @@ public class EventLoggerTest {
     public void anExporterThatLogsThroughThePipelineDoesNotComeBackIn() {
         final TelemetryConfig config = new TelemetryConfig();
         final int[] seen = new int[1];
-        config.setExporter(new RecordingExporter() {
+        config.exporter(new RecordingExporter() {
             @Override
             public synchronized void export(LogRecord record) {
                 seen[0]++;
@@ -136,7 +136,7 @@ public class EventLoggerTest {
     @Test
     public void anExporterThatThrowsDoesNotBreakTheEmitter() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(new RecordingExporter() {
+        config.exporter(new RecordingExporter() {
             @Override
             public synchronized void export(LogRecord record) {
                 throw new IllegalStateException("broken");
@@ -148,7 +148,7 @@ public class EventLoggerTest {
     @Test
     public void exporterMayNotBeNull() {
         try {
-            new TelemetryConfig().setExporter(null);
+            new TelemetryConfig().exporter(null);
             fail();
         } catch (IllegalArgumentException expected) {
         }

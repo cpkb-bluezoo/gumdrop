@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * flushes and shuts it down when it shuts down.
  *
  * <p>The destinations are a tree of {@link TelemetryExporter}s, set
- * with {@link #setExporter}: one exporter, or several joined by
+ * with {@link #exporter}: one exporter, or several joined by
  * {@link TeeExporter}. A fresh configuration has the {@link
  * DefaultExporter}, which prints log events through
  * {@code java.util.logging} and takes nothing else. Each exporter
@@ -54,10 +54,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <pre>
  * TelemetryConfig telemetry = new TelemetryConfig();
- * telemetry.setServiceName("my-service");
+ * telemetry.serviceName("my-service");
  * OtlpExporter otlp = new OtlpExporter();
- * otlp.setEndpoint("https://collector:4318");
- * telemetry.setExporter(new TeeExporter(otlp, new DefaultExporter()));
+ * otlp.endpoint("https://collector:4318");
+ * telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
  * telemetry.init();
  * </pre>
  *
@@ -120,9 +120,11 @@ public class TelemetryConfig {
      * Enables or disables metrics collection.
      *
      * @param metricsEnabled true to enable metrics
+     * @return this configuration
      */
-    public void setMetricsEnabled(boolean metricsEnabled) {
+    public TelemetryConfig metricsEnabled(boolean metricsEnabled) {
         this.metricsEnabled = metricsEnabled;
+        return this;
     }
 
     // -- Resource attributes --
@@ -138,9 +140,11 @@ public class TelemetryConfig {
      * Sets the service name.
      *
      * @param serviceName the service name
+     * @return this configuration
      */
-    public void setServiceName(String serviceName) {
+    public TelemetryConfig serviceName(String serviceName) {
         this.serviceName = serviceName;
+        return this;
     }
 
     /**
@@ -154,9 +158,11 @@ public class TelemetryConfig {
      * Sets the service version.
      *
      * @param serviceVersion the service version
+     * @return this configuration
      */
-    public void setServiceVersion(String serviceVersion) {
+    public TelemetryConfig serviceVersion(String serviceVersion) {
         this.serviceVersion = serviceVersion;
+        return this;
     }
 
     /**
@@ -170,9 +176,11 @@ public class TelemetryConfig {
      * Sets the service namespace.
      *
      * @param serviceNamespace the service namespace
+     * @return this configuration
      */
-    public void setServiceNamespace(String serviceNamespace) {
+    public TelemetryConfig serviceNamespace(String serviceNamespace) {
         this.serviceNamespace = serviceNamespace;
+        return this;
     }
 
     /**
@@ -186,9 +194,11 @@ public class TelemetryConfig {
      * Sets the service instance ID.
      *
      * @param serviceInstanceId the service instance ID
+     * @return this configuration
      */
-    public void setServiceInstanceId(String serviceInstanceId) {
+    public TelemetryConfig serviceInstanceId(String serviceInstanceId) {
         this.serviceInstanceId = serviceInstanceId;
+        return this;
     }
 
     /**
@@ -202,9 +212,11 @@ public class TelemetryConfig {
      * Sets the deployment environment.
      *
      * @param deploymentEnvironment the deployment environment (e.g., "production")
+     * @return this configuration
      */
-    public void setDeploymentEnvironment(String deploymentEnvironment) {
+    public TelemetryConfig deploymentEnvironment(String deploymentEnvironment) {
         this.deploymentEnvironment = deploymentEnvironment;
+        return this;
     }
 
     /**
@@ -219,9 +231,11 @@ public class TelemetryConfig {
      *
      * @param key the attribute key
      * @param value the attribute value
+     * @return this configuration
      */
-    public void addResourceAttribute(String key, String value) {
+    public TelemetryConfig addResourceAttribute(String key, String value) {
         resourceAttributes.put(key, value);
+        return this;
     }
 
     // -- Lifecycle methods --
@@ -239,9 +253,11 @@ public class TelemetryConfig {
      * Enables or disables the JMX bridge.
      *
      * @param jmxBridgeEnabled true to expose metrics via JMX (default: true)
+     * @return this configuration
      */
-    public void setJmxBridgeEnabled(boolean jmxBridgeEnabled) {
+    public TelemetryConfig jmxBridgeEnabled(boolean jmxBridgeEnabled) {
         this.jmxBridgeEnabled = jmxBridgeEnabled;
+        return this;
     }
 
     /**
@@ -258,9 +274,11 @@ public class TelemetryConfig {
      *
      * @param includeExceptionDetails true for full details (use only when
      *        telemetry export is trusted, e.g. internal collector)
+     * @return this configuration
      */
-    public void setIncludeExceptionDetails(boolean includeExceptionDetails) {
+    public TelemetryConfig includeExceptionDetails(boolean includeExceptionDetails) {
         this.includeExceptionDetails = includeExceptionDetails;
+        return this;
     }
 
     /**
@@ -321,8 +339,9 @@ public class TelemetryConfig {
      * run is started at once.
      *
      * @param exporter the exporter
+     * @return this configuration
      */
-    public void setExporter(TelemetryExporter exporter) {
+    public TelemetryConfig exporter(TelemetryExporter exporter) {
         if (exporter == null) {
             throw new IllegalArgumentException("exporter");
         }
@@ -330,6 +349,7 @@ public class TelemetryConfig {
         if (initialised) {
             exporter.init(this);
         }
+        return this;
     }
 
     /**

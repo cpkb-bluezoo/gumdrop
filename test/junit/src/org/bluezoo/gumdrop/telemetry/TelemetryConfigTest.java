@@ -55,14 +55,14 @@ public class TelemetryConfigTest {
     @Test
     public void simpleAccessorsRoundTrip() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setMetricsEnabled(false);
-        c.setServiceName("svc");
-        c.setServiceVersion("1.2");
-        c.setServiceNamespace("ns");
-        c.setServiceInstanceId("i-1");
-        c.setDeploymentEnvironment("prod");
-        c.setJmxBridgeEnabled(false);
-        c.setIncludeExceptionDetails(true);
+        c.metricsEnabled(false);
+        c.serviceName("svc");
+        c.serviceVersion("1.2");
+        c.serviceNamespace("ns");
+        c.serviceInstanceId("i-1");
+        c.deploymentEnvironment("prod");
+        c.jmxBridgeEnabled(false);
+        c.includeExceptionDetails(true);
 
         assertFalse(c.isMetricsEnabled());
         assertEquals("svc", c.getServiceName());
@@ -87,7 +87,7 @@ public class TelemetryConfigTest {
         assertNull(c.createTrace("root"));
         assertNull(c.createTrace("root", SpanKind.CLIENT));
         assertNull(c.createTraceFromTraceparent(TRACEPARENT, "root", SpanKind.SERVER));
-        c.setExporter(new RecordingExporter());
+        c.exporter(new RecordingExporter());
         Trace trace = c.createTrace("root");
         assertNotNull(trace);
         assertNotNull(trace.getRootSpan());
@@ -97,7 +97,7 @@ public class TelemetryConfigTest {
     @Test
     public void createTraceContinuesIncomingTraceparent() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setExporter(new RecordingExporter());
+        c.exporter(new RecordingExporter());
         Trace trace = c.createTraceFromTraceparent(TRACEPARENT, "root", SpanKind.SERVER);
         assertEquals("4bf92f3577b34da6a3ce929d0e0e4736", trace.getTraceIdHex());
     }
@@ -117,7 +117,7 @@ public class TelemetryConfigTest {
     public void shutdownIsIdempotent() {
         TelemetryConfig c = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        c.setExporter(exporter);
+        c.exporter(exporter);
         c.shutdown();
         assertTrue(c.isShuttingDown());
         c.shutdown();
@@ -129,7 +129,7 @@ public class TelemetryConfigTest {
     public void exporterTreeDecidesWhatIsAccepted() {
         TelemetryConfig c = new TelemetryConfig();
         RecordingExporter access = new RecordingExporter(LogLevel.ACCESS);
-        c.setExporter(new TeeExporter(new DefaultExporter(), access));
+        c.exporter(new TeeExporter(new DefaultExporter(), access));
         assertTrue(c.accepts(LogLevel.INFO));
         assertTrue(c.accepts(LogLevel.ACCESS));
         assertFalse(c.accepts(LogLevel.QLOG));
@@ -152,9 +152,9 @@ public class TelemetryConfigTest {
         TelemetryConfig c = new TelemetryConfig();
         RecordingExporter a = new RecordingExporter();
         RecordingExporter b = new RecordingExporter();
-        c.setExporter(new TeeExporter(a, b));
+        c.exporter(new TeeExporter(a, b));
         assertEquals(0, a.inits);
-        c.setJmxBridgeEnabled(false);
+        c.jmxBridgeEnabled(false);
         c.init();
         assertEquals(1, a.inits);
         assertEquals(1, b.inits);
@@ -163,10 +163,10 @@ public class TelemetryConfigTest {
     @Test
     public void anExporterSetAfterInitIsStartedAtOnce() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setJmxBridgeEnabled(false);
+        c.jmxBridgeEnabled(false);
         c.init();
         RecordingExporter late = new RecordingExporter();
-        c.setExporter(late);
+        c.exporter(late);
         assertEquals(1, late.inits);
     }
 
@@ -174,13 +174,13 @@ public class TelemetryConfigTest {
     public void anExporterThatFailsToStartDoesNotStopItsSibling() {
         TelemetryConfig c = new TelemetryConfig();
         RecordingExporter ok = new RecordingExporter();
-        c.setExporter(new TeeExporter(new RecordingExporter() {
+        c.exporter(new TeeExporter(new RecordingExporter() {
             @Override
             public void init(TelemetryConfig config) {
                 throw new IllegalStateException("cannot start");
             }
         }, ok));
-        c.setJmxBridgeEnabled(false);
+        c.jmxBridgeEnabled(false);
         c.init();
         assertEquals(1, ok.inits);
     }

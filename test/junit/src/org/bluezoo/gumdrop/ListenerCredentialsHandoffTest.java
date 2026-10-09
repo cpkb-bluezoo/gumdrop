@@ -91,12 +91,12 @@ public class ListenerCredentialsHandoffTest {
     public void telemetryEnablesMetricsOnlyWhenAskedFor() {
         Plain l = new Plain();
         TelemetryConfig telemetry = new TelemetryConfig();
-        telemetry.setMetricsEnabled(false);
+        telemetry.metricsEnabled(false);
         Gumdrop g = TestGumdrop.create();
         g.setTelemetryConfig(telemetry);
         l.start(g);
         assertFalse(l.metrics());
-        telemetry.setMetricsEnabled(true);
+        telemetry.metricsEnabled(true);
         assertTrue(l.metrics());
         assertSame(telemetry, l.getTelemetryConfig());
         TcpTransportFactory f = new TcpTransportFactory();

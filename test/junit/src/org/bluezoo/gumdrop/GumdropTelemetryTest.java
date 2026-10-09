@@ -82,7 +82,7 @@ public class GumdropTelemetryTest {
         Gumdrop gumdrop = TestGumdrop.create();
         TelemetryConfig telemetry = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        telemetry.setExporter(exporter);
+        telemetry.exporter(exporter);
         gumdrop.setTelemetryConfig(telemetry);
         gumdrop.start();
         assertEquals(0, exporter.shutdowns);

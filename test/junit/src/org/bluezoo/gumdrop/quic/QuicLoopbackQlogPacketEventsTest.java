@@ -57,7 +57,7 @@ public class QuicLoopbackQlogPacketEventsTest {
         lb = new QuicLoopback();
         capture = new Capture();
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(capture);
+        config.exporter(capture);
         lb.serverFactory.setTelemetryConfig(config);
         lb.clientFactory.setTelemetryConfig(config);
         lb.serverFactory.setMaxDatagramFrameSize(1200);
@@ -425,7 +425,7 @@ public class QuicLoopbackQlogPacketEventsTest {
         lb = new QuicLoopback();
         capture = new Capture();
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(capture);
+        config.exporter(capture);
         lb.serverFactory.setTelemetryConfig(config);
         lb.clientFactory.setTelemetryConfig(config);
         lb.serverFactory.setApplicationProtocols("h3,hq-interop");
@@ -453,7 +453,7 @@ public class QuicLoopbackQlogPacketEventsTest {
             lb = new QuicLoopback();
             capture = new Capture();
             TelemetryConfig config = new TelemetryConfig();
-            config.setExporter(capture);
+            config.exporter(capture);
             lb.serverFactory.setTelemetryConfig(config);
             lb.clientFactory.setTelemetryConfig(config);
             lb.serverFactory.setEarlyDataEnabled(true);

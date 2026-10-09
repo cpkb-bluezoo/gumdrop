@@ -96,7 +96,7 @@ public class FileSecurityTest {
         // the handler reports through its response's loop: record what it says
         final SelectorLoop loop = new SelectorLoop(0);
         events = new RecordingExporter(LogLevel.WARN);
-        loop.getTelemetryConfig().setExporter(events);
+        loop.getTelemetryConfig().exporter(events);
         HttpResponse response = (HttpResponse) Proxy.newProxyInstance(
                 HttpResponse.class.getClassLoader(), new Class<?>[] {HttpResponse.class},
                 new InvocationHandler() {

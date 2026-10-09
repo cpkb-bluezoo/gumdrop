@@ -251,10 +251,10 @@ public class OtlpExportPassTest {
 
     private static final class TestExporter extends OtlpExporter {
         TestExporter() {
-            setTimeoutMs(2000);
-            setFlushIntervalMs(3600000L);
-            setBatchSize(1000);
-            setMaxQueueSize(10);
+            timeoutMs(2000);
+            flushIntervalMs(3600000L);
+            batchSize(1000);
+            maxQueueSize(10);
         }
 
         TestExporter(TelemetryConfig config) {
@@ -271,10 +271,10 @@ public class OtlpExportPassTest {
 
     private static final class TestGrpcExporter extends OtlpGrpcExporter {
         TestGrpcExporter() {
-            setTimeoutMs(2000);
-            setFlushIntervalMs(3600000L);
-            setBatchSize(1000);
-            setMaxQueueSize(10);
+            timeoutMs(2000);
+            flushIntervalMs(3600000L);
+            batchSize(1000);
+            maxQueueSize(10);
         }
 
         TestGrpcExporter(TelemetryConfig config) {
@@ -339,10 +339,10 @@ public class OtlpExportPassTest {
 
     private static TelemetryConfig config() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setServiceName("svc");
-        config.setServiceInstanceId("inst");
-        config.setDeploymentEnvironment("test");
-        config.setMetricsEnabled(false);
+        config.serviceName("svc");
+        config.serviceInstanceId("inst");
+        config.deploymentEnvironment("test");
+        config.metricsEnabled(false);
         return config;
     }
 
@@ -398,7 +398,7 @@ public class OtlpExportPassTest {
         StubEndpoint traces = new StubEndpoint("traces", true);
         HTTP_STUBS.put("traces", traces);
         TestExporter exporter = new TestExporter();
-        exporter.setBatchSize(1);
+        exporter.batchSize(1);
         exporter.start(config(), false);
         exporter.export(TelemetryTestData.richTrace());
         step(exporter);
@@ -489,7 +489,7 @@ public class OtlpExportPassTest {
         HTTP_STUBS.put("logs", logs);
         HTTP_STUBS.put("metrics", metrics);
         TestExporter exporter = new TestExporter();
-        exporter.setMaxQueueSize(1);
+        exporter.maxQueueSize(1);
         exporter.start(config(), false);
         org.bluezoo.gumdrop.telemetry.LogRecord rec = TelemetryTestData.logRecords().get(0);
         exporter.export(rec);
@@ -513,9 +513,9 @@ public class OtlpExportPassTest {
         StubEndpoint metrics = new StubEndpoint("metrics", true);
         HTTP_STUBS.put("metrics", metrics);
         TelemetryConfig config = config();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         TestExporter exporter = new TestExporter();
-        exporter.setMetricsIntervalMs(0L);
+        exporter.metricsIntervalMs(0L);
         exporter.start(config, false);
         step(exporter);
         assertEquals("no meters yet", 0, metrics.requests.size());
@@ -588,7 +588,7 @@ public class OtlpExportPassTest {
         GRPC_STUBS.put("traces", traces);
         GRPC_STUBS.put("logs", logs);
         TestGrpcExporter exporter = new TestGrpcExporter();
-        exporter.setBatchSize(1);
+        exporter.batchSize(1);
         exporter.start(config(), false);
         assertFalse(exporter.waitForConnections(5L));
         exporter.export(TelemetryTestData.richTrace());
@@ -610,7 +610,7 @@ public class OtlpExportPassTest {
         GRPC_STUBS.put("logs", logs);
         GRPC_STUBS.put("metrics", metrics);
         TestGrpcExporter exporter = new TestGrpcExporter();
-        exporter.setMaxQueueSize(1);
+        exporter.maxQueueSize(1);
         exporter.start(config(), false);
         org.bluezoo.gumdrop.telemetry.LogRecord rec = TelemetryTestData.logRecords().get(0);
         exporter.export(rec);
@@ -634,9 +634,9 @@ public class OtlpExportPassTest {
         StubGrpcEndpoint metrics = new StubGrpcEndpoint("metrics", true);
         GRPC_STUBS.put("metrics", metrics);
         TelemetryConfig config = config();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         TestGrpcExporter exporter = new TestGrpcExporter();
-        exporter.setMetricsIntervalMs(0L);
+        exporter.metricsIntervalMs(0L);
         exporter.start(config, false);
         step(exporter);
         assertEquals(0, metrics.payloads.size());

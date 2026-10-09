@@ -48,12 +48,12 @@ public class OtlpExportersTest {
 
     private static TelemetryConfig config() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setServiceName("svc");
-        config.setServiceVersion("1");
-        config.setServiceNamespace("ns");
-        config.setServiceInstanceId("inst");
-        config.setDeploymentEnvironment("test");
-        config.setMetricsEnabled(true);
+        config.serviceName("svc");
+        config.serviceVersion("1");
+        config.serviceNamespace("ns");
+        config.serviceInstanceId("inst");
+        config.deploymentEnvironment("test");
+        config.metricsEnabled(true);
         Meter meter = config.getMeter("scope");
         LongCounter counter = meter.counterBuilder("c").build();
         counter.add(1L);
@@ -62,18 +62,18 @@ public class OtlpExportersTest {
 
     private static OtlpExporter http() {
         OtlpExporter e = new OtlpExporter();
-        e.setTimeoutMs(500);
-        e.setMetricsIntervalMs(50L);
-        e.setMaxQueueSize(2);
+        e.timeoutMs(500);
+        e.metricsIntervalMs(50L);
+        e.maxQueueSize(2);
         e.start(config(), false);
         return e;
     }
 
     private static OtlpGrpcExporter grpc() {
         OtlpGrpcExporter e = new OtlpGrpcExporter();
-        e.setTimeoutMs(500);
-        e.setMetricsIntervalMs(50L);
-        e.setMaxQueueSize(2);
+        e.timeoutMs(500);
+        e.metricsIntervalMs(50L);
+        e.maxQueueSize(2);
         e.start(config(), false);
         return e;
     }
@@ -81,16 +81,16 @@ public class OtlpExportersTest {
     /** An exporter whose export thread waits a long time. */
     private static OtlpExporter idleHttp() {
         OtlpExporter e = new OtlpExporter();
-        e.setTimeoutMs(2000);
-        e.setFlushIntervalMs(600000L);
+        e.timeoutMs(2000);
+        e.flushIntervalMs(600000L);
         e.start(idleConfig(), false);
         return e;
     }
 
     private static OtlpGrpcExporter idleGrpc() {
         OtlpGrpcExporter e = new OtlpGrpcExporter();
-        e.setTimeoutMs(2000);
-        e.setFlushIntervalMs(600000L);
+        e.timeoutMs(2000);
+        e.flushIntervalMs(600000L);
         e.start(idleConfig(), false);
         return e;
     }
@@ -98,7 +98,7 @@ public class OtlpExportersTest {
     /** A configuration under which the export thread waits a long time. */
     private static TelemetryConfig idleConfig() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setServiceName("svc");
+        config.serviceName("svc");
         return config;
     }
 

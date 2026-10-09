@@ -36,11 +36,13 @@ import java.util.Map;
  * OtlpExporter} (OTLP/HTTP) and {@link OtlpGrpcExporter} (OTLP/gRPC).
  *
  * <p>The settings are made on the exporter, before {@link
- * org.bluezoo.gumdrop.telemetry.TelemetryConfig#init()} starts it.
+ * org.bluezoo.gumdrop.telemetry.TelemetryConfig#init()} starts it, and each
+ * returns the exporter so that they can be chained.
  *
+ * @param <E> the concrete exporter, which the settings return
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-abstract class OtlpCollectorExporter extends BatchingExporter {
+abstract class OtlpCollectorExporter<E extends OtlpCollectorExporter<E>> extends BatchingExporter<E> {
 
     private String endpoint;
     private String tracesEndpoint;
@@ -64,9 +66,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * derived unless it is set itself.
      *
      * @param endpoint the endpoint URL, for example {@code https://collector:4318}
+     * @return this exporter
      */
-    public void setEndpoint(String endpoint) {
+    public E endpoint(String endpoint) {
         this.endpoint = endpoint;
+        return self();
     }
 
     /**
@@ -83,9 +87,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * Sets an endpoint for traces alone.
      *
      * @param tracesEndpoint the endpoint URL
+     * @return this exporter
      */
-    public void setTracesEndpoint(String tracesEndpoint) {
+    public E tracesEndpoint(String tracesEndpoint) {
         this.tracesEndpoint = tracesEndpoint;
+        return self();
     }
 
     /**
@@ -102,9 +108,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * Sets an endpoint for log records alone.
      *
      * @param logsEndpoint the endpoint URL
+     * @return this exporter
      */
-    public void setLogsEndpoint(String logsEndpoint) {
+    public E logsEndpoint(String logsEndpoint) {
         this.logsEndpoint = logsEndpoint;
+        return self();
     }
 
     /**
@@ -121,9 +129,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * Sets an endpoint for metrics alone.
      *
      * @param metricsEndpoint the endpoint URL
+     * @return this exporter
      */
-    public void setMetricsEndpoint(String metricsEndpoint) {
+    public E metricsEndpoint(String metricsEndpoint) {
         this.metricsEndpoint = metricsEndpoint;
+        return self();
     }
 
     private String derive(String specific, String path) {
@@ -150,9 +160,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * authentication. The format is {@code key1=value1,key2=value2}.
      *
      * @param headers the headers
+     * @return this exporter
      */
-    public void setHeaders(String headers) {
+    public E headers(String headers) {
         this.headers = headers;
+        return self();
     }
 
     /**
@@ -195,9 +207,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * exports in flight. The default is 10000.
      *
      * @param timeoutMs the timeout
+     * @return this exporter
      */
-    public void setTimeoutMs(int timeoutMs) {
+    public E timeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+        return self();
     }
 
     /**
@@ -216,9 +230,11 @@ abstract class OtlpCollectorExporter extends BatchingExporter {
      * default trust store is used.
      *
      * @param tls the configuration
+     * @return this exporter
      */
-    public void setTls(TlsConfig tls) {
+    public E tls(TlsConfig tls) {
         this.tls = tls;
+        return self();
     }
 
 }

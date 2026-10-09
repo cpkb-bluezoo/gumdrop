@@ -58,13 +58,13 @@ public class OtlpCollectorExporterTest {
     @Test
     public void endpointsDeriveFromBaseUnlessOverridden() {
         OtlpGrpcExporter e = new OtlpGrpcExporter();
-        e.setEndpoint("http://collector:4318");
+        e.endpoint("http://collector:4318");
         assertEquals("http://collector:4318/v1/traces", e.getTracesEndpoint());
         assertEquals("http://collector:4318/v1/logs", e.getLogsEndpoint());
         assertEquals("http://collector:4318/v1/metrics", e.getMetricsEndpoint());
-        e.setTracesEndpoint("http://t");
-        e.setLogsEndpoint("http://l");
-        e.setMetricsEndpoint("http://m");
+        e.tracesEndpoint("http://t");
+        e.logsEndpoint("http://l");
+        e.metricsEndpoint("http://m");
         assertEquals("http://t", e.getTracesEndpoint());
         assertEquals("http://l", e.getLogsEndpoint());
         assertEquals("http://m", e.getMetricsEndpoint());
@@ -73,21 +73,21 @@ public class OtlpCollectorExporterTest {
     @Test
     public void headersAreParsed() {
         OtlpExporter e = new OtlpExporter();
-        e.setHeaders("a=1, b = two ,bad,=x,c=3=4");
+        e.headers("a=1, b = two ,bad,=x,c=3=4");
         assertEquals("a=1, b = two ,bad,=x,c=3=4", e.getHeaders());
         Map<String, String> parsed = e.parsedHeaders();
         assertEquals("1", parsed.get("a"));
         assertEquals("two", parsed.get("b"));
         assertEquals("3=4", parsed.get("c"));
         assertEquals(3, parsed.size());
-        e.setHeaders("z=9");
+        e.headers("z=9");
         assertEquals(1, e.parsedHeaders().size());
     }
 
     @Test(expected = UnsupportedOperationException.class)
     public void parsedHeadersAreUnmodifiable() {
         OtlpExporter e = new OtlpExporter();
-        e.setHeaders("a=1");
+        e.headers("a=1");
         e.parsedHeaders().put("x", "y");
     }
 
@@ -95,20 +95,20 @@ public class OtlpCollectorExporterTest {
     public void tlsIsAConfigObject() {
         OtlpExporter e = new OtlpExporter();
         TlsConfig tls = new TlsConfig();
-        e.setTls(tls);
+        e.tls(tls);
         assertSame(tls, e.getTls());
-        e.setTimeoutMs(5);
+        e.timeoutMs(5);
         assertEquals(5, e.getTimeoutMs());
     }
 
     @Test
     public void anExporterWithNothingStartedAcceptsNothing() {
         OtlpExporter http = new OtlpExporter();
-        http.setEndpoint("http://collector:4318");
+        http.endpoint("http://collector:4318");
         assertFalse(http.accepts(LogLevel.INFO));
         assertFalse(http.acceptsTraces());
         OtlpGrpcExporter grpc = new OtlpGrpcExporter();
-        grpc.setEndpoint("http://collector:4317");
+        grpc.endpoint("http://collector:4317");
         assertFalse(grpc.accepts(LogLevel.INFO));
         assertFalse(grpc.acceptsTraces());
     }

@@ -328,8 +328,8 @@ public class MqttProtocolHandlerStreamingTest {
     @Test
     public void tracingAndMetricsFollowTheConnectionLifecycle() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setExporter(new RecordingExporter());
-        tc.setMetricsEnabled(true);
+        tc.exporter(new RecordingExporter());
+        tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();
         g.setTelemetryConfig(tc);
         listener.start(g);

@@ -57,7 +57,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OtlpGrpcExporter extends OtlpCollectorExporter {
+public class OtlpGrpcExporter extends OtlpCollectorExporter<OtlpGrpcExporter> {
 
     private static final String TRACE_SERVICE_PATH =
             "/opentelemetry.proto.collector.trace.v1.TraceService/Export";

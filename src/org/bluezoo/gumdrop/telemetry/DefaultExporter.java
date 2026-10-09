@@ -106,14 +106,16 @@ public final class DefaultExporter implements TelemetryExporter {
      * operational levels: INFO, WARN and ERROR.
      *
      * @param levels the levels
+     * @return this exporter
      */
-    public void setLevels(LogLevel... levels) {
+    public DefaultExporter levels(LogLevel... levels) {
         synchronized (this.levels) {
             this.levels.clear();
             for (LogLevel level : levels) {
                 this.levels.add(level);
             }
         }
+        return this;
     }
 
     @Override

@@ -151,7 +151,7 @@ public class DefaultExporterTest {
     @Test
     public void publishingIsAsynchronous() throws Exception {
         DefaultExporter exporter = new DefaultExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         events.info("info.qlog_exporter_shutdown").emit();
         // the record is queued; the exporter's own thread publishes it
         assertTrue(capture.first.await(5, TimeUnit.SECONDS));
@@ -162,12 +162,12 @@ public class DefaultExporterTest {
     @Test
     public void onlyConfiguredLevelsArePublished() {
         DefaultExporter exporter = new DefaultExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         exporter.export(new LogRecord(LogLevel.ACCESS, "http.server.request"));
         exporter.export(new LogRecord(LogLevel.QLOG, "quic:packet_sent"));
         exporter.flush();
         assertTrue(capture.records.isEmpty());
-        exporter.setLevels(LogLevel.ACCESS);
+        exporter.levels(LogLevel.ACCESS);
         assertTrue(exporter.accepts(LogLevel.ACCESS));
         assertFalse(exporter.accepts(LogLevel.INFO));
         LogRecord access = new LogRecord(LogLevel.ACCESS, "http.server.request")
@@ -191,7 +191,7 @@ public class DefaultExporterTest {
     @Test
     public void afterShutdownRecordsArePublishedOnTheCallingThread() {
         DefaultExporter exporter = new DefaultExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         exporter.shutdown();
         events.info("info.qlog_exporter_shutdown").emit();
         // no flush, no wait: it is already there
@@ -204,7 +204,7 @@ public class DefaultExporterTest {
         scopeLogger.removeHandler(capture);
         assertFalse(DefaultExporter.hasHandlers(scopeLogger));
         DefaultExporter exporter = new DefaultExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         exporter.shutdown();
         PrintStream err = System.err;
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -231,7 +231,7 @@ public class DefaultExporterTest {
     public void overflowIsCounted() {
         // no publisher thread, so nothing drains until we flush
         DefaultExporter exporter = new DefaultExporter(2, false);
-        config.setExporter(exporter);
+        config.exporter(exporter);
         for (int i = 0; i < 5; i++) {
             events.info("info.qlog_exporter_shutdown").emit();
         }

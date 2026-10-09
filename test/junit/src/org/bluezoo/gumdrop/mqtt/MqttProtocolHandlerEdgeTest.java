@@ -85,7 +85,7 @@ public class MqttProtocolHandlerEdgeTest {
         final List<Trace> traces = new ArrayList<Trace>();
 
         CapturingConfig() {
-            setExporter(new RecordingExporter());
+            exporter(new RecordingExporter());
         }
 
         @Override
@@ -696,7 +696,7 @@ public class MqttProtocolHandlerEdgeTest {
         };
         listener.setRealm(realm);
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();
         g.setTelemetryConfig(tc);
         listener.start(g);

@@ -95,7 +95,7 @@ public class H3ServerEdgeTest {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setExporter(new RecordingExporter());
+        tc.exporter(new RecordingExporter());
         return tc;
     }
 

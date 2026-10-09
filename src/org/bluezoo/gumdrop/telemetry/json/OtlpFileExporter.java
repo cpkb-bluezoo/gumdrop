@@ -76,19 +76,19 @@ import java.util.ResourceBundle;
  * are set on the exporter before {@link TelemetryConfig#init()} starts it.
  * <pre>
  * TelemetryConfig telemetry = new TelemetryConfig();
- * telemetry.setServiceName("my-service");
+ * telemetry.serviceName("my-service");
  * OtlpFileExporter files = new OtlpFileExporter(
  *         Path.of("/var/log/otel/traces.jsonl"),
  *         Path.of("/var/log/otel/logs.jsonl"),
  *         Path.of("/var/log/otel/metrics.jsonl"));
- * files.setFileBufferSize(16384);
- * telemetry.setExporter(files);
+ * files.fileBufferSize(16384);
+ * telemetry.exporter(files);
  * telemetry.init();
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OtlpFileExporter extends BatchingExporter {
+public class OtlpFileExporter extends BatchingExporter<OtlpFileExporter> {
 
         private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
                 org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
@@ -159,9 +159,11 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
      * underlying file. The default is 8192.
      *
      * @param fileBufferSize the buffer size
+     * @return this exporter
      */
-    public void setFileBufferSize(int fileBufferSize) {
+    public OtlpFileExporter fileBufferSize(int fileBufferSize) {
         this.fileBufferSize = fileBufferSize;
+        return this;
     }
 
     /**

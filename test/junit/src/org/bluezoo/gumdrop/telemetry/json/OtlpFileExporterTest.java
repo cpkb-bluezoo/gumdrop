@@ -73,16 +73,16 @@ public class OtlpFileExporterTest {
             Path logs = sub.resolve("logs.json");
             Path metrics = sub.resolve("metrics.json");
             TelemetryConfig config = new TelemetryConfig();
-            config.setServiceName("svc");
-            config.setServiceInstanceId("inst");
-            config.setDeploymentEnvironment("test");
-            config.setMetricsEnabled(true);
+            config.serviceName("svc");
+            config.serviceInstanceId("inst");
+            config.deploymentEnvironment("test");
+            config.metricsEnabled(true);
             Meter meter = config.getMeter("scope");
             LongCounter counter = meter.counterBuilder("c").build();
             counter.add(5L);
             OtlpFileExporter e = new OtlpFileExporter(traces, logs, metrics);
-            e.setMetricsIntervalMs(60000L);
-            e.setMaxQueueSize(2);
+            e.metricsIntervalMs(60000L);
+            e.maxQueueSize(2);
             e.init(config);
             e.export(TelemetryTestData.richTrace());
             e.export(TelemetryTestData.richTrace());
@@ -126,7 +126,7 @@ public class OtlpFileExporterTest {
                 Path logs = sub.resolve("logs.json");
                 Path metrics = sub.resolve("metrics.json");
                 TelemetryConfig config = new TelemetryConfig();
-                config.setServiceName("svc");
+                config.serviceName("svc");
                 OtlpFileExporter e = new OtlpFileExporter(traces, logs, metrics);
                 e.init(config);
                 e.export(TelemetryTestData.richTrace());
@@ -184,7 +184,7 @@ public class OtlpFileExporterTest {
     public void testFileBufferSizeIsASettingOfTheExporter() {
         OtlpFileExporter e = new OtlpFileExporter();
         assertEquals(8192, e.getFileBufferSize());
-        e.setFileBufferSize(4096);
+        e.fileBufferSize(4096);
         assertEquals(4096, e.getFileBufferSize());
     }
 
@@ -202,7 +202,7 @@ public class OtlpFileExporterTest {
             assertTrue(e.accepts(LogLevel.INFO));
             assertTrue(e.acceptsTraces());
             assertFalse(e.accepts(LogLevel.ACCESS));
-            e.setLevels(LogLevel.ACCESS);
+            e.levels(LogLevel.ACCESS);
             assertTrue(e.accepts(LogLevel.ACCESS));
             e.shutdown();
         } finally {

@@ -143,7 +143,7 @@ public class OtlpSerializersTest {
     public void logsCarryScopeEventNameAndExceptionType() throws Exception {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
-        config.setExporter(exporter);
+        config.exporter(exporter);
         config.getLogger(OtlpSerializersTest.class, ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N"))
                 .error("err.thing").attr("uri", "/x").thrown(new IllegalStateException("secret")).emit();
         exporter.records.add(new LogRecord(LogLevel.ACCESS, "http.server.request"));
