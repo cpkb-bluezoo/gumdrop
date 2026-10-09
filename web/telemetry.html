@@ -1679,42 +1679,6 @@ public class MyProtocolHandler implements ProtocolHandler {
 }
 </pre>
 
-<h4>Example: Servlet Instrumentation</h4>
-
-<pre>
-public class InstrumentedServlet extends HttpServlet {
-    
-    @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
-            throws ServletException, IOException {
-        
-        // Get the stream's span (created automatically by HTTP server)
-        Span httpSpan = ((GumdropHttpServletRequest) req).getSpan();
-        
-        if (httpSpan != null) {
-            // Add application-specific attributes
-            httpSpan.addAttribute("app.action", req.getParameter("action"));
-            httpSpan.addAttribute("app.user", req.getRemoteUser());
-            
-            // Start child span for business logic
-            Span bizSpan = httpSpan.startChild("Business Logic", SpanKind.INTERNAL);
-            try {
-                processBusinessLogic(req, resp);
-                bizSpan.setStatusOk();
-            } catch (Exception e) {
-                bizSpan.recordException(e);
-                throw e;
-            } finally {
-                bizSpan.end();
-            }
-        } else {
-            // Telemetry disabled, just process normally
-            processBusinessLogic(req, resp);
-        }
-    }
-}
-</pre>
-
 <h3 id="metrics">Metrics</h3>
 
 <p>
