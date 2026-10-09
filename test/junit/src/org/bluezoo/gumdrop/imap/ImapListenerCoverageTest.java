@@ -45,6 +45,8 @@ import org.bluezoo.gumdrop.quota.RoleBasedQuotaManager;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 
 import static org.junit.Assert.*;
 
@@ -235,9 +237,10 @@ public class ImapListenerCoverageTest {
     public void testStartWithMetricsEnabled() {
         ImapListener l = new ImapListener();
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
-        l.setTelemetryConfig(tc);
-        l.start();
+        tc.metricsEnabled(true);
+        Gumdrop g = TestGumdrop.create();
+        g.telemetryConfig(tc);
+        l.start(g);
         assertNotNull(l.getMetrics());
     }
 

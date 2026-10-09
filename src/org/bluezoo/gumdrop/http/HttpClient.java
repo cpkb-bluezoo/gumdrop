@@ -32,7 +32,6 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -83,6 +82,8 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * High-level HTTP client facade.
@@ -129,6 +130,13 @@ public class HttpClient implements AltSvcListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(HttpClient.class.getName());
+
+    private EventLogger events() {
+        // a client used without a runtime, as in tests, reports through
+        // a configuration of its own
+        TelemetryConfig telemetry = gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(HttpClient.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
@@ -1002,7 +1010,6 @@ public class HttpClient implements AltSvcListener {
         this.dnsDiscoveredEchConfigList = dnsDiscoveredEchConfigList;
     }
 
-
     /**
      * Today's TCP-first behaviour: HTTP/2 via ALPN (secure) or h2c upgrade
      * (cleartext), else HTTP/1.1 -- all already automatic, plus the
@@ -1534,11 +1541,9 @@ public class HttpClient implements AltSvcListener {
             return;
         }
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.altsvc_h3_discovered"),
-                    altHost != null ? altHost : host, altPort));
-        }
+        events().info("info.altsvc_h3_discovered")
+                .attr("host", altHost != null ? altHost : host)
+                .attr("port", altPort).emit();
 
         h3UpgradeInProgress = true;
         // RFC 7838's Alt-Svc is purely advisory for *future* requests to

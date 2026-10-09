@@ -37,6 +37,8 @@ import org.bluezoo.gumdrop.util.Tokens;
 import org.bluezoo.json.JSONParser;
 import org.bluezoo.json.JSONDefaultHandler;
 import org.bluezoo.json.JSONException;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -145,6 +147,10 @@ public class OAuthRealm implements Realm {
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N",
                 org.bluezoo.gumdrop.auth.Realm.class.getModule());   
     private static final Logger LOGGER = Logger.getLogger(OAuthRealm.class.getName());
+
+    private EventLogger events() {
+        return (selectorLoop != null ? selectorLoop.getTelemetryConfig() : new TelemetryConfig()).getLogger(OAuthRealm.class, L10N);
+    }
     
     /**
      * Supported SASL mechanisms for OAuth realm.
@@ -291,8 +297,7 @@ public class OAuthRealm implements Realm {
             try {
                 LOGGER.setLevel(Level.parse(logLevel));
             } catch (IllegalArgumentException e) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.invalid_log_level"), logLevel));
+                events().warn("warn.invalid_log_level").attr("log_level", logLevel).emit();
             }
         }
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -366,7 +371,7 @@ public class OAuthRealm implements Realm {
             }
             return result;
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.oauth_token_failed"), e);
+            events().warn("warn.oauth_token_failed").thrown(e).emit();
             return TokenValidationResult.failure();
         }
     }
@@ -696,8 +701,8 @@ public class OAuthRealm implements Realm {
                 if (HttpStatus.fromCode(code).isSuccess()) {
                     initParser();
                 } else {
-                    String msg = MessageFormat.format(L10N.getString("err.oauth_token_introspection_error"), statusCode);
-                    LOGGER.warning(msg);
+                    events().warn("err.oauth_token_introspection_error")
+                            .attr("status_code", statusCode).emit();
                 }
             }
             
@@ -719,7 +724,7 @@ public class OAuthRealm implements Realm {
                 try {
                     jsonParser.receive(data);
                 } catch (JSONException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("err.json_parse_streaming"), e);
+                    events().warn("err.json_parse_streaming").thrown(e).emit();
                     parseError = e;
                 }
             }
@@ -732,7 +737,7 @@ public class OAuthRealm implements Realm {
                         jsonParser.close();
                     }
                 } catch (JSONException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("err.json_parse_close"), e);
+                    events().warn("err.json_parse_close").thrown(e).emit();
                     if (parseError == null) {
                         parseError = e;
                     }
@@ -749,7 +754,7 @@ public class OAuthRealm implements Realm {
             
             @Override
             public void failed(Exception ex) {
-                LOGGER.log(Level.WARNING, L10N.getString("err.http_request_failed"), ex);
+                events().warn("err.http_request_failed").thrown(ex).emit();
                 result.set(TokenValidationResult.failure());
                 latch.countDown();
             }
@@ -774,7 +779,7 @@ public class OAuthRealm implements Realm {
             
             @Override
             public void onError(Exception cause) {
-                LOGGER.log(Level.WARNING, L10N.getString("err.connection"), cause);
+                events().warn("err.connection").thrown(cause).emit();
                 result.set(TokenValidationResult.failure());
                 latch.countDown();
             }
@@ -793,7 +798,7 @@ public class OAuthRealm implements Realm {
         // Wait for response with timeout
         boolean completed = latch.await(httpTimeoutMs, TimeUnit.MILLISECONDS);
         if (!completed) {
-            LOGGER.warning(L10N.getString("err.oauth_timeout"));
+            events().warn("err.oauth_timeout").emit();
             return TokenValidationResult.failure();
         }
         TokenValidationResult validationResult = result.get();
@@ -818,7 +823,7 @@ public class OAuthRealm implements Realm {
             username = handler.getSubject();
         }
         if (username == null || username.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.oauth_no_subject"));
+            events().warn("warn.oauth_no_subject").emit();
             return TokenValidationResult.failure();
         }
         // Get scopes and expiration

@@ -21,15 +21,13 @@
 
 package org.bluezoo.gumdrop.ftp;
 
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import java.net.InetAddress;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * TCP transport listener for FTP control connections.
@@ -71,8 +69,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public class FtpListener extends TcpListener {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(FtpListener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(FtpListener.class, FtpProtocolHandler.L10N);
+    }
 
     /**
      * The default FTP transmission control port.
@@ -104,24 +103,6 @@ public class FtpListener extends TcpListener {
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private FtpServerMetrics metrics;
-
-    private Gumdrop gumdrop;
-
-    @Override
-    public void start(Gumdrop gumdrop) {
-        this.gumdrop = gumdrop;
-        super.start(gumdrop);
-    }
-
-    /**
-     * Returns the runtime this listener is running under, for data
-     * connection coordinators created by accepted connections.
-     *
-     * @return the runtime, or null if not yet started
-     */
-    Gumdrop getGumdrop() {
-        return gumdrop;
-    }
 
     @Override
     public String getDescription() {
@@ -179,7 +160,6 @@ public class FtpListener extends TcpListener {
         super.tls(tls);
         return this;
     }
-
 
     public void setHandlerFactory(FtpConnectionHandlerFactory factory) {
         this.handlerFactory = factory;
@@ -372,12 +352,7 @@ public class FtpListener extends TcpListener {
             try {
                 return sessionProvider.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString(
-                                    "warn.ftp_handler_session_provider_failed"),
-                            e);
-                }
+                events().warn("warn.ftp_handler_session_provider_failed").thrown(e).emit();
             }
         }
         org.bluezoo.gumdrop.ftp.server.FtpServer srv = getServer();
@@ -385,11 +360,7 @@ public class FtpListener extends TcpListener {
             try {
                 return srv.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString(
-                                    "warn.ftp_handler_server_failed"), e);
-                }
+                events().warn("warn.ftp_handler_server_failed").thrown(e).emit();
             }
         }
         return null;
@@ -416,21 +387,13 @@ public class FtpListener extends TcpListener {
                     return new FtpProtocolHandler(this, legacy);
                 }
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString(
-                                    "warn.ftp_handler_server_default"), e);
-                }
+                events().warn("warn.ftp_handler_server_default").thrown(e).emit();
             }
         } else if (handlerFactory != null) {
             try {
                 legacy = handlerFactory.createHandler();
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString(
-                                    "warn.ftp_handler_factory_default"), e);
-                }
+                events().warn("warn.ftp_handler_factory_default").thrown(e).emit();
             }
         }
         return new FtpProtocolHandler(this, legacy);

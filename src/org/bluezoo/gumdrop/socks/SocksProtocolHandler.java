@@ -49,6 +49,8 @@ import org.bluezoo.gumdrop.socks.server.BindHandler;
 import org.bluezoo.gumdrop.socks.server.BindState;
 import org.bluezoo.gumdrop.socks.server.ConnectHandler;
 import org.bluezoo.gumdrop.socks.server.ConnectState;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
@@ -79,6 +81,10 @@ public class SocksProtocolHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(SocksProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(SocksProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -195,8 +201,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
     @Override
     public void error(Exception cause) {
         if (state != State.CLOSED) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.connection_error"), cause);
+            events().warn("log.connection_error").thrown(cause).emit();
             close();
         }
     }
@@ -406,8 +411,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             try {
                 gssapiExchange = gssapi.createExchange();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.gssapi_init_failed"), e);
+                events().warn("log.gssapi_init_failed").thrown(e).emit();
                 sendSOCKS5MethodSelection(SOCKS5_AUTH_NO_ACCEPTABLE);
                 close();
                 return;
@@ -582,8 +586,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             if (metrics != null) {
                 metrics.authFailure();
             }
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.gssapi_auth_failed"), e);
+            events().warn("log.gssapi_auth_failed").thrown(e).emit();
             sendSOCKS5GSSAPIFailure();
             close();
         }
@@ -880,8 +883,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                 }
             });
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.upstream_connect_failed"), e);
+            events().warn("log.upstream_connect_failed").thrown(e).emit();
             server.releaseRelay();
             if (request.getVersion() == SOCKS4_VERSION) {
                 sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
@@ -1003,8 +1005,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             state = State.BIND_WAITING;
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.bind_failed"), e);
+            events().warn("log.bind_failed").thrown(e).emit();
             server.releaseRelay();
             if (request.getVersion() == SOCKS4_VERSION) {
                 sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
@@ -1072,8 +1073,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             upstreamHandler.connected(peerEndpoint);
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.bind_failed"), e);
+            events().warn("log.bind_failed").thrown(e).emit();
             if (request.getVersion() == SOCKS4_VERSION) {
                 sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
             } else {
@@ -1152,8 +1152,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             state = State.UDP_ASSOCIATED;
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.upstream_connect_failed"), e);
+            events().warn("log.upstream_connect_failed").thrown(e).emit();
             server.releaseRelay();
             sendSOCKS5Reply(SOCKS5_REPLY_GENERAL_FAILURE, null);
             close();

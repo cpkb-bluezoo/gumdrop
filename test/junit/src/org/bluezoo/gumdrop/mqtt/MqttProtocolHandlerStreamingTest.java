@@ -54,6 +54,9 @@ import org.bluezoo.gumdrop.mqtt.store.MqttMessageWriter;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -166,9 +169,6 @@ public class MqttProtocolHandlerStreamingTest {
         public Object invoke(Object proxy, Method method, Object[] args)
                 throws Throwable {
             String name = method.getName();
-            if (name.equals("isTelemetryEnabled")) {
-                return Boolean.TRUE;
-            }
             if (name.equals("getTelemetryConfig")) {
                 return config;
             }
@@ -328,10 +328,11 @@ public class MqttProtocolHandlerStreamingTest {
     @Test
     public void tracingAndMetricsFollowTheConnectionLifecycle() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setTracesEnabled(true);
-        tc.setMetricsEnabled(true);
-        listener.setTelemetryConfig(tc);
-        listener.start();
+        tc.exporter(new RecordingExporter());
+        tc.metricsEnabled(true);
+        Gumdrop g = TestGumdrop.create();
+        g.telemetryConfig(tc);
+        listener.start(g);
         assertNotNull(listener.getMetrics());
         BasicRealm realm = new BasicRealm() {
             @Override

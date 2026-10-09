@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-
 import org.bluezoo.gumdrop.http.HeaderFields;
 import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Capsule;
@@ -70,7 +69,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -88,6 +86,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.util.IntObjectHashMap;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * HTTP/1.1 and HTTP/2 protocol handler using {@link ProtocolHandler}.
@@ -148,6 +147,10 @@ public class HttpProtocolHandler extends HttpConnectionLike
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
     static final Logger LOGGER =
             Logger.getLogger(HttpProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(HttpProtocolHandler.class, L10N);
+    }
 
     // RFC 9112 section 2.1: HTTP/1.1 messages are parsed as a sequence of
     // octets in a superset of US-ASCII.
@@ -213,6 +216,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
     }
 
     private Endpoint endpoint;
+    private TelemetryConfig standaloneTelemetry;
 
     private final Http2Listener server;
     private final int framePadding;
@@ -461,7 +465,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
         // we shouldn't receive data yet (securityEstablished should be called first)
         if ((state == State.PRI_SETTINGS || state == State.HTTP2 
                 || state == State.HTTP2_CONTINUATION) && h2Parser == null) {
-            LOGGER.warning(L10N.getString("warn.h2_data_before_parser_init"));
+            events().warn("warn.h2_data_before_parser_init").emit();
             closeEndpoint();
             return;
         }
@@ -522,8 +526,8 @@ public class HttpProtocolHandler extends HttpConnectionLike
             // RFC 9113 section 9.2.2: reject non-AEAD cipher suites
             // for TLS 1.2 (TLS 1.3 only has AEAD suites)
             if (info != null && isBlockedH2CipherSuite(info)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.blocked_h2_cipher_suite"), info.getCipherSuite()));
+                events().warn("warn.blocked_h2_cipher_suite")
+                        .attr("cipher_suite", info.getCipherSuite()).emit();
                 h2Parser = new H2Parser(this);
                 h2Writer = new H2Writer(new EndpointChannel());
                 version = HttpVersion.HTTP_2_0;
@@ -572,10 +576,11 @@ public class HttpProtocolHandler extends HttpConnectionLike
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, MessageFormat.format(
-                "{0} remote={1} version={2} state={3}",
-                L10N.getString("warn.http_transport_error"),
-                getRemoteSocketAddress(), version, state), cause);
+        events().warn("warn.http_transport_error")
+                .attr("remote_address", String.valueOf(getRemoteSocketAddress()))
+                .attr("version", String.valueOf(version))
+                .attr("state", String.valueOf(state))
+                .thrown(cause).emit();
         closeEndpoint();
     }
 
@@ -705,7 +710,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
         try {
             h2Writer.flush();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
+            events().warn("warn.error_flushing_h2_frames").thrown(e).emit();
         }
     }
 
@@ -780,7 +785,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
             }
             requestH2Flush();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_headers"), e);
+            events().warn("warn.error_sending_headers").thrown(e).emit();
         } finally {
             ByteBufferPool.release(buf);
         }
@@ -929,7 +934,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                 responseEndWritten(streamId);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_data_frame"), e);
+            events().warn("warn.error_sending_data_frame").thrown(e).emit();
         }
     }
 
@@ -1310,9 +1315,20 @@ public class HttpProtocolHandler extends HttpConnectionLike
         }
     }
 
+    /**
+     * The endpoint's configuration, else one of this handler's own, which
+     * prints log events through {@code java.util.logging}, before the
+     * handler has an endpoint. Never null.
+     */
     @Override
-    public TelemetryConfig getTelemetryConfig() {
-        return endpoint != null ? endpoint.getTelemetryConfig() : null;
+    public synchronized TelemetryConfig getTelemetryConfig() {
+        if (endpoint != null) {
+            return endpoint.getTelemetryConfig();
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
     }
 
     @Override
@@ -1325,11 +1341,6 @@ public class HttpProtocolHandler extends HttpConnectionLike
         if (endpoint != null) {
             endpoint.setTrace(trace);
         }
-    }
-
-    @Override
-    public boolean isTelemetryEnabled() {
-        return endpoint != null && endpoint.isTelemetryEnabled();
     }
 
     @Override
@@ -1376,7 +1387,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                 ByteBufferPool.release(buffer);
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_encode_failed"), e);
+            events().warn("warn.hpack_encode_failed").thrown(e).emit();
             return new byte[0];
         }
     }
@@ -1395,7 +1406,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                 h2Writer.writePushPromise(streamId, promisedStreamId, headerBlock, endHeaders);
                 requestH2Flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_push_promise"), e);
+                events().warn("warn.error_sending_push_promise").thrown(e).emit();
             }
         }
     }
@@ -1412,7 +1423,9 @@ public class HttpProtocolHandler extends HttpConnectionLike
             pushedStream.openApplicationHandler();
             return pushedStream;
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_create_pushed_stream"), streamId), e);
+            events().warn("warn.failed_create_pushed_stream")
+                    .attr("stream_id", streamId)
+                    .thrown(e).emit();
             return null;
         }
     }
@@ -1467,7 +1480,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                     h2Writer.writeWindowUpdate(streamId, increment);
                     requestH2Flush();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_deferred_window_update"), e);
+                    events().warn("warn.error_deferred_window_update").thrown(e).emit();
                 }
             }
         } else {
@@ -1577,7 +1590,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
             HeaderFields.add(headers, "Content-Length", "0");
             stream.sendResponseHeaders(200, headers, true);
         } catch (ProtocolException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_options_star_response"), e);
+            events().warn("warn.error_options_star_response").thrown(e).emit();
         }
     }
 
@@ -1620,7 +1633,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
             stream.sendResponseHeaders(200, headers, false);
             stream.sendResponseBody(ByteBuffer.wrap(body), true);
         } catch (ProtocolException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_trace_response"), e);
+            events().warn("warn.error_trace_response").thrown(e).emit();
         }
     }
 
@@ -1839,8 +1852,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                 }
                 return;
             }
-            String message = L10N.getString("err.send_headers");
-            LOGGER.log(Level.SEVERE, message, e);
+            events().error("err.send_headers").thrown(e).emit();
         }
     }
 
@@ -2200,7 +2212,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
     private void receiveFrameData(ByteBuffer buf) {
         if (h2Parser == null) {
             // HTTP/2 not initialized yet - this shouldn't happen
-            LOGGER.warning(L10N.getString("warn.h2_frame_data_before_parser_init"));
+            events().warn("warn.h2_frame_data_before_parser_init").emit();
             closeEndpoint();
             return;
         }
@@ -2256,10 +2268,8 @@ public class HttpProtocolHandler extends HttpConnectionLike
     private void receiveWebSocket(ByteBuffer buf) {
         Stream stream = getStream(webSocketStreamId);
         if (stream == null) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.websocket_stream_not_found"), webSocketStreamId));
-            }
+            events().warn("warn.websocket_stream_not_found")
+                    .attr("stream_id", webSocketStreamId).emit();
             return;
         }
         if (buf.hasRemaining()) {
@@ -2365,9 +2375,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                     SETTINGS_ACK_TIMEOUT_MS, new Runnable() {
                 @Override
                 public void run() {
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.warning(L10N.getString("warn.settings_ack_timeout"));
-                    }
+                    events().warn("warn.settings_ack_timeout").emit();
                     sendGoaway(H2FrameHandler.ERROR_SETTINGS_TIMEOUT);
                 }
             });
@@ -2607,7 +2615,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                         try {
                             h2Writer.writeWindowUpdate(0, h2DataResult.connectionIncrement);
                         } catch (IOException e) {
-                            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_window_update"), e);
+                            events().warn("warn.error_sending_window_update").thrown(e).emit();
                         }
                     }
                 }
@@ -2633,7 +2641,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
                         requestH2Flush();
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_window_update"), e);
+                    events().warn("warn.error_sending_window_update").thrown(e).emit();
                 }
             }
 
@@ -3010,11 +3018,10 @@ public class HttpProtocolHandler extends HttpConnectionLike
     // Section 5.4.2: stream errors → RST_STREAM
     @Override
     public void frameError(int errorCode, int streamId, String message) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.frame_error"),
-                    message, H2FrameHandler.errorToString(errorCode), streamId));
-        }
+        events().warn("warn.frame_error")
+                .attr("message", message)
+                .attr("error", H2FrameHandler.errorToString(errorCode))
+                .attr("stream_id", streamId).emit();
         if (streamId == 0 || errorCode == H2FrameHandler.ERROR_PROTOCOL_ERROR
                 || errorCode == H2FrameHandler.ERROR_FRAME_SIZE_ERROR) {
             sendGoaway(errorCode);

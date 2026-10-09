@@ -62,7 +62,6 @@ class MockHttpConnection extends HttpConnectionLike {
     long maxRequestBodySize;
     HttpAuthenticationProvider authenticationProvider;
     boolean enablePush = true;
-    boolean telemetryEnabled;
     TelemetryConfig telemetryConfig;
     Trace trace;
     HttpServerMetrics metrics;
@@ -155,10 +154,12 @@ class MockHttpConnection extends HttpConnectionLike {
     @Override public void switchToStreamTunnelMode(int streamId) { tunnelSwitches++; }
     @Override public Decoder getHpackDecoder() { return decoder; }
     @Override public boolean isSecure() { return secure; }
-    @Override public TelemetryConfig getTelemetryConfig() { return telemetryConfig; }
+    @Override public TelemetryConfig getTelemetryConfig() {
+        return telemetryConfig != null ? telemetryConfig
+                : org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
+    }
     @Override public Trace getTrace() { return trace; }
     @Override public void setTrace(Trace t) { trace = t; }
-    @Override public boolean isTelemetryEnabled() { return telemetryEnabled; }
     @Override public HttpServerMetrics getServerMetrics() { return metrics; }
     @Override public boolean isEnablePush() { return enablePush; }
 

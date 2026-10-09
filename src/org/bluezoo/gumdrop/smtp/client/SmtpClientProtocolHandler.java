@@ -39,6 +39,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.util.Tokens;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * SMTP client protocol handler implementing RFC 5321 (SMTP).
@@ -88,6 +90,12 @@ public final class SmtpClientProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(SmtpClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(SmtpClientProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
@@ -206,7 +214,7 @@ public final class SmtpClientProtocolHandler
 
     @Override
     public void disconnected() {
-        LOGGER.info(L10N.getString("client.info.connection_disconnected"));
+        events().info("client.info.connection_disconnected").emit();
         state = SmtpState.CLOSED;
         handler.onDisconnected();
     }
@@ -284,7 +292,7 @@ public final class SmtpClientProtocolHandler
         // SMTP client responses are always line-based; DATA/BDAT content is
         // written by the client, never received, so the lexer never enters
         // a raw escape and this is structurally unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
+        events().warn("warn.unexpected_raw_bytes_client").emit();
     }
 
     @Override
@@ -292,7 +300,7 @@ public final class SmtpClientProtocolHandler
         // SmtpClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server, same
         // as Pop3ClientLexer — so this is structurally unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
+        events().warn("warn.unexpected_token_too_long_client").emit();
     }
 
     private static String decodeAscii(ByteBuffer window) {
@@ -853,12 +861,9 @@ public final class SmtpClientProtocolHandler
                 if (useBdat) {
                     dispatchBdatChunkReply(code, message);
                 } else {
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.warning(MessageFormat.format(
-                                L10N.getString(
-                                        "client.warn.unexpected_response_data_mode"),
-                                code, message));
-                    }
+                    events().warn("client.warn.unexpected_response_data_mode")
+                            .attr("code", code)
+                            .attr("message", message).emit();
                 }
                 break;
             case DATA_END_SENT:
@@ -876,12 +881,10 @@ public final class SmtpClientProtocolHandler
                 close();
                 break;
             default:
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString(
-                                    "client.warn.unexpected_response_in_state"),
-                            state, code, message));
-                }
+                events().warn("client.warn.unexpected_response_in_state")
+                        .attr("state", String.valueOf(state))
+                        .attr("code", code)
+                        .attr("message", message).emit();
         }
     }
 
@@ -1281,11 +1284,7 @@ public final class SmtpClientProtocolHandler
     // ── Error handling ──
 
     private void handleError(SmtpException error) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("client.warn.smtp_error"),
-                    error.getMessage()));
-        }
+        events().warn("client.warn.smtp_error").attr("reason", error.getMessage()).emit();
         state = SmtpState.ERROR;
         handler.onError(error);
     }

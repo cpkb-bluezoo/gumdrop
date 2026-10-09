@@ -26,8 +26,6 @@ import java.nio.ByteBuffer;
 import java.security.Principal;
 import java.util.List;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
@@ -37,6 +35,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * RFC 9220 -- bridges a generic HTTP/3 Extended CONNECT response ({@link
@@ -62,7 +61,9 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  */
 class H3ClientWebSocketResponseHandler extends DefaultHttpResponseHandler {
 
-    private static final Logger LOGGER = Logger.getLogger(H3ClientWebSocketResponseHandler.class.getName());
+    private EventLogger events() {
+        return stream.getTelemetryConfig().getLogger(H3ClientWebSocketResponseHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
@@ -150,7 +151,7 @@ class H3ClientWebSocketResponseHandler extends DefaultHttpResponseHandler {
         try {
             webSocketAdapter.processIncomingData(data);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_error"), e);
+            events().warn("warn.websocket_frame_error").thrown(e).emit();
             webSocketAdapter.notifyError(e);
         }
     }

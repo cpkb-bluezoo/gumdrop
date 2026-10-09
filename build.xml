@@ -343,7 +343,7 @@
     <echo message='Updated public_suffix_list.dat from publicsuffix.org'/>
   </target>
 
-  <!-- Optional OTLP/JSONL telemetry export (ServiceLoader SPI); sources mapped in build, not separate src tree -->
+  <!-- Optional OTLP/JSONL telemetry export; sources mapped in build, not separate src tree -->
   <target name='build-telemetry' depends='build'
           description='Compile gumdrop-telemetry export jar'>
     <mkdir dir='${build.telemetry}'/>
@@ -354,16 +354,13 @@
            createMissingPackageInfoClass='false'>
       <classpath refid='module.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/telemetry/json/**'/>
-      <include name='org/bluezoo/gumdrop/telemetry/export/**'/>
       <include name='org/bluezoo/gumdrop/telemetry/otlp/**'/>
     </javac>
     <copy todir='${build.telemetry}'>
       <fileset dir='${src}'>
         <include name='org/bluezoo/gumdrop/telemetry/json/**'/>
-        <include name='org/bluezoo/gumdrop/telemetry/export/**'/>
         <exclude name='**/*.java'/>
       </fileset>
-      <fileset dir='${ant.services}/telemetry' includes='META-INF/**'/>
     </copy>
   </target>
 

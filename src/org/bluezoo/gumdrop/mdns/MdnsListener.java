@@ -47,6 +47,7 @@ import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.mdns.server.MdnsServer;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * UDP multicast transport listener for multicast DNS (RFC 6762).
@@ -68,6 +69,14 @@ public class MdnsListener extends Listener {
 
     private static final Logger LOGGER =
             Logger.getLogger(MdnsListener.class.getName());
+
+    private EventLogger events() {
+        return eventTelemetry().getLogger(MdnsListener.class, MdnsServer.L10N);
+    }
+
+    private EventLogger eventsL10n() {
+        return eventTelemetry().getLogger(MdnsListener.class, L10N);
+    }
 
     static final int DEFAULT_PORT = 5353;
 
@@ -137,7 +146,6 @@ public class MdnsListener extends Listener {
         return this;
     }
 
-
     @Override
     public String getDescription() {
         return "mdns";
@@ -197,8 +205,7 @@ public class MdnsListener extends Listener {
             endpoint = transportFactory.createServerEndpoint(
                     gumdrop, channel, datagramHandler);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, MessageFormat.format(
-                    MdnsServer.L10N.getString("log.mdns_bind_failed"), port), e);
+            events().error("log.mdns_bind_failed").attr("port", port).thrown(e).emit();
         }
     }
 
@@ -223,8 +230,7 @@ public class MdnsListener extends Listener {
 
         int joined = joinAllInterfaces(channel);
         if (joined == 0) {
-            LOGGER.warning(MdnsServer.L10N.getString(
-                    "warn.mdns_no_multicast_interface"));
+            events().warn("warn.mdns_no_multicast_interface").emit();
         }
         return channel;
     }
@@ -286,9 +292,8 @@ public class MdnsListener extends Listener {
                 }
             } catch (IOException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    String msg = MessageFormat.format(MdnsServer.L10N.getString(
-                            "warn.mdns_join_failed"), ni.getName());
-                    LOGGER.log(Level.FINE, msg, e);
+                    LOGGER.log(Level.FINE, MessageFormat.format(MdnsServer.L10N.getString(
+                            "warn.mdns_join_failed"), ni.getName()), e);
                 }
             }
         }
@@ -458,7 +463,7 @@ public class MdnsListener extends Listener {
         @Override
         public void receive(ByteBuffer data) {
             if (server == null) {
-                LOGGER.warning(MdnsServer.L10N.getString("warn.mdns_no_service_set"));
+                events().warn("warn.mdns_no_service_set").emit();
                 return;
             }
             InetSocketAddress source =
@@ -478,7 +483,7 @@ public class MdnsListener extends Listener {
 
         @Override
         public void error(Exception cause) {
-            LOGGER.log(Level.WARNING, L10N.getString("log.mdns_endpoint_error"), cause);
+            eventsL10n().warn("log.mdns_endpoint_error").thrown(cause).emit();
         }
     }
 

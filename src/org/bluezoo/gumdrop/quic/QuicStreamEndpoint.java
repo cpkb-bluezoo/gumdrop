@@ -376,11 +376,6 @@ public final class QuicStreamEndpoint implements Endpoint, QlogSink {
     }
 
     @Override
-    public boolean isTelemetryEnabled() {
-        return connection.getEngine().isTelemetryEnabled();
-    }
-
-    @Override
     public TelemetryConfig getTelemetryConfig() {
         return connection.getEngine().getTelemetryConfig();
     }

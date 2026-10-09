@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.QlogAttributes;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
@@ -53,11 +54,25 @@ public class QuicLoopbackQlogTest {
     /** Keeps what reaches the telemetry pipeline. */
     static final class Capture implements TelemetryExporter {
         final List<LogRecord> records = new ArrayList<LogRecord>();
+        final boolean qlog;
         int others;
 
+        Capture() {
+            this(true);
+        }
+
+        Capture(boolean qlog) {
+            this.qlog = qlog;
+        }
+
         @Override
-        public boolean claimsChannel(String channel) {
-            return QlogAttributes.CHANNEL.equals(channel);
+        public boolean accepts(LogLevel level) {
+            return qlog && level == LogLevel.QLOG;
+        }
+
+        @Override
+        public boolean acceptsTraces() {
+            return false;
         }
 
         @Override
@@ -86,7 +101,7 @@ public class QuicLoopbackQlogTest {
         synchronized List<LogRecord> named(String vantage, String name) {
             List<LogRecord> result = new ArrayList<LogRecord>();
             for (LogRecord r : records) {
-                if (vantage.equals(attr(r, QlogAttributes.VANTAGE_POINT)) && name.equals(attr(r, QlogAttributes.NAME))) {
+                if (vantage.equals(attr(r, QlogAttributes.VANTAGE_POINT)) && name.equals(r.getKey())) {
                     result.add(r);
                 }
             }
@@ -110,13 +125,11 @@ public class QuicLoopbackQlogTest {
 
     private void connect(boolean qlog) throws Exception {
         lb = new QuicLoopback();
-        capture = new Capture();
+        capture = new Capture(qlog);
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(capture);
+        config.exporter(capture);
         lb.serverFactory.setTelemetryConfig(config);
         lb.clientFactory.setTelemetryConfig(config);
-        lb.serverFactory.setQlogEnabled(qlog);
-        lb.clientFactory.setQlogEnabled(qlog);
         lb.startFactories();
         server = new ConnCapture();
         lb.startServer(server);
@@ -140,9 +153,9 @@ public class QuicLoopbackQlogTest {
         connect(true);
         assertFalse(capture.records.isEmpty());
         for (LogRecord r : capture.records) {
-            assertEquals(QlogAttributes.CHANNEL, r.getChannel());
-            assertNotNull(attr(r, QlogAttributes.NAME));
-            assertTrue(attr(r, QlogAttributes.NAME).indexOf(':') > 0);
+            assertEquals(LogLevel.QLOG, r.getLevel());
+            assertNotNull(r.getKey());
+            assertTrue(r.getKey().indexOf(':') > 0);
             assertEquals(QlogAttributes.SCHEMA_QUIC, attr(r, QlogAttributes.SCHEMA));
             String vantage = attr(r, QlogAttributes.VANTAGE_POINT);
             assertTrue(vantage.equals("client") || vantage.equals("server"));

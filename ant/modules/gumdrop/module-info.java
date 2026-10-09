@@ -102,7 +102,6 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.otlp;
     exports org.bluezoo.gumdrop.telemetry.json;
-    exports org.bluezoo.gumdrop.telemetry.export;
     exports org.bluezoo.gumdrop.grpc;
     exports org.bluezoo.gumdrop.grpc.client;
     exports org.bluezoo.gumdrop.grpc.server;
@@ -122,11 +121,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.webdav.server;
 
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
-    uses org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;
 
     provides org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle
         with org.bluezoo.gumdrop.mailbox.DefaultMailboxLifecycle;
-    provides org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory
-        with org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory,
-              org.bluezoo.gumdrop.telemetry.export.QlogExporterFactory;
 }

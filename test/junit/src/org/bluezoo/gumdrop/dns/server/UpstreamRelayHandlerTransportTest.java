@@ -188,7 +188,7 @@ public class UpstreamRelayHandlerTransportTest {
     @Test
     public void testUdpAnswerRestoresClientIdAndRecordsMetrics() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         handler.setMetrics(new DnsServerMetrics(tc));
         handler.setUpstreamServers("192.0.2.1:5300");
         Capture c = ask("www.example.com");
@@ -244,7 +244,7 @@ public class UpstreamRelayHandlerTransportTest {
     public void testBadUpstreamResponsesFallThroughToNextServer() throws Exception {
         handler.setUpstreamServers("192.0.2.1 192.0.2.2 192.0.2.3 192.0.2.4 192.0.2.5");
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         handler.setMetrics(new DnsServerMetrics(tc));
         Capture c = ask("www.example.com");
 

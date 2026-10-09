@@ -70,7 +70,6 @@ abstract class HttpConnectionLike {
     abstract TelemetryConfig getTelemetryConfig();
     abstract Trace getTrace();
     abstract void setTrace(Trace trace);
-    abstract boolean isTelemetryEnabled();
     abstract HttpServerMetrics getServerMetrics();
     abstract boolean isEnablePush();
     abstract Stream newStream(HttpConnectionLike connection, int streamId);

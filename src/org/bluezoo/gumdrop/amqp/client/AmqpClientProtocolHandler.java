@@ -44,7 +44,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -77,6 +76,8 @@ import org.bluezoo.gumdrop.amqp.client.TxRollbackHandler;
 import org.bluezoo.gumdrop.amqp.client.TxSelectHandler;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * AMQP 0-9-1 client protocol handler (issue #154).
@@ -101,6 +102,10 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
 
     private static final Logger LOGGER =
             Logger.getLogger(AmqpClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(AmqpClientProtocolHandler.class, L10N);
+    }
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.amqp.client.L10N");
 
@@ -256,7 +261,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
     public void headerFrame(int channel, ByteBuffer payload) {
         ChannelImpl ch = channels.get(channel);
         if (ch == null) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.header_frame_unknown_channel"), channel);
+            events().warn("warn.header_frame_unknown_channel").attr("channel", channel).emit();
             return;
         }
         try {
@@ -270,7 +275,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
     public void bodyFrame(int channel, ByteBuffer payload) {
         ChannelImpl ch = channels.get(channel);
         if (ch == null) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.body_frame_unknown_channel"), channel);
+            events().warn("warn.body_frame_unknown_channel").attr("channel", channel).emit();
             return;
         }
         try {

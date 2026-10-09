@@ -215,6 +215,9 @@ public class Http2Listener extends TcpListener {
 
     public void start() {
         super.start();
+        if (authenticationProvider != null) {
+            authenticationProvider.attach(getTelemetryConfig());
+        }
         if (port < 0) {
             port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
         }
@@ -344,6 +347,9 @@ public class Http2Listener extends TcpListener {
     public void setAuthenticationProvider(
             HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
+        if (provider != null) {
+            provider.attach(getTelemetryConfig());
+        }
     }
 
     /**

@@ -1,5 +1,5 @@
 /*
- * package-info.java
+ * StubTelemetry.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,17 +19,24 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+package org.bluezoo.gumdrop.testsupport;
+
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 /**
- * OTEL SPI implementation.
- *
- * <p>{@link org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory}
- * picks OTLP/HTTP, OTLP/gRPC ({@link org.bluezoo.gumdrop.telemetry.otlp}),
- * or JSONL file export ({@link org.bluezoo.gumdrop.telemetry.json})
- * according to {@link org.bluezoo.gumdrop.telemetry.TelemetryConfig}'s
- * configured exporter type, or returns {@code null} when no export is
- * configured.
+ * The telemetry configuration a stub {@link org.bluezoo.gumdrop.Endpoint}
+ * returns when a test has not given it one: the default, whose exporter
+ * prints log events through {@code java.util.logging} and takes nothing
+ * else. An endpoint's configuration is never null.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory
  */
-package org.bluezoo.gumdrop.telemetry.export;
+public final class StubTelemetry {
+
+    /** The shared default configuration. */
+    public static final TelemetryConfig CONFIG = new TelemetryConfig();
+
+    private StubTelemetry() {
+    }
+
+}

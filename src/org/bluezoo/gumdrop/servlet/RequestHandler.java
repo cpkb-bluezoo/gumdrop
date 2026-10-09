@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.io.IOException;
 import java.net.URI;
 import java.nio.channels.ClosedChannelException;
@@ -41,6 +44,11 @@ import jakarta.servlet.http.HttpSession;
 public class RequestHandler implements Runnable {
 
     final ServletHandler handler;
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = handler != null ? handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(RequestHandler.class, Context.L10N);
+    }
     final Container container;
 
     public RequestHandler(ServletHandler handler, Container container) {
@@ -77,7 +85,7 @@ public class RequestHandler implements Runnable {
                 }
             }
         } catch (Exception e) {
-            Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+            events().error("err.request_processing_failed").thrown(e).emit();
         } finally {
             Thread.currentThread().setContextClassLoader(loader);
 
@@ -91,7 +99,7 @@ public class RequestHandler implements Runnable {
                 } catch (ClosedChannelException e) {
                     // ignore
                 } catch (IOException e) {
-                    Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                    events().error("err.response_completion_failed").thrown(e).emit();
                 }
             } else {
                 handler.publishApplicationPrincipal(request);
@@ -106,7 +114,7 @@ public class RequestHandler implements Runnable {
                 l.requestInitialized(event);
             }
         } catch (Exception e) {
-            Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+            events().error("err.request_initialized_listener_failed").thrown(e).emit();
         }
     }
 
@@ -117,7 +125,7 @@ public class RequestHandler implements Runnable {
                 l.requestDestroyed(event);
             }
         } catch (Exception e) {
-            Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+            events().error("err.request_destroyed_listener_failed").thrown(e).emit();
         }
     }
 

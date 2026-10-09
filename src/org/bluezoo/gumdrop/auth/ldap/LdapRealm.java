@@ -39,7 +39,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.security.auth.x500.X500Principal;
@@ -63,6 +62,8 @@ import org.bluezoo.gumdrop.ldap.client.SearchRequest;
 import org.bluezoo.gumdrop.ldap.client.SearchResultEntry;
 import org.bluezoo.gumdrop.ldap.client.SearchResultHandler;
 import org.bluezoo.gumdrop.ldap.client.SearchScope;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * LDAP-backed Realm for authenticating users against a directory server.
@@ -113,6 +114,10 @@ public class LdapRealm implements Realm {
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N",
                 org.bluezoo.gumdrop.auth.Realm.class.getModule());
     private static final Logger LOGGER = Logger.getLogger(LdapRealm.class.getName());
+
+    private EventLogger events() {
+        return (selectorLoop != null ? selectorLoop.getTelemetryConfig() : new TelemetryConfig()).getLogger(LdapRealm.class, L10N);
+    }
 
     /** Default timeout for LDAP operations in seconds. */
     private static final int DEFAULT_TIMEOUT = 30;
@@ -334,8 +339,7 @@ public class LdapRealm implements Realm {
             // Now try to bind as the user
             return attemptBind(userDN, password);
         } catch (Exception e) {
-            String msg = MessageFormat.format(L10N.getString("warn.ldap_auth_error"), username);
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("warn.ldap_auth_error").attr("username", username).thrown(e).emit();
             return false;
         }
     }
@@ -361,8 +365,7 @@ public class LdapRealm implements Realm {
         try {
             return checkUserRole(username, role);
         } catch (Exception e) {
-            String msg = MessageFormat.format(L10N.getString("warn.ldap_role_error"), username);
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("warn.ldap_role_error").attr("username", username).thrown(e).emit();
             return false;
         }
     }
@@ -376,8 +379,7 @@ public class LdapRealm implements Realm {
         try {
             return findUserDN(username) != null;
         } catch (Exception e) {
-            String msg = MessageFormat.format(L10N.getString("warn.ldap_user_error"), username);
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("warn.ldap_user_error").attr("username", username).thrown(e).emit();
             return false;
         }
     }
@@ -403,8 +405,7 @@ public class LdapRealm implements Realm {
             }
             return CertificateAuthenticationResult.failure();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.certificate_authentication_error"), e);
+            events().warn("warn.certificate_authentication_error").thrown(e).emit();
             return CertificateAuthenticationResult.failure();
         }
     }
@@ -677,7 +678,7 @@ public class LdapRealm implements Realm {
     private String findUserBySubjectDN(X509Certificate certificate)
             throws Exception {
         if (certSubjectFilter == null) {
-            LOGGER.warning(L10N.getString("warn.cert_subject_filter_not_configured"));
+            events().warn("warn.cert_subject_filter_not_configured").emit();
             return null;
         }
 

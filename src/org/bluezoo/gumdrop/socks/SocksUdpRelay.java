@@ -38,6 +38,8 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
@@ -72,6 +74,10 @@ class SocksUdpRelay {
 
     private static final Logger LOGGER =
             Logger.getLogger(SocksUdpRelay.class.getName());
+
+    private EventLogger events() {
+        return (selectorLoop != null ? selectorLoop.getTelemetryConfig() : new TelemetryConfig()).getLogger(SocksUdpRelay.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -302,8 +308,7 @@ class SocksUdpRelay {
         @Override
         public void error(Exception cause) {
             if (!closed) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.connection_error"), cause);
+                events().warn("log.connection_error").thrown(cause).emit();
                 close();
             }
         }
@@ -367,8 +372,7 @@ class SocksUdpRelay {
         @Override
         public void error(Exception cause) {
             if (!closed) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.connection_error"), cause);
+                events().warn("log.connection_error").thrown(cause).emit();
                 close();
             }
         }

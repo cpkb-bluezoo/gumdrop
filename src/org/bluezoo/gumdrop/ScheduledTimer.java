@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -187,7 +190,7 @@ public final class ScheduledTimer implements Runnable {
                 try {
                     dispatchTimer(toDispatch);
                 } catch (RuntimeException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("log.uncaught_exception_from_timer_callback"), e);
+                    events(toDispatch).warn("log.uncaught_exception_from_timer_callback").thrown(e).emit();
                 }
                 toDispatch = null;
             }
@@ -197,6 +200,24 @@ public final class ScheduledTimer implements Runnable {
             LOGGER.fine(L10N.getString("log.scheduledtimer_shutdown"));
         }
     }
+
+    // Events go where the callback's loop sends its own; a callback
+    // with no loop, as in tests, gets this timer's own configuration.
+    private synchronized EventLogger events(TimerEntry entry) {
+        SelectorLoop loop = entry.handler != null ? entry.handler.getSelectorLoop() : null;
+        TelemetryConfig telemetry;
+        if (loop != null) {
+            telemetry = loop.getTelemetryConfig();
+        } else {
+            if (standaloneTelemetry == null) {
+                standaloneTelemetry = new TelemetryConfig();
+            }
+            telemetry = standaloneTelemetry;
+        }
+        return telemetry.getLogger(ScheduledTimer.class, L10N);
+    }
+
+    private TelemetryConfig standaloneTelemetry;
 
     /**
      * Dispatches a timer callback to the handler's SelectorLoop.

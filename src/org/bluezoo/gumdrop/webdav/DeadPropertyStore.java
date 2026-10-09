@@ -25,6 +25,9 @@ import org.bluezoo.gonzalez.XMLWriter;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.util.AsyncFile;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -69,6 +72,10 @@ public final class DeadPropertyStore {
 
     private static final Logger LOGGER =
             Logger.getLogger(DeadPropertyStore.class.getName());
+
+    private EventLogger events() {
+        return (gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig()).getLogger(DeadPropertyStore.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
@@ -240,8 +247,7 @@ public final class DeadPropertyStore {
 
                     @Override
                     public void onError(String error) {
-                        LOGGER.warning(MessageFormat.format(
-                                L10N.getString("warn.sidecar_read_failed"), error));
+                        events().warn("warn.sidecar_read_failed").attr("error", error).emit();
                         callback.onProperties(merged);
                     }
                 });
@@ -424,8 +430,7 @@ public final class DeadPropertyStore {
                             prop.getLocalName(), prop.getValue(), prop.isXML());
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.xattr_copy_failed"), source), e);
+                events().warn("warn.xattr_copy_failed").attr("source", String.valueOf(source)).thrown(e).emit();
             }
         }
         boolean srcIsDir = Files.isDirectory(source);
@@ -442,8 +447,9 @@ public final class DeadPropertyStore {
                 Files.deleteIfExists(dstSidecar);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.sidecar_copy_failed"), srcSidecar), e);
+            events().warn("warn.sidecar_copy_failed")
+                    .attr("src_sidecar", String.valueOf(srcSidecar))
+                    .thrown(e).emit();
         }
     }
 
@@ -463,8 +469,7 @@ public final class DeadPropertyStore {
         try {
             Files.deleteIfExists(sidecar);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.sidecar_delete_failed"), sidecar), e);
+            events().warn("warn.sidecar_delete_failed").attr("sidecar", String.valueOf(sidecar)).thrown(e).emit();
         }
     }
 

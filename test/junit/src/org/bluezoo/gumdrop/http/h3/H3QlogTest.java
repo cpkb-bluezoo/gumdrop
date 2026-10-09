@@ -57,7 +57,7 @@ public class H3QlogTest {
     private static QuicConnection connection(boolean server) {
         capture = new QlogCapture();
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setExporter(capture);
+        tc.exporter(capture);
         return QuicConnectionTestFactory.create(server, tc);
     }
 

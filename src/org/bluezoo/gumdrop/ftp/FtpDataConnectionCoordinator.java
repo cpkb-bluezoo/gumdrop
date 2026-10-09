@@ -56,6 +56,8 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Coordinates FTP data connections as specified in RFC 959 sections 3.2–3.3.
@@ -79,6 +81,12 @@ import org.bluezoo.gumdrop.TransportFactory;
 public class FtpDataConnectionCoordinator {
     
     private static final Logger LOGGER = Logger.getLogger(FtpDataConnectionCoordinator.class.getName());
+
+    private EventLogger events() {
+        FtpListener listener = controlConnection.getServer();
+        TelemetryConfig telemetry = listener != null ? listener.getTelemetryConfig() : null;
+        return (telemetry != null ? telemetry : new TelemetryConfig()).getLogger(FtpDataConnectionCoordinator.class, FtpProtocolHandler.L10N);
+    }
     
     /** Buffer size for file transfers (32KB for optimal performance) */
     private static final int TRANSFER_BUFFER_SIZE = 32 * 1024;
@@ -253,11 +261,9 @@ public class FtpDataConnectionCoordinator {
         try {
             InetAddress dataAddress = InetAddress.getByName(host);
             if (!isActiveDataAddressAllowed(dataAddress)) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            FtpProtocolHandler.L10N.getString("warn.active_mode_address_mismatch"),
-                            dataAddress, controlClientAddress));
-                }
+                events().warn("warn.active_mode_address_mismatch")
+                        .attr("data_address", String.valueOf(dataAddress))
+                        .attr("control_client_address", String.valueOf(controlClientAddress)).emit();
                 return false;
             }
         } catch (UnknownHostException e) {
@@ -343,15 +349,15 @@ public class FtpDataConnectionCoordinator {
                 SocketChannel sc = dataConnection.getChannel();
                 InetAddress dataAddr = ((InetSocketAddress) sc.getRemoteAddress()).getAddress();
                 if (!controlClientAddress.equals(dataAddr)) {
-                    LOGGER.warning(MessageFormat.format(
-                            FtpProtocolHandler.L10N.getString("warn.data_connection_address_mismatch"),
-                            dataAddr, controlClientAddress));
+                    events().warn("warn.data_connection_address_mismatch")
+                            .attr("data_addr", String.valueOf(dataAddr))
+                            .attr("control_client_address", String.valueOf(controlClientAddress)).emit();
                     dataConnection.close();
                     return;
                 }
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.err_accepting_data_connection"), e);
+            events().warn("warn.err_accepting_data_connection").thrown(e).emit();
             try {
                 dataConnection.close();
             } catch (Exception closeEx) {
@@ -408,7 +414,7 @@ public class FtpDataConnectionCoordinator {
             try {
                 activeDataConnection.close();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.err_closing_data_on_abort"), e);
+                events().warn("warn.err_closing_data_on_abort").thrown(e).emit();
             }
         }
         cleanup();
@@ -633,7 +639,7 @@ public class FtpDataConnectionCoordinator {
         try {
             continuation.ready(connection);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_data_transfer_setup_failed"), e);
+            events().warn("warn.ftp_data_transfer_setup_failed").thrown(e).emit();
             cleanup();
             callback.transferFailed(e);
         }
@@ -771,7 +777,7 @@ public class FtpDataConnectionCoordinator {
             waitingContinuation = null;
             connectionTimeout = null;
         }
-        LOGGER.warning(FtpProtocolHandler.L10N.getString("warn.data_connection_timeout"));
+        events().warn("warn.data_connection_timeout").emit();
         cleanup();
         callback.transferFailed(
                 new IOException("Timeout waiting for client data connection"));
@@ -865,8 +871,7 @@ public class FtpDataConnectionCoordinator {
                     registerDownloadHandler(controlEndpoint, asyncChannel,
                             transfer, callback);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString("warn.ftp_download_registration_failed"), e);
+                    events().warn("warn.ftp_download_registration_failed").thrown(e).emit();
                     try {
                         asyncChannel.close();
                     } catch (IOException closeEx) {
@@ -886,7 +891,7 @@ public class FtpDataConnectionCoordinator {
                         ? (IOException) error
                         : new IOException("Failed to open file: "
                                 + transfer.getPath(), error);
-                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_download_open_failed"), e);
+                events().warn("warn.ftp_download_open_failed").thrown(e).emit();
                 cleanup();
                 callback.transferFailed(e);
             }
@@ -1026,8 +1031,7 @@ public class FtpDataConnectionCoordinator {
                     registerListingHandler(controlEndpoint, files,
                             transfer, callback);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString("warn.ftp_listing_registration_failed"), e);
+                    events().warn("warn.ftp_listing_registration_failed").thrown(e).emit();
                     cleanup();
                     callback.transferFailed(e);
                 }
@@ -1039,7 +1043,7 @@ public class FtpDataConnectionCoordinator {
                         ? (IOException) error
                         : new IOException("Failed to list directory: "
                                 + transfer.getPath(), error);
-                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_listing_failed"), e);
+                events().warn("warn.ftp_listing_failed").thrown(e).emit();
                 cleanup();
                 callback.transferFailed(e);
             }
@@ -1193,8 +1197,7 @@ public class FtpDataConnectionCoordinator {
                     registerUploadHandler(controlEndpoint, openResult,
                             transfer, callback);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString("warn.ftp_upload_registration_failed"), e);
+                    events().warn("warn.ftp_upload_registration_failed").thrown(e).emit();
                     try {
                         openResult.channel.close();
                     } catch (IOException closeEx) {
@@ -1214,7 +1217,7 @@ public class FtpDataConnectionCoordinator {
                         ? (IOException) error
                         : new IOException("Failed to open file for upload",
                                 error);
-                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_upload_open_failed"), e);
+                events().warn("warn.ftp_upload_open_failed").thrown(e).emit();
                 cleanup();
                 callback.transferFailed(e);
             }
@@ -1501,7 +1504,7 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void error(Exception e) {
-            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.data_connection_error_listing"), e);
+            events().warn("warn.data_connection_error_listing").thrown(e).emit();
             dataEndpoint.close();
             callback.transferFailed(
                     e instanceof IOException
@@ -1595,8 +1598,7 @@ public class FtpDataConnectionCoordinator {
                         @Override
                         public void failed(Throwable exc, Void attachment) {
                             ByteBufferPool.release(buf);
-                            LOGGER.log(Level.WARNING,
-                                    FtpProtocolHandler.L10N.getString("warn.async_file_read_failed"), exc);
+                            events().warn("warn.async_file_read_failed").thrown(exc).emit();
                             dataEndpoint.execute(new Runnable() {
                                 @Override
                                 public void run() {
@@ -1620,8 +1622,7 @@ public class FtpDataConnectionCoordinator {
                 try {
                     asyncChannel.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString("warn.err_closing_async_file_channel"), e);
+                    events().warn("warn.err_closing_async_file_channel").thrown(e).emit();
                 }
             }
         }
@@ -1663,7 +1664,7 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void error(Exception e) {
-            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.data_connection_error"), e);
+            events().warn("warn.data_connection_error").thrown(e).emit();
             closeChannels();
             if (e instanceof IOException) {
                 callback.transferFailed((IOException) e);
@@ -1790,8 +1791,7 @@ public class FtpDataConnectionCoordinator {
                         public void failed(Throwable exc, Void attachment) {
                             ByteBufferPool.release(buf);
                             writeInFlight = false;
-                            LOGGER.log(Level.WARNING,
-                                    FtpProtocolHandler.L10N.getString("warn.async_file_write_failed"), exc);
+                            events().warn("warn.async_file_write_failed").thrown(exc).emit();
                             dataEndpoint.execute(new Runnable() {
                                 @Override
                                 public void run() {
@@ -1870,7 +1870,7 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void error(Exception e) {
-            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.data_connection_error"), e);
+            events().warn("warn.data_connection_error").thrown(e).emit();
             closeChannels();
             if (e instanceof IOException) {
                 callback.transferFailed((IOException) e);
@@ -1894,8 +1894,7 @@ public class FtpDataConnectionCoordinator {
                 try {
                     asyncChannel.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            FtpProtocolHandler.L10N.getString("warn.err_closing_async_file_channel"), e);
+                    events().warn("warn.err_closing_async_file_channel").thrown(e).emit();
                 }
             }
         }

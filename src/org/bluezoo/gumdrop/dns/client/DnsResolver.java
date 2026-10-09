@@ -64,6 +64,8 @@ import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandler;
 import org.bluezoo.gumdrop.util.JulWarnings;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Asynchronous DNS stub resolver using non-blocking I/O.
@@ -129,6 +131,10 @@ import org.bluezoo.gumdrop.util.JulWarnings;
 public class DnsResolver {
 
     private static final Logger LOGGER = Logger.getLogger(DnsResolver.class.getName());
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(DnsResolver.class, L10N);
+    }
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -256,6 +262,23 @@ public class DnsResolver {
     // rather than failing because it is not open (see forLoop).
     private boolean openOnFirstQuery;
     private SelectorLoop selectorLoop;
+    private TelemetryConfig standaloneTelemetry;
+
+    /**
+     * Returns the telemetry configuration this resolver's events go to: its
+     * loop's, else one of its own, which prints events through
+     * {@code java.util.logging}. Never null.
+     */
+    synchronized TelemetryConfig getTelemetryConfig() {
+        SelectorLoop loop = selectorLoop;
+        if (loop != null) {
+            return loop.getTelemetryConfig();
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
+    }
 
     /** RFC 7873: DNS cookie manager for source address verification. */
     private final DnsCookie dnsCookie = new DnsCookie();
@@ -1021,7 +1044,7 @@ public class DnsResolver {
      */
     public void resolve(String hostname, final ResolveCallback callback) {
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info(MessageFormat.format(L10N.getString("info.dns_resolve"), hostname));
+            events().info("info.dns_resolve").attr("hostname", hostname).emit();
         }
         if (hostname == null || hostname.isEmpty()) {
             callback.onError("Empty hostname");
@@ -1033,7 +1056,7 @@ public class DnsResolver {
         InetAddress literalV4 = HostsFile.parseLiteralIPv4(hostname);
         if (literalV4 != null) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info(MessageFormat.format(L10N.getString("info.dns_literal_v4"), literalV4));
+                events().info("info.dns_literal_v4").attr("literal_v4", String.valueOf(literalV4)).emit();
             }
             deliverResolved(Collections.singletonList(literalV4), callback);
             return;
@@ -1041,7 +1064,7 @@ public class DnsResolver {
         InetAddress literalV6 = HostsFile.parseLiteralIPv6(hostname);
         if (literalV6 != null) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info(MessageFormat.format(L10N.getString("info.dns_literal_v6"), literalV6));
+                events().info("info.dns_literal_v6").attr("literal_v6", String.valueOf(literalV6)).emit();
             }
             deliverResolved(Collections.singletonList(literalV6), callback);
             return;
@@ -1051,7 +1074,7 @@ public class DnsResolver {
         List<InetAddress> hostsResult = HostsFile.lookup(hostname);
         if (hostsResult != null && !hostsResult.isEmpty()) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info(MessageFormat.format(L10N.getString("info.dns_hosts_file"), hostsResult));
+                events().info("info.dns_hosts_file").attr("hosts_result", String.valueOf(hostsResult)).emit();
             }
             deliverResolved(hostsResult, callback);
             return;
@@ -1074,7 +1097,7 @@ public class DnsResolver {
             }
             if (!localhost.isEmpty()) {
                 if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                    LOGGER.info(MessageFormat.format(L10N.getString("info.dns_builtin_localhost"), localhost));
+                    events().info("info.dns_builtin_localhost").attr("localhost", String.valueOf(localhost)).emit();
                 }
                 deliverResolved(localhost, callback);
                 return;
@@ -1085,7 +1108,7 @@ public class DnsResolver {
         // 10029 where the server supports it; two round trips joined
         // client-side otherwise -- queryBatch hides the difference).
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info(MessageFormat.format(L10N.getString("info.dns_query_fallthrough"), hostname));
+            events().info("info.dns_query_fallthrough").attr("hostname", hostname).emit();
         }
         final String finalHostname = hostname;
         final List<InetAddress> v6Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
@@ -1131,15 +1154,16 @@ public class DnsResolver {
     private void deliverResolved(final List<InetAddress> result,
                                  final ResolveCallback callback) {
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info(MessageFormat.format(L10N.getString("info.dns_deliver_resolved"),
-                    result, selectorLoop != null));
+            events().info("info.dns_deliver_resolved")
+                    .attr("result", String.valueOf(result))
+                    .attr("has_loop", selectorLoop != null).emit();
         }
         if (selectorLoop != null) {
             selectorLoop.invokeLater(new Runnable() {
                 @Override
                 public void run() {
                     if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                        LOGGER.info(L10N.getString("info.dns_invoking_callback"));
+                        events().info("info.dns_invoking_callback").emit();
                     }
                     callback.onResolved(result);
                 }
@@ -1169,7 +1193,7 @@ public class DnsResolver {
             try {
                 open();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.resolver_open_failed"), e);
+                events().warn("warn.resolver_open_failed").thrown(e).emit();
                 callback.onError(String.valueOf(e.getMessage()));
                 return;
             }
@@ -1763,8 +1787,9 @@ public class DnsResolver {
                 }
                 deliverResponse(pending, tcpResponse);
             } catch (DnsFormatException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.tcp_retry_parse_error"), pending.name), e);
+                events().warn("warn.tcp_retry_parse_error")
+                        .attr("name", pending.name)
+                        .thrown(e).emit();
                 deliverResponse(pending, truncatedResponse);
             }
             transport.close();
@@ -2298,8 +2323,7 @@ public class DnsResolver {
                 DnsMessage response = DnsMessage.parse(data);
                 handleResponse(response, serverIndex);
             } catch (DnsFormatException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("err.malformed_response"), e);
+                events().warn("err.malformed_response").thrown(e).emit();
             }
         }
 

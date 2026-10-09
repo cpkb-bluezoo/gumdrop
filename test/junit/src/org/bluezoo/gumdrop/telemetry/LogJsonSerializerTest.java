@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -32,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.telemetry.json.LogJsonSerializer;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 /**
  * Tests for LogJsonSerializer.
@@ -42,7 +45,7 @@ public class LogJsonSerializerTest {
 
     @Test
     public void testSerializeSingleLog() throws IOException {
-        LogRecord record = new LogRecord(LogRecord.SEVERITY_INFO, "Test message");
+        LogRecord record = new LogRecord(LogLevel.INFO, "info.test").body("Test message");
 
         String json = serializeLog(record, "test-service");
 
@@ -57,7 +60,7 @@ public class LogJsonSerializerTest {
     public void testSerializeLogWithSpanContext() throws IOException {
         Trace trace = new Trace("test-op", SpanKind.SERVER);
         Span span = trace.getRootSpan();
-        LogRecord record = LogRecord.info(span, "Correlated log");
+        LogRecord record = new LogRecord(LogLevel.INFO, "info.test").body("Correlated log").span(span);
 
         String json = serializeLog(record, "test-service");
 
@@ -67,8 +70,8 @@ public class LogJsonSerializerTest {
 
     @Test
     public void testSerializeLogWithAttributes() throws IOException {
-        LogRecord record = new LogRecord(LogRecord.SEVERITY_WARN, "Warning message");
-        record.addAttribute("request.id", "abc-123");
+        LogRecord record = new LogRecord(LogLevel.WARN, "warn.test").body("Warning message");
+        record.attr("request.id", "abc-123");
 
         String json = serializeLog(record, "test-service");
 
@@ -80,8 +83,8 @@ public class LogJsonSerializerTest {
     @Test
     public void testSerializeLogBatch() throws IOException {
         List<LogRecord> records = new ArrayList<LogRecord>();
-        records.add(new LogRecord(LogRecord.SEVERITY_INFO, "Message 1"));
-        records.add(new LogRecord(LogRecord.SEVERITY_ERROR, "Message 2"));
+        records.add(new LogRecord(LogLevel.INFO, "info.test").body("Message 1"));
+        records.add(new LogRecord(LogLevel.ERROR, "err.test").body("Message 2"));
 
         LogJsonSerializer serializer = new LogJsonSerializer("test-service");
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -95,7 +98,7 @@ public class LogJsonSerializerTest {
 
     @Test
     public void testLogTimestampsAreStrings() throws IOException {
-        LogRecord record = new LogRecord(LogRecord.SEVERITY_INFO, "Timestamp test");
+        LogRecord record = new LogRecord(LogLevel.INFO, "info.test").body("Timestamp test");
 
         String json = serializeLog(record, "test-service");
 
@@ -103,6 +106,64 @@ public class LogJsonSerializerTest {
                 json.contains("\"timeUnixNano\":\""));
         assertTrue("observedTimeUnixNano should be a string",
                 json.contains("\"observedTimeUnixNano\":\""));
+    }
+
+    @Test
+    public void eventNameAndScopeComeFromTheRecord() throws IOException {
+        TelemetryConfig config = new TelemetryConfig();
+        RecordingExporter exporter = new RecordingExporter();
+        config.exporter(exporter);
+        config.getLogger(LogJsonSerializerTest.class, EventLoggerTest.BUNDLE)
+                .warn("warn.thing").attr("uri", "/x").emit();
+        String json = serializeLog(exporter.records.get(0), "svc");
+        assertTrue(json, json.contains("\"eventName\":\"warn.thing\""));
+        assertTrue(json, json.contains("\"name\":\"" + LogJsonSerializerTest.class.getName() + "\""));
+        assertTrue(json, json.contains("\"uri\""));
+        assertFalse(json, json.contains("\"body\""));
+        // a record built outside a logger is the server's own
+        String plain = serializeLog(new LogRecord(LogLevel.ACCESS, "http.server.request"), "svc");
+        assertTrue(plain, plain.contains("\"name\":\"gumdrop\""));
+        assertTrue(plain, plain.contains("\"eventName\":\"http.server.request\""));
+    }
+
+    @Test
+    public void recordsAreGroupedByScope() throws IOException {
+        TelemetryConfig config = new TelemetryConfig();
+        RecordingExporter exporter = new RecordingExporter();
+        config.exporter(exporter);
+        config.getLogger(LogJsonSerializerTest.class, EventLoggerTest.BUNDLE).info("a").emit();
+        config.getLogger(LogRecordTest.class, EventLoggerTest.BUNDLE).info("b").emit();
+        config.getLogger(LogJsonSerializerTest.class, EventLoggerTest.BUNDLE).info("c").emit();
+        LogJsonSerializer serializer = new LogJsonSerializer("svc");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        serializer.serialize(exporter.records, Channels.newChannel(out));
+        String json = out.toString("UTF-8");
+        int first = json.indexOf("\"name\":\"" + LogJsonSerializerTest.class.getName());
+        int second = json.indexOf("\"name\":\"" + LogRecordTest.class.getName());
+        assertTrue(first >= 0 && second > first);
+        // two scopes, so two scope entries, and the first holds a and c
+        assertEquals(2, json.split("\"scope\":").length - 1);
+        assertTrue(json.indexOf("\"eventName\":\"c\"") < second);
+    }
+
+    @Test
+    public void exceptionDetailsFollowTheSerializerPolicy() throws IOException {
+        LogRecord record = new LogRecord(LogLevel.ERROR, "err.thing").thrown(new IllegalStateException("secret"));
+        String terse = serialize(new LogJsonSerializer("svc", null, null, null, false), record);
+        assertTrue(terse, terse.contains("\"exception.type\""));
+        assertTrue(terse, terse.contains("IllegalStateException"));
+        assertFalse(terse, terse.contains("secret"));
+        assertFalse(terse, terse.contains("exception.stacktrace"));
+        String full = serialize(new LogJsonSerializer("svc", null, null, null, true), record);
+        assertTrue(full, full.contains("\"exception.message\""));
+        assertTrue(full, full.contains("secret"));
+        assertTrue(full, full.contains("\"exception.stacktrace\""));
+    }
+
+    private String serialize(LogJsonSerializer serializer, LogRecord record) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        serializer.serialize(record, Channels.newChannel(out));
+        return out.toString("UTF-8");
     }
 
     private String serializeLog(LogRecord record, String serviceName) throws IOException {

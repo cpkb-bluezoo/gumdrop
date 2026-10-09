@@ -43,6 +43,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * FTP client protocol handler implementing RFC 959 (FTP) control-connection
@@ -76,6 +78,12 @@ public final class FtpClientProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(FtpClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        // a handler that is not connected reports through a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(FtpClientProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
@@ -217,7 +225,7 @@ public final class FtpClientProtocolHandler
         if (dataCoordinator != null) {
             dataCoordinator.closeActiveListener();
         }
-        LOGGER.info(L10N.getString("client.info.connection_disconnected"));
+        events().info("client.info.connection_disconnected").emit();
         state = FtpState.CLOSED;
         handler.onDisconnected();
     }
@@ -295,7 +303,7 @@ public final class FtpClientProtocolHandler
         // file content flows over the separate data connection — so the
         // lexer never enters a raw escape and this is structurally
         // unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
+        events().warn("warn.unexpected_raw_bytes_client").emit();
     }
 
     @Override
@@ -303,7 +311,7 @@ public final class FtpClientProtocolHandler
         // FtpClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server —
         // so this is structurally unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
+        events().warn("warn.unexpected_token_too_long_client").emit();
     }
 
     private static String decodeAscii(ByteBuffer window) {
@@ -849,10 +857,10 @@ public final class FtpClientProtocolHandler
                 closeEndpoint();
                 break;
             default:
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.unexpected_response_in_state"), state, code, message));
-                }
+                events().warn("warn.unexpected_response_in_state")
+                        .attr("state", String.valueOf(state))
+                        .attr("code", code)
+                        .attr("message", message).emit();
         }
     }
 
@@ -1489,10 +1497,7 @@ public final class FtpClientProtocolHandler
     // ── Error handling ──
 
     private void handleError(FtpException error) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.ftp_client_error"), error.getMessage()));
-        }
+        events().warn("warn.ftp_client_error").attr("reason", error.getMessage()).emit();
         state = FtpState.ERROR;
         handler.onError(error);
     }

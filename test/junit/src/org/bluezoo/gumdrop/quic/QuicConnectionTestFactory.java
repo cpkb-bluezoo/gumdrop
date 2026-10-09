@@ -62,7 +62,6 @@ public final class QuicConnectionTestFactory {
         QuicTransportFactory transport = new QuicTransportFactory();
         if (telemetry != null) {
             transport.setTelemetryConfig(telemetry);
-            transport.setQlogEnabled(true);
         }
         QuicEngine engine = new QuicEngine(transport, true);
         engine.setSelectorLoop(new InlineSelectorLoop());

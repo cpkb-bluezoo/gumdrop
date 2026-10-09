@@ -40,6 +40,8 @@ import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -108,6 +110,12 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private static final Logger LOGGER = Logger.getLogger(FileHandler.class.getName());
+
+    private EventLogger events() {
+        SelectorLoop loop = response != null ? response.getSelectorLoop() : null;
+        TelemetryConfig telemetry = loop != null ? loop.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(FileHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
@@ -354,7 +362,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         try {
             processRequest(response);
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_file_request"), e);
+            events().error("severe.error_processing_file_request").thrown(e).emit();
             sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -374,15 +382,15 @@ class FileHandler extends DefaultHttpRequestHandler {
                 // declared Content-Length or transfer encoding.
                 if (!webdavBodyTooLarge) {
                     webdavBodyTooLarge = true;
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.request_body_too_large"), MAX_WEBDAV_REQUEST_BODY));
+                    events().warn("warn.request_body_too_large")
+                            .attr("max_bytes", MAX_WEBDAV_REQUEST_BODY).emit();
                 }
                 return;
             }
             try {
                 webdavParser.receive(data.duplicate());
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_parsing_webdav_request_body"), e);
+                events().warn("warn.error_parsing_webdav_request_body").thrown(e).emit();
             }
             return;
         }
@@ -432,7 +440,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable exc, ByteBuffer attachment) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_writing_request_body_to_file"), exc);
+                events().error("severe.error_writing_request_body_to_file").thrown(exc).emit();
                 closeWriteChannel();
                 ByteBufferPool.release(attachment);
                 response.execute(new Runnable() {
@@ -457,7 +465,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                 webdavParser.close();
                 finalizeWebDAVRequest(response);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_finalizing_webdav_request"), e);
+                events().warn("warn.error_finalizing_webdav_request").thrown(e).emit();
                 sendError(response, HttpStatus.BAD_REQUEST);
             }
             return;
@@ -604,7 +612,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_get_head"), error);
+                events().error("severe.error_processing_get_head").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -778,7 +786,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable exc, ByteBuffer attachment) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_reading_file"), exc);
+                events().error("severe.error_reading_file").thrown(exc).emit();
                 closeReadChannel();
                 ByteBufferPool.release(attachment);
                 response.execute(new Runnable() {
@@ -796,7 +804,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 asyncReadChannel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_read_channel"), e);
+                events().warn("warn.error_closing_read_channel").thrown(e).emit();
             }
             asyncReadChannel = null;
         }
@@ -856,7 +864,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_delete"), error);
+                events().error("severe.error_processing_delete").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -894,7 +902,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                     deadPropertyStore.deleteTree(path);
                 }
                 plan.status = HttpStatus.NO_CONTENT;
-                LOGGER.info(MessageFormat.format(L10N.getString("info.deleted_collection"), path));
+                events().info("info.deleted_collection").attr("path", String.valueOf(path)).emit();
             } else {
                 plan.multiStatus = errors;
             }
@@ -907,10 +915,9 @@ class FileHandler extends DefaultHttpRequestHandler {
                 deadPropertyStore.deleteProperties(path);
             }
             plan.status = HttpStatus.NO_CONTENT;
-            LOGGER.info(MessageFormat.format(L10N.getString("info.deleted_file"), path));
+            events().info("info.deleted_file").attr("path", String.valueOf(path)).emit();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.failed_delete_file"), path), e);
+            events().warn("warn.failed_delete_file").attr("path", String.valueOf(path)).thrown(e).emit();
             plan.status = HttpStatus.FORBIDDEN;
         }
         return plan;
@@ -922,7 +929,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 sendDeleteMultiStatus(response, plan.multiStatus);
             } catch (IOException e) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.delete_multi_status_error"), e);
+                events().error("severe.delete_multi_status_error").thrown(e).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
             return;
@@ -1063,7 +1070,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void failed(Throwable error) {
                 response.resumeRequestBody();
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_put"), error);
+                events().error("severe.error_processing_put").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1093,8 +1100,9 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 Files.createDirectories(parentDir);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.put_create_parent_dirs_failed"), path), e);
+                events().warn("warn.put_create_parent_dirs_failed")
+                        .attr("path", String.valueOf(path))
+                        .thrown(e).emit();
                 plan.error = HttpStatus.CONFLICT;
                 return plan;
             }
@@ -1106,8 +1114,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.put_open_file_failed"), path), e);
+            events().warn("warn.put_open_file_failed").attr("path", String.valueOf(path)).thrown(e).emit();
             plan.error = HttpStatus.FORBIDDEN;
         }
         return plan;
@@ -1139,7 +1146,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 asyncWriteChannel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_write_channel"), e);
+                events().warn("warn.error_closing_write_channel").thrown(e).emit();
             }
             asyncWriteChannel = null;
         }
@@ -1160,7 +1167,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         response.longHeader("Content-Length", 0);
         response.endMessage();
 
-        LOGGER.info(MessageFormat.format(L10N.getString("info.put_completed"), path));
+        events().info("info.put_completed").attr("path", String.valueOf(path)).emit();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1247,7 +1254,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             public void failed(Throwable error) {
                 pendingNoBodyAction = null;
                 response.resumeRequestBody();
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_preparing_proppatch"), error);
+                events().error("severe.error_preparing_proppatch").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1313,7 +1320,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_mkcol"), error);
+                events().error("severe.error_processing_mkcol").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1338,11 +1345,10 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
         try {
             Files.createDirectory(path);
-            LOGGER.info(MessageFormat.format(L10N.getString("info.created_collection"), path));
+            events().info("info.created_collection").attr("path", String.valueOf(path)).emit();
             return HttpStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.failed_create_collection"), path), e);
+            events().warn("warn.failed_create_collection").attr("path", String.valueOf(path)).thrown(e).emit();
             return HttpStatus.FORBIDDEN;
         }
     }
@@ -1367,7 +1373,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_copy"), error);
+                events().error("severe.error_processing_copy").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1416,11 +1422,12 @@ class FileHandler extends DefaultHttpRequestHandler {
                     deadPropertyStore.copyProperties(path, destPath);
                 }
             }
-            LOGGER.info(MessageFormat.format(L10N.getString("info.copied"), path, destPath));
+            events().info("info.copied")
+                    .attr("path", String.valueOf(path))
+                    .attr("dest_path", String.valueOf(destPath)).emit();
             return destExists ? HttpStatus.NO_CONTENT : HttpStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.failed_copy"), path), e);
+            events().warn("warn.failed_copy").attr("path", String.valueOf(path)).thrown(e).emit();
             return HttpStatus.FORBIDDEN;
         }
     }
@@ -1445,7 +1452,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_move"), error);
+                events().error("severe.error_processing_move").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1493,11 +1500,12 @@ class FileHandler extends DefaultHttpRequestHandler {
                 deadPropertyStore.moveProperties(path, destPath, srcIsDir);
             }
 
-            LOGGER.info(MessageFormat.format(L10N.getString("info.moved"), path, destPath));
+            events().info("info.moved")
+                    .attr("path", String.valueOf(path))
+                    .attr("dest_path", String.valueOf(destPath)).emit();
             return destExists ? HttpStatus.NO_CONTENT : HttpStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.failed_move"), path), e);
+            events().warn("warn.failed_move").attr("path", String.valueOf(path)).thrown(e).emit();
             return HttpStatus.FORBIDDEN;
         }
     }
@@ -1564,14 +1572,14 @@ class FileHandler extends DefaultHttpRequestHandler {
                     boolean isDir = requestPath != null && requestPath.endsWith("/");
                     sendLockResponse(response, refreshed, false, isDir);
                 } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE, L10N.getString("severe.lock_response_error"), e);
+                    events().error("severe.lock_response_error").thrown(e).emit();
                     sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
                 }
             }
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
+                events().error("severe.error_processing_lock").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1607,7 +1615,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                 if (unlocked.booleanValue()) {
                     response.status(HttpStatus.NO_CONTENT.code);
                     response.endMessage();
-                    LOGGER.info(MessageFormat.format(L10N.getString("info.unlocked"), path));
+                    events().info("info.unlocked").attr("path", String.valueOf(path)).emit();
                 } else {
                     sendError(response, HttpStatus.CONFLICT);
                 }
@@ -1615,7 +1623,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
+                events().error("severe.error_processing_lock").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1685,7 +1693,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_enumeration_error"), error);
+                events().error("severe.propfind_enumeration_error").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1827,7 +1835,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             response.bodyContent(ByteBuffer.wrap(body));
             response.endMessage();
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_response_error"), e);
+            events().error("severe.propfind_response_error").thrown(e).emit();
         }
     }
 
@@ -2319,7 +2327,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             response.bodyContent(ByteBuffer.wrap(body));
             response.endMessage();
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("severe.proppatch_response_error"), e);
+            events().error("severe.proppatch_response_error").thrown(e).emit();
         }
     }
 
@@ -2413,14 +2421,14 @@ class FileHandler extends DefaultHttpRequestHandler {
                     sendLockResponse(response, plan.lock, plan.created,
                             plan.isDirectory);
                 } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE, L10N.getString("severe.lock_response_error"), e);
+                    events().error("severe.lock_response_error").thrown(e).emit();
                     sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
                 }
             }
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
+                events().error("severe.error_processing_lock").thrown(error).emit();
                 sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -2507,7 +2515,9 @@ class FileHandler extends DefaultHttpRequestHandler {
         response.header(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
         response.bodyContent(ByteBuffer.wrap(body));
         response.endMessage();
-        LOGGER.info(MessageFormat.format(L10N.getString("info.locked"), path, lock.getToken()));
+        events().info("info.locked")
+                .attr("path", String.valueOf(path))
+                .attr("token", lock.getToken()).emit();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -2872,8 +2882,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             }
             if (Files.isSymbolicLink(childSource)
                     && !isSafeToFollowLink(childSource, guard.sources, guard.destination)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.copy_skipped_link"), childSource));
+                events().warn("warn.copy_skipped_link").attr("child_source", String.valueOf(childSource)).emit();
                 continue;
             }
             Path childTarget = target.resolve(childName);
@@ -3126,12 +3135,12 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
 
         if (requestPath.contains("\0")) {
-            LOGGER.warning(L10N.getString("warn.rejected_null_byte_path"));
+            events().warn("warn.rejected_null_byte_path").emit();
             return null;
         }
 
         if (requestPath.length() > 2048) {
-            LOGGER.warning(L10N.getString("warn.rejected_overly_long_path"));
+            events().warn("warn.rejected_overly_long_path").emit();
             return null;
         }
 
@@ -3171,8 +3180,8 @@ class FileHandler extends DefaultHttpRequestHandler {
                 }
 
                 if (isDangerousPathComponent(decodedComponent)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.rejected_dangerous_path_component"), decodedComponent));
+                    events().warn("warn.rejected_dangerous_path_component")
+                            .attr("decoded_component", decodedComponent).emit();
                     return null;
                 }
 

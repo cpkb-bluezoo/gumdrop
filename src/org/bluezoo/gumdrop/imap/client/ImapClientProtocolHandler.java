@@ -43,6 +43,8 @@ import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.Tokens;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.util.zip.DataFormatException;
 
@@ -90,6 +92,12 @@ public final class ImapClientProtocolHandler
     private static final Logger LOGGER =
             Logger.getLogger(
                     ImapClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ImapClientProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
@@ -232,8 +240,7 @@ public final class ImapClientProtocolHandler
                 lexer.feed(ByteBuffer.wrap(plain));
             }
         } catch (DataFormatException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.compress_inflate_failed"), e);
+            events().warn("warn.compress_inflate_failed").thrown(e).emit();
             handler.onError(new IOException("DEFLATE decompression failed", e));
             close();
         }
@@ -241,9 +248,7 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void disconnected() {
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(L10N.getString("info.imap_client_disconnected"));
-        }
+        events().info("info.imap_client_disconnected").emit();
         if (deflateLayer != null) {
             deflateLayer.close();
             deflateLayer = null;
@@ -314,7 +319,7 @@ public final class ImapClientProtocolHandler
         // (Integer.MAX_VALUE) — this client trusts the remote server, same
         // as Pop3ClientLexer/SmtpClientLexer — so this is structurally
         // unreachable.
-        LOGGER.warning(L10N.getString("warn.imap_unexpected_token_too_long"));
+        events().warn("warn.imap_unexpected_token_too_long").emit();
     }
 
     private void dispatchLine() {
@@ -1077,10 +1082,7 @@ public final class ImapClientProtocolHandler
         try {
             ImapResponse response = ImapResponse.parse(line);
             if (response == null) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(
-                            MessageFormat.format(L10N.getString("warn.imap_unparseable_response"), line));
-                }
+                events().warn("warn.imap_unparseable_response").attr("line", line).emit();
                 return;
             }
 
@@ -1092,10 +1094,7 @@ public final class ImapClientProtocolHandler
                 dispatchTagged(response);
             }
         } catch (Exception e) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("warn.imap_error_handling_response"), line), e);
-            }
+            events().warn("warn.imap_error_handling_response").attr("line", line).thrown(e).emit();
             handler.onError(e);
         }
     }
@@ -1134,10 +1133,9 @@ public final class ImapClientProtocolHandler
                 break;
             }
             default:
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(
-                            MessageFormat.format(L10N.getString("warn.imap_unexpected_continuation"), state, response));
-                }
+                events().warn("warn.imap_unexpected_continuation")
+                        .attr("state", String.valueOf(state))
+                        .attr("response", String.valueOf(response)).emit();
         }
     }
 
@@ -1809,10 +1807,9 @@ public final class ImapClientProtocolHandler
     private void dispatchTagged(ImapResponse response) {
         if (currentTag == null
                 || !currentTag.equals(response.getTag())) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.imap_tag_mismatch"), currentTag, response.getTag()));
-            }
+            events().warn("warn.imap_tag_mismatch")
+                    .attr("current_tag", currentTag)
+                    .attr("tag", response.getTag()).emit();
             return;
         }
 
@@ -1915,10 +1912,9 @@ public final class ImapClientProtocolHandler
                 close();
                 break;
             default:
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.imap_unexpected_tagged_response"), state, response));
-                }
+                events().warn("warn.imap_unexpected_tagged_response")
+                        .attr("state", String.valueOf(state))
+                        .attr("response", String.valueOf(response)).emit();
         }
     }
 

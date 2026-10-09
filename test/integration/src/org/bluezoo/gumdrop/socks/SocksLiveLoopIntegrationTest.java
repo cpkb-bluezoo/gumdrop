@@ -183,8 +183,7 @@ public class SocksLiveLoopIntegrationTest {
         server = new SocksServer();
         listener = new SocksListener();
         listener.setServer(server);
-        listener.setTelemetryConfig(new TelemetryConfig());
-        listener.start();
+        listener.start(gumdrop);
         handler = server.createProtocolHandler(listener);
         endpoint = new LiveEndpoint(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);

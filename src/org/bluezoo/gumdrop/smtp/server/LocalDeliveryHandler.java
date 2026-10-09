@@ -50,6 +50,8 @@ import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * SMTP handler that delivers incoming messages to local mailboxes.
@@ -85,6 +87,10 @@ public class LocalDeliveryHandler
                    RecipientHandler, MessageDataHandler {
 
     private static final Logger LOGGER = Logger.getLogger(LocalDeliveryHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(LocalDeliveryHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
@@ -374,8 +380,7 @@ public class LocalDeliveryHandler
             try {
                 messageBuffer.write(bytes);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.error_buffering_message"), e);
+                events().warn("warn.error_buffering_message").thrown(e).emit();
             }
         }
     }
@@ -396,8 +401,9 @@ public class LocalDeliveryHandler
 
                 @Override
                 public void failed(Throwable exc, ByteBuffer attachment) {
-                    LOGGER.log(Level.WARNING,
-                            MessageFormat.format(L10N.getString("warn.async_write_failed"), target.username), exc);
+                    events().warn("warn.async_write_failed")
+                            .attr("username", target.username)
+                            .thrown(exc).emit();
                 }
             });
         }
@@ -496,8 +502,9 @@ public class LocalDeliveryHandler
                 LOGGER.log(Level.FINE, L10N.getString("debug.delivered_message"),
                         new Object[] { username, localDomain });
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("warn.deliver_to_mailbox_failed"), username), e);
+                events().warn("warn.deliver_to_mailbox_failed")
+                        .attr("username", username)
+                        .thrown(e).emit();
                 if (errorMessage == null) {
                     errorMessage = e.getMessage();
                 }
@@ -580,9 +587,9 @@ public class LocalDeliveryHandler
                     errorMessage = "Interrupted during delivery";
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("warn.async_delivery_failed"), target.username),
-                        e);
+                events().warn("warn.async_delivery_failed")
+                        .attr("username", target.username)
+                        .thrown(e).emit();
                 if (errorMessage == null) {
                     errorMessage = e.getMessage();
                 }

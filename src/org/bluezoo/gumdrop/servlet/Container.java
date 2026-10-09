@@ -34,7 +34,6 @@ import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
 
 import java.io.IOException;
-import java.text.MessageFormat;
 import java.net.InetAddress;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -55,13 +54,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import jakarta.servlet.ServletException;
 
 import org.bluezoo.gumdrop.util.MessageFormatter;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Container for a number of web application contexts.
@@ -76,6 +76,29 @@ import org.bluezoo.gumdrop.util.MessageFormatter;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Container implements ManagerContainerServer, ClusterContainer {
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(Container.class, Context.L10N);
+    }
+
+    private volatile Gumdrop runtime;
+    private TelemetryConfig standaloneTelemetry;
+
+    /**
+     * Returns the telemetry configuration this container's events go to:
+     * its runtime's, else one of its own, which prints events through
+     * {@code java.util.logging}. Never null.
+     */
+    synchronized TelemetryConfig getTelemetryConfig() {
+        Gumdrop g = runtime;
+        if (g != null) {
+            return g.getTelemetryConfig();
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
+    }
 
     private static final int DEFAULT_BUFFER_SIZE = 8192;
 
@@ -318,10 +341,9 @@ public class Container implements ManagerContainerServer, ClusterContainer {
             workerThreadPool.execute(task);
         } catch (RejectedExecutionException e) {
             if (Context.LOGGER.isLoggable(Level.WARNING)) {
-                Context.LOGGER.warning(MessageFormat.format(
-                        Context.L10N.getString("warn.worker_pool_saturated"),
-                        workerThreadPool.getActiveCount(),
-                        workerThreadPool.getQueue().size()));
+                events().warn("warn.worker_pool_saturated")
+                        .attr("active_count", workerThreadPool.getActiveCount())
+                        .attr("queue_size", workerThreadPool.getQueue().size()).emit();
             }
             if (onRejected != null) {
                 onRejected.run();
@@ -357,6 +379,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
      * @param gumdrop the runtime this container is starting under
      */
     public synchronized void initContexts(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         if (!started) {
             // Bootstrap JNDI
             String className = ServletInitialContextFactory.class.getName();
@@ -375,23 +398,20 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                             ctx.bind("java:comp/env/" + name, interfaceName, instance);
                         }
                     } catch (ServletException e) {
-                        String message = Context.L10N.getString("err.init_resource");
-                        Context.LOGGER.log(Level.SEVERE, message, e);
+                        events().error("err.init_resource").thrown(e).emit();
                     }
                 }
             } catch (NamingException e) {
-                String message = Context.L10N.getString("err.init_resource");
-                Context.LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.init_resource").thrown(e).emit();
             }
             for (Context context : contexts) {
                 context.setContainer(this);
                 try {
                     context.load();
                 } catch (Exception e) {
-                    String message = MessageFormat.format(
-                            Context.L10N.getString("err.load_context"),
-                            context.contextPath);
-                    Context.LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.load_context")
+                            .attr("context_path", context.contextPath)
+                            .thrown(e).emit();
                 }
                 context.init(gumdrop);
                 distributable = distributable || context.distributable;
@@ -401,18 +421,17 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                     hotDeploymentThread = newHotDeploymentThread();
                     hotDeploymentThread.start();
                 } catch (IOException e) {
-                    String message = Context.L10N.getString("err.hot_deploy");
-                    Context.LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.hot_deploy").thrown(e).emit();
                 }
             }
             if (distributable) {
                 if (clusterKey == null) {
-                    String message = Context.L10N.getString("err.no_cluster_key");
-                    Context.LOGGER.severe(message);
+                    events().error("err.no_cluster_key").emit();
                 } else {
                     // Create single cluster instance for all contexts
                     try {
                         cluster = new Cluster(this);
+                        cluster.setTelemetryConfig(getTelemetryConfig());
                         if (replicationAllowedClasses != null) {
                             cluster.setReplicationAllowedClasses(
                                     replicationAllowedClasses);
@@ -428,7 +447,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                             }
                         }
                     } catch (IOException e) {
-                        Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                        events().error("err.cluster_open_failed").thrown(e).emit();
                     }
                 }
             }

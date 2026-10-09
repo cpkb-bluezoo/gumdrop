@@ -45,6 +45,8 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import java.util.ResourceBundle;
 /**
  * Worker selector loop for handling I/O events.
@@ -116,6 +118,8 @@ public class SelectorLoop implements Runnable {
 
     private final int index;
     private Gumdrop gumdrop;
+    private final Object telemetryLock = new Object();
+    private TelemetryConfig standaloneTelemetry;
     private Thread thread;
     // volatile so cross-thread producers reliably observe a non-null selector
     // and their wakeup() takes effect (the loop no longer polls on a timeout).
@@ -206,6 +210,31 @@ public class SelectorLoop implements Runnable {
      */
     public Gumdrop getGumdrop() {
         return gumdrop;
+    }
+
+    /**
+     * Returns the telemetry configuration this loop's events go to: the
+     * runtime's, or one of the loop's own for a standalone loop created
+     * outside any runtime, which then prints events through
+     * {@code java.util.logging}. Never null.
+     *
+     * @return the configuration
+     */
+    public TelemetryConfig getTelemetryConfig() {
+        Gumdrop runtime = gumdrop;
+        if (runtime != null) {
+            return runtime.getTelemetryConfig();
+        }
+        synchronized (telemetryLock) {
+            if (standaloneTelemetry == null) {
+                standaloneTelemetry = new TelemetryConfig();
+            }
+            return standaloneTelemetry;
+        }
+    }
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(SelectorLoop.class, L10N);
     }
 
     /**
@@ -332,8 +361,7 @@ public class SelectorLoop implements Runnable {
                         } catch (CancelledKeyException e) {
                             // Key was cancelled while dispatching, continue.
                         } catch (Exception e) {
-                            LOGGER.log(Level.WARNING,
-                                    L10N.getString("log.error_dispatching_io_event"), e);
+                            events().warn("log.error_dispatching_io_event").thrown(e).emit();
                             isolateFailedHandler(key, handler, e);
                         }
                     }
@@ -343,12 +371,12 @@ public class SelectorLoop implements Runnable {
                     if ("Bad file descriptor".equals(e.getMessage())) {
                         // Selector was closed
                     } else {
-                        LOGGER.log(Level.WARNING, L10N.getString("log.error_in_selector_loop"), e);
+                        events().warn("log.error_in_selector_loop").thrown(e).emit();
                     }
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("log.failed_to_initialize_selectorloop"), e);
+            events().error("log.failed_to_initialize_selectorloop").thrown(e).emit();
         } finally {
             terminate();
         }
@@ -411,11 +439,10 @@ public class SelectorLoop implements Runnable {
         }
         if (now >= closeDeadlineAt) {
             int remaining = openHandlerCount();
-            if (remaining > 0 && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("log.loop_close_deadline_exceeded"),
-                        Integer.valueOf(index), Integer.valueOf(remaining),
-                        Long.valueOf(closeDeadlineMs)));
+            if (remaining > 0) {
+                events().warn("log.loop_close_deadline_exceeded")
+                        .attr("loop", index).attr("connections", remaining)
+                        .attr("deadline_ms", closeDeadlineMs).emit();
             }
             closeOwned(true);
             return true;
@@ -453,8 +480,7 @@ public class SelectorLoop implements Runnable {
             try {
                 ((ChannelHandler) attachment).closeForShutdown(!abort);
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.error_closing_on_shutdown"), e);
+                events().warn("log.error_closing_on_shutdown").thrown(e).emit();
             }
         }
         if (abort && key.isValid()) {
@@ -496,7 +522,7 @@ public class SelectorLoop implements Runnable {
                     try {
                         selector.close();
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector_1"), e);
+                        events().warn("log.error_closing_selector_1").thrown(e).emit();
                     }
                     selector = null;
                 }
@@ -533,8 +559,7 @@ public class SelectorLoop implements Runnable {
                 try {
                     doTcpEndpointWrite(key, (TcpEndpoint) attachment);
                 } catch (RuntimeException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("log.error_closing_on_shutdown"), e);
+                    events().warn("log.error_closing_on_shutdown").thrown(e).emit();
                 }
             }
         }
@@ -546,16 +571,11 @@ public class SelectorLoop implements Runnable {
      * so nothing else touches it.
      */
     private void rejectRegistration(PendingRegistration reg) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("log.registration_rejected_loop_terminated"),
-                    Integer.valueOf(index)));
-        }
+        events().warn("log.registration_rejected_loop_terminated").attr("loop", index).emit();
         try {
             reg.handler.closeForShutdown(false);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.error_closing_on_shutdown"), e);
+            events().warn("log.error_closing_on_shutdown").thrown(e).emit();
         }
         try {
             reg.channel.close();
@@ -581,8 +601,7 @@ public class SelectorLoop implements Runnable {
                     try {
                         selector.selectNow();
                     } catch (IOException io) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("log.error_in_selector_loop"), io);
+                        events().warn("log.error_in_selector_loop").thrown(io).emit();
                     }
                     key = reg.channel.register(selector, ops);
                 }
@@ -617,7 +636,7 @@ public class SelectorLoop implements Runnable {
                 try {
                     entry.callback.run();
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("log.error_in_timer_callback"), e);
+                    events().warn("log.error_in_timer_callback").thrown(e).emit();
                 }
             }
         }
@@ -629,7 +648,7 @@ public class SelectorLoop implements Runnable {
             try {
                 task.run();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.error_in_pending_task"), e);
+                events().warn("log.error_in_pending_task").thrown(e).emit();
             }
         }
     }
@@ -657,8 +676,7 @@ public class SelectorLoop implements Runnable {
                         return;
                 }
             } catch (Exception closeError) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.error_isolating_failed_handler"), closeError);
+                events().warn("log.error_isolating_failed_handler").thrown(closeError).emit();
             }
         }
         if (key != null && key.isValid()) {
@@ -1059,7 +1077,7 @@ public class SelectorLoop implements Runnable {
             try {
                 task.run();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.error_in_invokelater_task"), e);
+                events().warn("log.error_in_invokelater_task").thrown(e).emit();
             }
             return true;
         }
@@ -1069,11 +1087,7 @@ public class SelectorLoop implements Runnable {
             // The final drain has finished (or, in the one case where it
             // has already taken this task, remove() fails and the task
             // runs): the task can never run, so reject it visibly.
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("log.task_rejected_loop_terminated"),
-                        Integer.valueOf(index)));
-            }
+            events().warn("log.task_rejected_loop_terminated").attr("loop", index).emit();
             return false;
         }
         wakeup();

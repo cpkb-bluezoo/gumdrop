@@ -47,6 +47,8 @@ import java.security.cert.X509Certificate;
 import java.text.DateFormat;
 
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
@@ -63,6 +65,11 @@ import jakarta.servlet.http.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class Request implements HttpServletRequest {
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = handler != null ? handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(Request.class, Context.L10N);
+    }
 
     private static final AtomicLong REQUEST_SEQ = new AtomicLong();
 
@@ -164,7 +171,6 @@ class Request implements HttpServletRequest {
             attributes.put("jakarta.servlet.request.secure_protocol", secureProtocol);
         }
     }
-
 
     private Certificate[] getPeerCertificates() {
         SecurityInfo secInfo = handler.getState().getSecurityInfo();
@@ -416,7 +422,6 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-
     @Override public String getContextPath() {
         return contextPath;
     }
@@ -608,9 +613,8 @@ class Request implements HttpServletRequest {
             if (challenge == null) {
                 // Challenge could not be generated - likely the Realm doesn't support
                 // the configured authentication method (e.g., DIGEST with LDAP)
-                String message = Context.L10N.getString("err.auth_method_not_supported");
-                message = MessageFormat.format(message, authMethod);
-                Context.LOGGER.severe(message);
+                String message = MessageFormat.format(Context.L10N.getString("err.auth_method_not_supported"), authMethod);
+                events().error("err.auth_method_not_supported").attr("auth_method", authMethod).emit();
                 response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, message);
                 return false;
             }
@@ -653,9 +657,7 @@ class Request implements HttpServletRequest {
             return false;
         } else {
             if (!context.passwordMatch(realm, username, password)) {
-                String message = Context.L10N.getString("err.auth_fail");
-                message = MessageFormat.format(message, username);
-                Context.LOGGER.warning(message);
+                events().warn("err.auth_fail").attr("username", username).emit();
                 response.sendRedirect(contextRelative(context.getFormErrorPage()));
                 return false;
             }
@@ -712,12 +714,10 @@ class Request implements HttpServletRequest {
         return true;
     }
 
-
     @Override public void login(String username, String password) throws ServletException {
         String realm = context.getRealmName();
         if (userPrincipal != null || !context.passwordMatch(realm, username, password)) {
-            String message = Context.L10N.getString("err.auth_fail");
-            message = MessageFormat.format(message, username);
+            String message = MessageFormat.format(Context.L10N.getString("err.auth_fail"), username);
             throw new ServletException(message);
         }
         userPrincipal = new ServletPrincipal(context, realm, username);
@@ -1063,8 +1063,8 @@ class Request implements HttpServletRequest {
                     String formCharset = getFormCharset();
                     addEncodedParameters(accum, body, formCharset);
                 } catch (IOException e) {
-                    Context.LOGGER.warning(MessageFormat.format(
-                            Context.L10N.getString("warn.form_parameters_parse_failed"), e.getMessage()));
+                    events().warn("warn.form_parameters_parse_failed")
+                            .attr("reason", e.getMessage()).emit();
                 }
             }
         }

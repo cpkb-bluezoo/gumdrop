@@ -40,7 +40,6 @@ import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TlsUtils;
 
 import java.io.IOException;
-import java.text.MessageFormat;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
@@ -51,8 +50,6 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
@@ -66,8 +63,6 @@ import javax.net.ssl.X509TrustManager;
  */
 public class UdpTransportFactory extends TransportFactory {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(UdpTransportFactory.class.getName());
 
     private ServerCredentials serverCredentials;
     private ServerCredentialsResolver serverCredentialsResolver;
@@ -347,7 +342,7 @@ public class UdpTransportFactory extends TransportFactory {
         throw new java.security.GeneralSecurityException("No X509TrustManager available");
     }
 
-    private static List<Tls12CipherSuite> resolveTls12CipherSuites(String raw) {
+    private List<Tls12CipherSuite> resolveTls12CipherSuites(String raw) {
         if (raw == null || raw.isEmpty()) {
             return null;
         }
@@ -361,16 +356,14 @@ public class UdpTransportFactory extends TransportFactory {
             try {
                 resolved.add(Tls12CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            Gumdrop.L10N.getString("warn.unrecognized_tls12_cipher_suite"), name));
-                }
+                eventTelemetry().getLogger(UdpTransportFactory.class, Gumdrop.L10N)
+                        .warn("warn.unrecognized_tls12_cipher_suite").attr("cipher_suite", name).emit();
             }
         }
         return resolved.isEmpty() ? null : resolved;
     }
 
-    private static List<CipherSuite> resolveCipherSuites(String raw) {
+    private List<CipherSuite> resolveCipherSuites(String raw) {
         if (raw == null || raw.isEmpty()) {
             return null;
         }
@@ -384,10 +377,8 @@ public class UdpTransportFactory extends TransportFactory {
             try {
                 resolved.add(CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            Gumdrop.L10N.getString("warn.unrecognized_cipher_suite"), name));
-                }
+                eventTelemetry().getLogger(UdpTransportFactory.class, Gumdrop.L10N)
+                        .warn("warn.unrecognized_cipher_suite").attr("cipher_suite", name).emit();
             }
         }
         return resolved.isEmpty() ? null : resolved;

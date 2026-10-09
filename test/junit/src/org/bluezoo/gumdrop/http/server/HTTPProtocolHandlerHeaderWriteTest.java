@@ -84,8 +84,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public TelemetryConfig getTelemetryConfig() { return null; }
+        @Override public TelemetryConfig getTelemetryConfig() { return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG; }
 
         String capturedAscii() {
             return new String(captured.toByteArray(), StandardCharsets.US_ASCII);

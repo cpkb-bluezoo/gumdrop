@@ -33,7 +33,6 @@ import java.io.InputStream;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -41,7 +40,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.ResourceBundle;
-import java.util.logging.Logger;
 
 import javax.persistence.PersistenceContextType;
 import jakarta.servlet.DispatcherType;
@@ -65,6 +63,8 @@ import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.servlet.jndi.ResourceEnvRef;
 import org.bluezoo.gumdrop.servlet.jndi.ResourceRef;
 import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Parses a web application deployment descriptor, populating an application
@@ -74,7 +74,9 @@ import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
  */
 class DeploymentDescriptorParser extends AbstractXMLHandler {
 
-    static final Logger LOGGER = Logger.getLogger(DeploymentDescriptorParser.class.getName());
+    private EventLogger events() {
+        return telemetry().getLogger(DeploymentDescriptorParser.class, L10N);
+    }
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     enum State {
@@ -410,6 +412,20 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
 
     State mode;
     MessageDigest digest;
+
+    private TelemetryConfig telemetryConfig;
+
+    DeploymentDescriptorParser(TelemetryConfig telemetryConfig) {
+        this();
+        this.telemetryConfig = telemetryConfig;
+    }
+
+    private synchronized TelemetryConfig telemetry() {
+        if (telemetryConfig == null) {
+            telemetryConfig = new TelemetryConfig();
+        }
+        return telemetryConfig;
+    }
 
     DeploymentDescriptorParser() {
         try {
@@ -1541,9 +1557,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                             ((ServletDef) peekTarget()).loadOnStartup = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
                             // Log and continue
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case INIT_PARAM:
@@ -1601,9 +1615,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((MultipartConfigDef) peekTarget()).maxFileSize = Long.parseLong(text);
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case MAX_REQUEST_SIZE:
@@ -1611,9 +1623,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((MultipartConfigDef) peekTarget()).maxRequestSize = Long.parseLong(text);
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case FILE_SIZE_THRESHOLD:
@@ -1621,9 +1631,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((MultipartConfigDef) peekTarget()).fileSizeThreshold = Long.parseLong(text);
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                 }
@@ -1646,9 +1654,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                             ((SessionConfig) peekTarget()).sessionTimeout = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
                             // Log and continue
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case COOKIE_CONFIG:
@@ -1686,9 +1692,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                             ((CookieConfig) peekTarget()).maxAge = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
                             // Log and continue
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case SAME_SITE:
@@ -1740,9 +1744,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                             ((ErrorPage) peekTarget()).errorCode = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
                             // Log and continue
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case EXCEPTION_TYPE:
@@ -1807,9 +1809,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                             ((JspPropertyGroup) peekTarget()).buffer = Long.valueOf(text);
                         } catch (NumberFormatException e) {
                             // Log and continue
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case TRIM_DIRECTIVE_WHITESPACES:
@@ -2253,9 +2253,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((DataSourceDef) peekTarget()).setPortNumber(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case DATABASE_NAME:
@@ -2275,9 +2273,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((DataSourceDef) peekTarget()).setInitialPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case MAX_POOL_SIZE:
@@ -2285,9 +2281,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((DataSourceDef) peekTarget()).setMaxPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case MIN_POOL_SIZE:
@@ -2295,9 +2289,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((DataSourceDef) peekTarget()).setMinPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case MAX_IDLE_TIME:
@@ -2305,9 +2297,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((DataSourceDef) peekTarget()).setMaxIdleTime(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case MAX_STATEMENTS:
@@ -2315,9 +2305,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((DataSourceDef) peekTarget()).setMaxStatements(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case TRANSACTION_ISOLATION:
@@ -2385,9 +2373,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((JmsConnectionFactory.Pool) peekTarget()).setMaxPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case MIN_POOL_SIZE:
@@ -2395,9 +2381,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((JmsConnectionFactory.Pool) peekTarget()).setMinPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                     case CONNECTION_TIMEOUT_IN_SECONDS:
@@ -2405,9 +2389,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         try {
                             ((JmsConnectionFactory.Pool) peekTarget()).setConnectionTimeoutInSeconds(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
-                            String message = L10N.getString("warn.invalid_number");
-                            message = MessageFormat.format(message, text);
-                            LOGGER.warning(message);
+                            events().warn("warn.invalid_number").attr("text", text).emit();
                         }
                         break;
                 }

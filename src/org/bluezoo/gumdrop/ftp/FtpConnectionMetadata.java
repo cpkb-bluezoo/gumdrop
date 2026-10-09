@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.ftp;
 
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.net.InetSocketAddress;
 import java.security.cert.Certificate;
 
@@ -56,6 +58,9 @@ public class FtpConnectionMetadata {
     // RFC 959 section 3.1.1.4: byte size for TYPE L
     private int localByteSize = 8;
 
+    // where this connection's events go
+    private TelemetryConfig telemetryConfig;
+
     // Data connection state
     private String dataHost;
     private int dataPort;
@@ -68,6 +73,25 @@ public class FtpConnectionMetadata {
      * Transfer modes for FTP data connections.
      * RFC 959 section 3.4.
      */
+    /**
+     * Returns the telemetry configuration of the connection this describes:
+     * where handlers and file systems report their events. Never null; a
+     * description outside a connection has a configuration of its own,
+     * which prints events through {@code java.util.logging}.
+     *
+     * @return the configuration
+     */
+    public synchronized TelemetryConfig getTelemetryConfig() {
+        if (telemetryConfig == null) {
+            telemetryConfig = new TelemetryConfig();
+        }
+        return telemetryConfig;
+    }
+
+    synchronized void setTelemetryConfig(TelemetryConfig telemetryConfig) {
+        this.telemetryConfig = telemetryConfig;
+    }
+
     public enum FtpTransferMode {
         /** Stream mode (default). RFC 959 section 3.4.1. */
         STREAM,

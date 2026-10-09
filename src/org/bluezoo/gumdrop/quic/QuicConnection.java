@@ -46,7 +46,6 @@ import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -86,6 +85,7 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
 import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.SessionTicket;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * One QUIC connection: owns the TLS 1.3 handshake, packet protection
@@ -163,6 +163,10 @@ import org.bluezoo.gumdrop.tls.SessionTicket;
 public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     private static final Logger LOGGER = Logger.getLogger(QuicConnection.class.getName());
+
+    private EventLogger events() {
+        return getEngine().getTelemetryConfig().getLogger(QuicConnection.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
@@ -2601,7 +2605,6 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         return true;
     }
 
-
     /** Per-packet frame dispatcher, one instance per {@link #processPacket} call. */
     private final class FrameDispatcher implements QuicFrameHandler {
 
@@ -3083,9 +3086,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
         @Override
         public void frameError(String message) {
-            String formatted = MessageFormat.format(
-                    L10N.getString("warn.frame_error"), remoteAddress, message);
-            LOGGER.warning(formatted);
+            events().warn("warn.frame_error")
+                    .attr("remote_address", String.valueOf(remoteAddress))
+                    .attr("message", message).emit();
         }
     }
 
@@ -3541,8 +3544,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         try {
             return buildProtectedPacket(level, minDatagramSize);
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("warn.protect_outgoing_packet_failed"), level), e);
+            events().warn("warn.protect_outgoing_packet_failed")
+                    .attr("level", String.valueOf(level))
+                    .thrown(e).emit();
             return null;
         }
     }
@@ -3897,8 +3901,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 engine.sendTo(destination.path, destination.remote, packet);
             }
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.protect_path_frame_failed"), e);
+            events().warn("warn.protect_path_frame_failed").thrown(e).emit();
         }
     }
 
@@ -4861,7 +4864,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         try {
             return buildZeroRttProtectedPacket();
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.protect_zero_rtt_failed"), e);
+            events().warn("warn.protect_zero_rtt_failed").thrown(e).emit();
             return null;
         }
     }
@@ -5281,8 +5284,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     @Override
     public void cryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
-        LOGGER.log(Level.WARNING, MessageFormat.format(
-                L10N.getString("warn.crypto_processing_failed"), level), cause);
+        events().warn("warn.crypto_processing_failed").attr("level", String.valueOf(level)).thrown(cause).emit();
     }
 
     @Override

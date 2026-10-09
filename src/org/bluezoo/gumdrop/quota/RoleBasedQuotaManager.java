@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.quota;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -79,6 +81,10 @@ import java.util.logging.Logger;
 public class RoleBasedQuotaManager implements QuotaManager {
     
     private static final Logger LOGGER = Logger.getLogger(RoleBasedQuotaManager.class.getName());
+
+    private EventLogger events() {
+        return (gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig()).getLogger(RoleBasedQuotaManager.class, L10N);
+    }
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.quota.L10N");
     
     private Realm realm;
@@ -158,7 +164,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
             try {
                 Files.createDirectories(storageDir);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_policy_failed"), e);
+                events().warn("quota.err.save_policy_failed").thrown(e).emit();
             }
         }
     }
@@ -396,8 +402,9 @@ public class RoleBasedQuotaManager implements QuotaManager {
         // Persist the user policy
         saveUserPolicy(username, policy);
         
-        LOGGER.info(MessageFormat.format(L10N.getString("quota.log.user_quota_set"),
-            username, QuotaPolicy.formatSize(storageLimit)));
+        events().info("quota.log.user_quota_set")
+                .attr("username", username)
+                .attr("limit", QuotaPolicy.formatSize(storageLimit)).emit();
     }
     
     @Override
@@ -408,7 +415,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
         // Remove persisted user policy
         deleteUserPolicy(username);
         
-        LOGGER.info(MessageFormat.format(L10N.getString("quota.log.user_quota_cleared"), username));
+        events().info("quota.log.user_quota_cleared").attr("username", username).emit();
     }
     
     @Override
@@ -421,8 +428,8 @@ public class RoleBasedQuotaManager implements QuotaManager {
         for (Map.Entry<String, Quota> entry : userQuotas.entrySet()) {
             saveUserUsage(entry.getKey(), entry.getValue());
         }
-        LOGGER.info(MessageFormat.format(L10N.getString("quota.log.usage_saved"), 
-            String.valueOf(userQuotas.size())));
+        events().info("quota.log.usage_saved")
+                .attr("size", String.valueOf(userQuotas.size())).emit();
     }
     
     @Override
@@ -450,7 +457,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.load_usage_failed"), e);
+            events().warn("quota.err.load_usage_failed").thrown(e).emit();
         } finally {
             if (stream != null) {
                 try {
@@ -462,8 +469,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
         }
         
         if (loaded > 0) {
-            LOGGER.info(MessageFormat.format(L10N.getString("quota.log.usage_loaded"), 
-                String.valueOf(loaded)));
+            events().info("quota.log.usage_loaded").attr("loaded", String.valueOf(loaded)).emit();
         }
     }
     
@@ -512,8 +518,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("quota.err.save_usage_failed"), error);
+                events().warn("quota.err.save_usage_failed").thrown(error).emit();
                 onUsageSaveFinished(username, quota);
             }
         };
@@ -559,7 +564,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
             writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
             props.store(writer, "Quota usage for " + username);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_usage_failed"), e);
+            events().warn("quota.err.save_usage_failed").thrown(e).emit();
         } finally {
             if (writer != null) {
                 try {
@@ -597,9 +602,9 @@ public class RoleBasedQuotaManager implements QuotaManager {
                 quota.setMessageCount(Long.parseLong(messageCount));
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.load_usage_failed"), e);
+            events().warn("quota.err.load_usage_failed").thrown(e).emit();
         } catch (NumberFormatException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.load_usage_failed"), e);
+            events().warn("quota.err.load_usage_failed").thrown(e).emit();
         } finally {
             if (reader != null) {
                 try {
@@ -626,7 +631,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
             writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
             props.store(writer, "User quota policy for " + username);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_policy_failed"), e);
+            events().warn("quota.err.save_policy_failed").thrown(e).emit();
         } finally {
             if (writer != null) {
                 try {
@@ -659,9 +664,9 @@ public class RoleBasedQuotaManager implements QuotaManager {
             
             userPolicies.put(username, new QuotaPolicy(username, storageLimit, messageLimit));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.load_policy_failed"), e);
+            events().warn("quota.err.load_policy_failed").thrown(e).emit();
         } catch (NumberFormatException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.load_policy_failed"), e);
+            events().warn("quota.err.load_policy_failed").thrown(e).emit();
         } finally {
             if (reader != null) {
                 try {
@@ -682,7 +687,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
         try {
             Files.deleteIfExists(file);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_policy_failed"), e);
+            events().warn("quota.err.save_policy_failed").thrown(e).emit();
         }
     }
 }

@@ -135,8 +135,7 @@ public class UdpEndpointStateTest {
         assertSame(NullSecurityInfo.INSTANCE, ep.getSecurityInfo());
         assertNotNull(ep.getSelectorLoop());
         assertNull(ep.getTrace());
-        assertFalse(ep.isTelemetryEnabled());
-        assertNull(ep.getTelemetryConfig());
+        assertNotNull(ep.getTelemetryConfig());
         assertNull(ep.getSelectionKey());
         assertSame(r, ep.getHandler());
         ep.setSelectionKey(null);

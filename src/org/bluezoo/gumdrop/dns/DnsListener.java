@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * UDP transport listener for DNS queries.
@@ -55,6 +56,10 @@ public class DnsListener extends UdpListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(DnsListener.class.getName());
+
+    private EventLogger events() {
+        return eventTelemetry().getLogger(DnsListener.class, DnsMessage.L10N);
+    }
 
     private static final int DEFAULT_PORT = 53;
 
@@ -140,7 +145,7 @@ public class DnsListener extends UdpListener {
         @Override
         public void receive(ByteBuffer data) {
             if (server == null) {
-                LOGGER.warning(DnsMessage.L10N.getString("warn.dns_no_service_set"));
+                events().warn("warn.dns_no_service_set").emit();
                 return;
             }
             InetSocketAddress source =
@@ -179,8 +184,7 @@ public class DnsListener extends UdpListener {
 
         @Override
         public void error(Exception cause) {
-            LOGGER.log(Level.WARNING,
-                    DnsMessage.L10N.getString("warn.dns_endpoint_error"), cause);
+            events().warn("warn.dns_endpoint_error").thrown(cause).emit();
         }
     }
 
@@ -215,7 +219,6 @@ public class DnsListener extends UdpListener {
         super.tls(tls);
         return this;
     }
-
 
     /**
      * @deprecated use {@code new DnsListener().port(...)} fluent configuration.

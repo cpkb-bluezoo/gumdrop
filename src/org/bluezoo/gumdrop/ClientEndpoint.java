@@ -33,6 +33,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 import java.util.ResourceBundle;
 /**
  * Transport-agnostic convenience class for creating client connections.
@@ -81,6 +82,7 @@ public class ClientEndpoint {
     private static final Logger LOGGER =
             Logger.getLogger(ClientEndpoint.class.getName());
 
+    private EventLogger events;
     private final TransportFactory factory;
     private final String hostname;
     private final int port;
@@ -390,6 +392,7 @@ public class ClientEndpoint {
         }
 
         this.gumdrop = gumdrop;
+        this.events = gumdrop.getTelemetryConfig().getLogger(ClientEndpoint.class, L10N);
         if (selectorLoop == null) {
             // Ensuring the infrastructure is started, obtaining a loop,
             // and registering this client as a reason to keep it running
@@ -408,8 +411,7 @@ public class ClientEndpoint {
 
         if (hostname != null && host == null) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info(MessageFormat.format(
-                        Gumdrop.L10N.getString("info.client_endpoint_resolving"), hostname));
+                events.info("info.client_endpoint_resolving").attr("host", hostname).emit();
             }
             DnsResolver resolver = dnsResolver != null
                     ? dnsResolver
@@ -418,9 +420,8 @@ public class ClientEndpoint {
                 @Override
                 public void onResolved(List<InetAddress> addresses) {
                     if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                        LOGGER.info(MessageFormat.format(
-                                Gumdrop.L10N.getString("info.client_endpoint_resolved"),
-                                addresses.get(0)));
+                        events.info("info.client_endpoint_resolved")
+                                .attr("address", String.valueOf(addresses.get(0))).emit();
                     }
                     candidates = new ConnectCandidates(addresses);
                     connectNextCandidate(wrapped);
@@ -429,8 +430,7 @@ public class ClientEndpoint {
                 @Override
                 public void onError(String error) {
                     if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                        LOGGER.info(MessageFormat.format(
-                                Gumdrop.L10N.getString("info.client_endpoint_resolve_error"), error));
+                        events.info("info.client_endpoint_resolve_error").attr("error", error).emit();
                     }
                     wrapped.error(new UnknownHostException(
                             hostname + ": " + error));
@@ -438,7 +438,7 @@ public class ClientEndpoint {
             });
         } else {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info(Gumdrop.L10N.getString("info.client_endpoint_already_resolved"));
+                events.info("info.client_endpoint_already_resolved").emit();
             }
             try {
                 doConnect(wrapped);
@@ -553,8 +553,7 @@ public class ClientEndpoint {
         while (candidates.hasNext()) {
             host = candidates.next();
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info(MessageFormat.format(
-                        Gumdrop.L10N.getString("info.client_endpoint_resolved"), host));
+                events.info("info.client_endpoint_resolved").attr("address", String.valueOf(host)).emit();
             }
             try {
                 doConnect(wrapped);
@@ -569,8 +568,7 @@ public class ClientEndpoint {
 
     private void logFallback(Exception cause) {
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info(MessageFormat.format(
-                    Gumdrop.L10N.getString("info.client_endpoint_connect_failed"), cause));
+            events.info("info.client_endpoint_connect_failed").attr("cause", String.valueOf(cause)).emit();
         }
     }
 

@@ -299,16 +299,12 @@ public interface Endpoint {
     void setTrace(Trace trace);
 
     /**
-     * Returns whether telemetry is enabled for this endpoint.
+     * Returns the telemetry configuration for this endpoint: where its
+     * traces, log events and metrics go. Never null; an endpoint outside
+     * any runtime has a configuration whose exporter prints log events
+     * through {@code java.util.logging} and takes nothing else.
      *
-     * @return true if telemetry is enabled
-     */
-    boolean isTelemetryEnabled();
-
-    /**
-     * Returns the telemetry configuration for this endpoint.
-     *
-     * @return the telemetry config, or null if not configured
+     * @return the telemetry config
      */
     TelemetryConfig getTelemetryConfig();
 }

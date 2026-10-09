@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -252,7 +253,7 @@ public class UdpEndpointAdmissionTest {
         ep.setSelectorLoop(new InlineSelectorLoop());
         ep.init();
         assertFalse(ep.isSecure());
-        assertFalse(ep.isTelemetryEnabled());
+        assertNotNull(ep.getTelemetryConfig());
     }
 
     @Test

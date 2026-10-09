@@ -29,11 +29,11 @@ import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
 import org.bluezoo.gumdrop.ftp.FtpFileSystem;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -46,8 +46,14 @@ import java.util.logging.Logger;
 public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandler,
         PasswordHandler, AccountHandler, AuthenticatedHandler, AuthenticatingHandler {
 
+    private Endpoint endpoint;
+
     private static final Logger LOGGER =
             Logger.getLogger(DefaultFtpHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(DefaultFtpHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
@@ -73,6 +79,7 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
 
     @Override
     public void connected(ConnectedState state, Endpoint endpoint) {
+        this.endpoint = endpoint;
         state.acceptConnection(welcomeMessage, this);
     }
 
@@ -134,7 +141,7 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
             return FtpAuthenticationResult.SUCCESS;
 
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.ftp_authentication_error"), e);
+            events().warn("warn.ftp_authentication_error").thrown(e).emit();
             return FtpAuthenticationResult.INVALID_PASSWORD;
         }
     }
@@ -225,9 +232,11 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
     public void transferStarting(String path, boolean upload, long size) {
         String direction = upload ? "upload" : "download";
         String sizeStr = (size >= 0) ? " (" + size + " bytes)" : "";
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_transfer_starting"),
-                direction, path, sizeStr, authenticatedUser));
+        events().info("info.simple_ftp_transfer_starting")
+                .attr("direction", direction)
+                .attr("path", path)
+                .attr("size_str", sizeStr)
+                .attr("authenticated_user", authenticatedUser).emit();
     }
 
     @Override
@@ -235,9 +244,10 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
             long totalBytesTransferred) {
         if (totalBytesTransferred % (1024 * 1024) == 0) {
             String direction = upload ? "upload" : "download";
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.simple_ftp_transfer_progress"),
-                    direction, path, totalBytesTransferred));
+            events().info("info.simple_ftp_transfer_progress")
+                    .attr("direction", direction)
+                    .attr("path", path)
+                    .attr("total_bytes_transferred", totalBytesTransferred).emit();
         }
     }
 
@@ -246,17 +256,19 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
             long totalBytesTransferred, boolean success) {
         String direction = upload ? "upload" : "download";
         String status = success ? "completed" : "failed";
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_transfer_completed"),
-                status, direction, path, totalBytesTransferred,
-                authenticatedUser));
+        events().info("info.simple_ftp_transfer_completed")
+                .attr("status", status)
+                .attr("direction", direction)
+                .attr("path", path)
+                .attr("total_bytes_transferred", totalBytesTransferred)
+                .attr("authenticated_user", authenticatedUser).emit();
     }
 
     @Override
     public FtpFileOperationResult handleSiteCommand(String command) {
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.simple_ftp_site_command"),
-                authenticatedUser, command));
+        events().info("info.simple_ftp_site_command")
+                .attr("authenticated_user", authenticatedUser)
+                .attr("command", command).emit();
         if (command.toUpperCase().startsWith("HELP")) {
             return FtpFileOperationResult.SUCCESS;
         }

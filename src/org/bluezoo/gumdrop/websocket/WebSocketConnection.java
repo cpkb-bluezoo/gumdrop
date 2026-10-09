@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Abstract base class for WebSocket connections (RFC 6455).
@@ -63,6 +64,11 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 public abstract class WebSocketConnection {
 
     private static final Logger LOGGER = Logger.getLogger(WebSocketConnection.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = telemetryConfig != null ? telemetryConfig : new TelemetryConfig();
+        return telemetry.getLogger(WebSocketConnection.class, L10N);
+    }
 
     /**
      * RFC 6455 §4/§7 — WebSocket connection states.
@@ -343,7 +349,7 @@ public abstract class WebSocketConnection {
         try {
             sendPong(payload);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.pong_send_failed"), e);
+            events().warn("warn.pong_send_failed").thrown(e).emit();
             error(e);
         }
     }
@@ -548,7 +554,7 @@ public abstract class WebSocketConnection {
             try {
                 opened();
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.opened_handler_error"), e);
+                events().error("severe.opened_handler_error").thrown(e).emit();
                 error(e);
             }
         }
@@ -589,7 +595,7 @@ public abstract class WebSocketConnection {
                 pongReceived(frame.getPayload());
                 break;
             default:
-                LOGGER.warning(MessageFormat.format(L10N.getString("log.unknown_opcode"), frame.getOpcode()));
+                events().warn("log.unknown_opcode").attr("opcode", frame.getOpcode()).emit();
                 close(CloseCodes.PROTOCOL_ERROR, "Unknown opcode");
         }
     }
@@ -758,7 +764,7 @@ public abstract class WebSocketConnection {
                 binaryMessageReceived(ByteBuffer.wrap(decoded));
             }
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("severe.message_delivery_error"), e);
+            events().error("severe.message_delivery_error").thrown(e).emit();
             error(e);
         }
     }
@@ -800,7 +806,7 @@ public abstract class WebSocketConnection {
                     
                     span.end();
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.telemetry_record_error"), e);
+                    events().warn("warn.telemetry_record_error").thrown(e).emit();
                 }
             }
             
@@ -816,7 +822,7 @@ public abstract class WebSocketConnection {
                 }
                 closed(code, reason);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, L10N.getString("severe.closed_handler_error"), e);
+                events().error("severe.closed_handler_error").thrown(e).emit();
             }
         }
     }

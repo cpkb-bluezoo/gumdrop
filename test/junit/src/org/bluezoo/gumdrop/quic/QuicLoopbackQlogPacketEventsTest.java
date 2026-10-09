@@ -57,11 +57,9 @@ public class QuicLoopbackQlogPacketEventsTest {
         lb = new QuicLoopback();
         capture = new Capture();
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(capture);
+        config.exporter(capture);
         lb.serverFactory.setTelemetryConfig(config);
         lb.clientFactory.setTelemetryConfig(config);
-        lb.serverFactory.setQlogEnabled(true);
-        lb.clientFactory.setQlogEnabled(true);
         lb.serverFactory.setMaxDatagramFrameSize(1200);
         lb.clientFactory.setMaxDatagramFrameSize(1200);
         lb.startFactories();
@@ -427,11 +425,9 @@ public class QuicLoopbackQlogPacketEventsTest {
         lb = new QuicLoopback();
         capture = new Capture();
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporter(capture);
+        config.exporter(capture);
         lb.serverFactory.setTelemetryConfig(config);
         lb.clientFactory.setTelemetryConfig(config);
-        lb.serverFactory.setQlogEnabled(true);
-        lb.clientFactory.setQlogEnabled(true);
         lb.serverFactory.setApplicationProtocols("h3,hq-interop");
         lb.clientFactory.setApplicationProtocols("hq-interop,h3");
         lb.startFactories();
@@ -457,11 +453,9 @@ public class QuicLoopbackQlogPacketEventsTest {
             lb = new QuicLoopback();
             capture = new Capture();
             TelemetryConfig config = new TelemetryConfig();
-            config.setExporter(capture);
+            config.exporter(capture);
             lb.serverFactory.setTelemetryConfig(config);
             lb.clientFactory.setTelemetryConfig(config);
-            lb.serverFactory.setQlogEnabled(true);
-            lb.clientFactory.setQlogEnabled(true);
             lb.serverFactory.setEarlyDataEnabled(true);
             lb.clientFactory.setEarlyDataEnabled(true);
             lb.startFactories();

@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -113,6 +115,26 @@ public class ClientEndpointPool {
     /**
      * Creates a new endpoint connection pool with default settings.
      */
+    private TelemetryConfig telemetryConfig;
+
+    /**
+     * Sets the telemetry configuration this pool's events go to,
+     * normally the runtime's. Left unset, the pool prints events through
+     * {@code java.util.logging}.
+     *
+     * @param telemetryConfig the configuration
+     */
+    public synchronized void setTelemetryConfig(TelemetryConfig telemetryConfig) {
+        this.telemetryConfig = telemetryConfig;
+    }
+
+    private synchronized TelemetryConfig eventTelemetry() {
+        if (telemetryConfig == null) {
+            telemetryConfig = new TelemetryConfig();
+        }
+        return telemetryConfig;
+    }
+
     public ClientEndpointPool() {
         this.pool = new ConcurrentHashMap<PoolTarget, EndpointList>();
         this.cleanupTimer = new ScheduledTimer("EndpointPool-Cleanup");
@@ -643,8 +665,8 @@ public class ClientEndpointPool {
             try {
                 cleanupIdleEndpoints();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.error_endpoint_pool_cleanup"), e);
+                eventTelemetry().getLogger(ClientEndpointPool.class, L10N)
+                        .warn("log.error_endpoint_pool_cleanup").thrown(e).emit();
             }
         }
     }

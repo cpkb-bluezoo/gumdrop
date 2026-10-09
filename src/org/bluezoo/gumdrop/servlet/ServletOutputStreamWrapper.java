@@ -21,12 +21,13 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.WriteListener;
@@ -45,7 +46,11 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
-    private static final Logger LOGGER = Logger.getLogger(ServletOutputStreamWrapper.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = response != null && response.handler != null ? response.handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ServletOutputStreamWrapper.class, L10N);
+    }
 
     private final Response response;
     private final OutputStream out;
@@ -179,11 +184,11 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
             try {
                 writeListener.onWritePossible();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.write_listener_error"), e);
+                events().warn("async.write_listener_error").thrown(e).emit();
                 try {
                     writeListener.onError(e);
                 } catch (Exception e2) {
-                    LOGGER.log(Level.SEVERE, L10N.getString("async.write_listener_on_error"), e2);
+                    events().error("async.write_listener_on_error").thrown(e2).emit();
                 }
             }
         }

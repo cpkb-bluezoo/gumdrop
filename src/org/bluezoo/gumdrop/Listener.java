@@ -53,6 +53,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.CidrNetwork;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 import java.util.ResourceBundle;
 /**
  * Common base class for all server endpoint types (TCP and UDP).
@@ -112,7 +113,8 @@ public abstract class Listener {
     protected boolean echServerRequired;
     private String cipherSuites;
     private String namedGroups;
-    protected TelemetryConfig telemetryConfig;
+    private Gumdrop gumdrop;
+    private TelemetryConfig standaloneTelemetry;
     private Map<String, String> sniHostnameToAlias;
     private String sniDefaultAlias;
     private int maxNetInSize = DEFAULT_MAX_NET_IN_SIZE;
@@ -188,16 +190,43 @@ public abstract class Listener {
     // Connector-level setters
     // ═══════════════════════════════════════════════════════════════════
 
+    /**
+     * Returns the runtime this listener started under.
+     *
+     * @return the runtime, or null before {@link #start(Gumdrop)}
+     */
+    public Gumdrop getGumdrop() {
+        return gumdrop;
+    }
+
+    /**
+     * Returns the telemetry configuration of the runtime this listener
+     * started under.
+     *
+     * @return the configuration, or null before {@link #start(Gumdrop)}
+     */
     public TelemetryConfig getTelemetryConfig() {
-        return telemetryConfig;
+        Gumdrop runtime = gumdrop;
+        return runtime != null ? runtime.getTelemetryConfig() : null;
     }
 
-    public void setTelemetryConfig(TelemetryConfig telemetryConfig) {
-        this.telemetryConfig = telemetryConfig;
-    }
-
-    public boolean isTelemetryEnabled() {
-        return telemetryConfig != null;
+    /**
+     * Returns the telemetry configuration this listener's events go to:
+     * its runtime's, else one of its own for a listener that has not
+     * started under a runtime, which prints events through
+     * {@code java.util.logging}. Never null.
+     *
+     * @return the configuration
+     */
+    protected synchronized TelemetryConfig eventTelemetry() {
+        TelemetryConfig telemetry = getTelemetryConfig();
+        if (telemetry != null) {
+            return telemetry;
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
     }
 
     public int getMaxNetInSize() {
@@ -406,7 +435,8 @@ public abstract class Listener {
     }
 
     protected boolean isMetricsEnabled() {
-        return telemetryConfig != null && telemetryConfig.isMetricsEnabled();
+        TelemetryConfig telemetry = getTelemetryConfig();
+        return telemetry != null && telemetry.isMetricsEnabled();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -724,11 +754,14 @@ public abstract class Listener {
      * pick a worker loop of their own; that happens per-accepted-connection
      * instead). Subclasses that do need it (e.g. QUIC-based listeners
      * choosing a worker loop for the connection) override this instead of
-     * {@link #start()}.
+     * {@link #start()}, and call this: it is how a listener learns its
+     * runtime, and through it the telemetry configuration.
      *
      * @param gumdrop the runtime this listener is starting under
      */
     public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        attachRateLimiters();
         start();
     }
 
@@ -768,8 +801,9 @@ public abstract class Listener {
         if (keyFile != null) {
             factory.setKeyFile(keyFile);
         }
-        if (telemetryConfig != null) {
-            factory.setTelemetryConfig(telemetryConfig);
+        TelemetryConfig telemetry = getTelemetryConfig();
+        if (telemetry != null) {
+            factory.setTelemetryConfig(telemetry);
         }
         if (cipherSuites != null) {
             factory.setCipherSuites(cipherSuites);
@@ -890,8 +924,8 @@ public abstract class Listener {
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.failed_to_enumerate_network_interfaces"), e);
+            eventTelemetry().getLogger(Listener.class, L10N)
+                    .warn("log.failed_to_enumerate_network_interfaces").thrown(e).emit();
         }
         return all;
     }
@@ -987,12 +1021,28 @@ public abstract class Listener {
     private void ensureConnectionRateLimiter() {
         if (connectionRateLimiter == null) {
             connectionRateLimiter = new ConnectionRateLimiter();
+            attachRateLimiters();
         }
     }
 
     private void ensureAuthRateLimiter() {
         if (authRateLimiter == null) {
             authRateLimiter = new AuthenticationRateLimiter();
+            attachRateLimiters();
+        }
+    }
+
+    // Gives the limiters the configuration their events go to, once there is a runtime
+    private void attachRateLimiters() {
+        TelemetryConfig telemetry = getTelemetryConfig();
+        if (telemetry == null) {
+            return;
+        }
+        if (connectionRateLimiter != null) {
+            connectionRateLimiter.setTelemetryConfig(telemetry);
+        }
+        if (authRateLimiter != null) {
+            authRateLimiter.setTelemetryConfig(telemetry);
         }
     }
 

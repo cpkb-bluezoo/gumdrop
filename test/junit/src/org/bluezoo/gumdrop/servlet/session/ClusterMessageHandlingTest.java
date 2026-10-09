@@ -389,7 +389,7 @@ public class ClusterMessageHandlingTest {
     @Test
     public void testReceivingWithMetricsEnabled() throws Exception {
         TelemetryConfig config = new TelemetryConfig();
-        config.setMetricsEnabled(true);
+        config.metricsEnabled(true);
         cluster.setTelemetryConfig(config);
         method(Cluster.class, "initializeMetrics").invoke(cluster);
         assertNotNull(getField("metrics"));

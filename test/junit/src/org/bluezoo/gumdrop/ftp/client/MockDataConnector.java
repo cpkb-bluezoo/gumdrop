@@ -151,13 +151,8 @@ final class MockDataConnector
         }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return false;
-        }
-
-        @Override
         public TelemetryConfig getTelemetryConfig() {
-            return null;
+            return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
         }
     }
 

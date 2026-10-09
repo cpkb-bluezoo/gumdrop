@@ -28,9 +28,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.function.Supplier;
-import java.text.MessageFormat;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
@@ -40,6 +37,8 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.RoleBasedQuotaManager;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * IMAP protocol server — listeners, configuration, and session composition.
@@ -72,11 +71,14 @@ import org.bluezoo.gumdrop.quota.RoleBasedQuotaManager;
  */
 public class ImapServer implements Server, ImapServerSessionProvider {
 
+    private volatile Gumdrop runtime;
+
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
-    private static final Logger LOGGER =
-            Logger.getLogger(ImapServer.class.getName());
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(ImapServer.class, L10N);
+    }
 
     private final List<Listener> listeners = new ArrayList<Listener>();
     private ImapServerSessionProvider sessionProvider;
@@ -326,6 +328,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         initService();
 
         if (quotaManager instanceof RoleBasedQuotaManager) {
@@ -389,8 +392,9 @@ public class ImapServer implements Server, ImapServerSessionProvider {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE,
-                        MessageFormat.format(L10N.getString("warn.failed_start_imap_listener"), listener), e);
+                events().error("warn.failed_start_imap_listener")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }
@@ -400,8 +404,9 @@ public class ImapServer implements Server, ImapServerSessionProvider {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("warn.error_stopping_imap_listener"), listener), e);
+                events().warn("warn.error_stopping_imap_listener")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }

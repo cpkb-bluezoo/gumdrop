@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HttpMethod;
@@ -38,6 +37,9 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 /**
  * A ready-to-use {@link HttpRequestHandler} implementing RFC 9298
@@ -65,6 +67,13 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ConnectUdpRequestHandler.class.getName());
+
+    private EventLogger events() {
+        // a response with no loop, as in tests, reports through a configuration of its own
+        SelectorLoop loop = response.getSelectorLoop();
+        TelemetryConfig telemetry = loop != null ? loop.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ConnectUdpRequestHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
@@ -102,7 +111,6 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
         this.policy = policy;
         this.idleTimeoutMs = idleTimeoutMs;
     }
-
 
     private HttpMethod requestMethod;
     private String protocol;
@@ -147,14 +155,13 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
             return;
         }
         if (!Capsule.capsuleProtocolEnabled(capsuleProtocol)) {
-            LOGGER.warning(L10N.getString("warn.connect_udp_not_capsule"));
+            events().warn("warn.connect_udp_not_capsule").emit();
             rejectRequest(400);
             return;
         }
         final ConnectUdpTarget target = ConnectUdpTarget.parse(path);
         if (target == null) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.connect_udp_bad_target"), path));
+            events().warn("warn.connect_udp_bad_target").attr("path", path).emit();
             rejectRequest(400);
             return;
         }
@@ -178,8 +185,9 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void onError(String error) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("log.connect_udp_dns_failed"), target.getHost(), error));
+                events().warn("log.connect_udp_dns_failed")
+                        .attr("host", target.getHost())
+                        .attr("error", error).emit();
                 rejectRequest(502);
             }
         });
@@ -209,7 +217,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
         try {
             relay.start(resolvedTarget);
         } catch (java.io.IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.connect_udp_upstream_open_failed"), e);
+            events().warn("warn.connect_udp_upstream_open_failed").thrown(e).emit();
             relay = null;
             rejectRequest(502);
             return;

@@ -221,7 +221,7 @@ public class DnsServerLifecycleTest {
         plain.telemetry = new TelemetryConfig();
         MockListener metered = new MockListener();
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setMetricsEnabled(true);
+        tc.metricsEnabled(true);
         metered.telemetry = tc;
         DnsServer server = new DnsServer();
         server.addListener(plain);

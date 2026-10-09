@@ -25,8 +25,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
@@ -35,7 +33,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.server.ClientConnected;
 import org.bluezoo.gumdrop.tls.TlsConfig;
-
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * TCP transport listener for SMTP connections.
@@ -60,8 +58,9 @@ public class SmtpListener extends TcpListener {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle(SmtpListener.class.getPackage().getName() + ".L10N");
 
-    private static final Logger LOGGER =
-            Logger.getLogger(SmtpListener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(SmtpListener.class, L10N);
+    }
 
     /**
      * The default SMTP port (standard mail transfer).
@@ -160,7 +159,6 @@ public class SmtpListener extends TcpListener {
         super.tls(tls);
         return this;
     }
-
 
     /**
      * Returns the maximum message size in bytes.
@@ -416,10 +414,7 @@ public class SmtpListener extends TcpListener {
             try {
                 handler = sessionProvider.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.smtp_session_provider_failed"), e);
-                }
+                events().warn("warn.smtp_session_provider_failed").thrown(e).emit();
             }
         } else {
             org.bluezoo.gumdrop.smtp.server.SmtpServer srv = getServer();
@@ -427,10 +422,7 @@ public class SmtpListener extends TcpListener {
                 try {
                     handler = srv.openSession(this);
                 } catch (Exception e) {
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("warn.smtp_server_session_failed"), e);
-                    }
+                    events().warn("warn.smtp_server_session_failed").thrown(e).emit();
                 }
             }
         }

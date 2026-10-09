@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.CidrNetwork;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.junit.Test;
 
 /**
@@ -90,16 +91,17 @@ public class ListenerCredentialsHandoffTest {
     public void telemetryEnablesMetricsOnlyWhenAskedFor() {
         Plain l = new Plain();
         TelemetryConfig telemetry = new TelemetryConfig();
-        telemetry.setMetricsEnabled(false);
-        l.setTelemetryConfig(telemetry);
-        assertTrue(l.isTelemetryEnabled());
+        telemetry.metricsEnabled(false);
+        Gumdrop g = TestGumdrop.create();
+        g.telemetryConfig(telemetry);
+        l.start(g);
         assertFalse(l.metrics());
-        telemetry.setMetricsEnabled(true);
+        telemetry.metricsEnabled(true);
         assertTrue(l.metrics());
         assertSame(telemetry, l.getTelemetryConfig());
         TcpTransportFactory f = new TcpTransportFactory();
         l.configureTransportFactory(f);
-        assertTrue(f.isTelemetryEnabled());
+        assertSame(telemetry, f.getTelemetryConfig());
     }
 
     @Test

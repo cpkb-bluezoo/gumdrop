@@ -57,6 +57,8 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.*;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * A simple SMTP relay handler that accepts messages and forwards them.
@@ -99,10 +101,16 @@ import org.bluezoo.gumdrop.smtp.client.*;
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         MailFromHandler, RecipientHandler, MessageDataHandler {
 
+    private Endpoint endpoint;
+
     /** Default SMTP port for outbound relay delivery (RFC 5321). */
     public static final int DEFAULT_DELIVERY_PORT = 25;
 
     private static final Logger LOGGER = Logger.getLogger(SimpleRelayHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(SimpleRelayHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
@@ -150,6 +158,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
     @Override
     public void connected(ConnectedState state, Endpoint endpoint) {
+        this.endpoint = endpoint;
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.client_connected"), endpoint.getRemoteAddress()));
         }
@@ -231,9 +240,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             // A production MTA would track the deadline and bounce the
             // message if it cannot be delivered in time. This simple relay
             // accepts but doesn't enforce the deadline.
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(L10N.getString("warn.deliverby_not_enforced"));
-            }
+            events().warn("warn.deliverby_not_enforced").emit();
         }
         
         // MT-PRIORITY would require a priority queue for message processing
@@ -333,9 +340,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
     @Override
     public void messageAborted() {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(L10N.getString("warn.message_aborted"));
-        }
+        events().warn("warn.message_aborted").emit();
         resetTransaction();
     }
 
@@ -533,10 +538,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         }
 
         void deliveryComplete() {
-            if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info(MessageFormat.format(
-                        L10N.getString("info.delivery_complete"), successCount, failCount));
-            }
+            events().info("info.delivery_complete")
+                    .attr("success_count", successCount)
+                    .attr("fail_count", failCount).emit();
 
             if (failCount > 0 && successCount == 0) {
                 endState.rejectMessageTemporary("Delivery failed to all recipients",
@@ -590,8 +594,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void onError(String error) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.mx_lookup_failed"), domain, error));
+                events().warn("warn.mx_lookup_failed")
+                        .attr("domain", domain)
+                        .attr("error", error).emit();
                 failCount += domainRecipients.size();
                 currentDomainIndex++;
                 deliverNext();
@@ -605,8 +610,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                         new SmtpClientProtocolHandler(handler);
                 connectDelivery(host, endpointHandler);
             } catch (IOException e) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.cannot_connect"), host, e.getMessage()));
+                events().warn("warn.cannot_connect")
+                        .attr("host", host)
+                        .attr("reason", e.getMessage()).emit();
                 failCount += domainRecipients.size();
                 currentDomainIndex++;
                 deliverNext();
@@ -647,8 +653,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void onError(Exception cause) {
                 if (!completed) {
                     completed = true;
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.delivery_error"), cause.getMessage()));
+                    events().warn("warn.delivery_error").attr("reason", cause.getMessage()).emit();
                     failCount += domainRecipients.size();
                     currentDomainIndex++;
                     deliverNext();
@@ -671,8 +676,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleServiceClosing(String message) {
                 if (!completed) {
                     completed = true;
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.service_closing"), message));
+                    events().warn("warn.service_closing").attr("message", message).emit();
                     failCount += domainRecipients.size();
                     currentDomainIndex++;
                     deliverNext();
@@ -690,8 +694,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleServiceUnavailable(String message) {
                 if (!completed) {
                     completed = true;
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.service_unavailable"), message));
+                    events().warn("warn.service_unavailable").attr("message", message).emit();
                     failCount += domainRecipients.size();
                     currentDomainIndex++;
                     deliverNext();
@@ -715,11 +718,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                     } else {
                         // Server doesn't support STARTTLS but message requires it
                         // Must bounce the message rather than deliver insecurely
-                        if (LOGGER.isLoggable(Level.WARNING)) {
-                            LOGGER.warning(MessageFormat.format(
-                                    L10N.getString("warn.requiretls_no_starttls"),
-                                    domainRecipients.size()));
-                        }
+                        events().warn("warn.requiretls_no_starttls")
+                                .attr("recipient_count", domainRecipients.size()).emit();
                         session.quit();
                         if (!completed) {
                             completed = true;
@@ -742,7 +742,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleEhloNotSupported(ClientHelloState hello) {
                 // HELO doesn't support STARTTLS, so if REQUIRETLS is set we must fail
                 if (requiresTls()) {
-                    LOGGER.warning(L10N.getString("warn.requiretls_no_esmtp"));
+                    events().warn("warn.requiretls_no_esmtp").emit();
                     hello.quit();
                     if (!completed) {
                         completed = true;
@@ -772,7 +772,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleTlsUnavailable(ClientSession session) {
                 // TLS failed but was required
                 if (requiresTls()) {
-                    LOGGER.warning(L10N.getString("warn.requiretls_handshake_failed"));
+                    events().warn("warn.requiretls_handshake_failed").emit();
                     session.quit();
                     if (!completed) {
                         completed = true;
@@ -823,8 +823,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handleTemporaryFailure(ClientEnvelopeState state) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.rcpt_temp_failure"), domainRecipients.get(recipientIndex - 1)));
+                events().warn("warn.rcpt_temp_failure")
+                        .attr("recipient", String.valueOf(domainRecipients.get(recipientIndex - 1))).emit();
                 failCount++;
                 domainFailed++;
                 if (recipientIndex < domainRecipients.size()) {
@@ -840,8 +840,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handleRecipientRejected(ClientEnvelopeState state) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.rcpt_rejected"), domainRecipients.get(recipientIndex - 1)));
+                events().warn("warn.rcpt_rejected")
+                        .attr("recipient", String.valueOf(domainRecipients.get(recipientIndex - 1))).emit();
                 failCount++;
                 domainFailed++;
                 if (recipientIndex < domainRecipients.size()) {
@@ -867,7 +867,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handleTemporaryFailure(ClientEnvelopeReady envelope) {
-                LOGGER.warning(L10N.getString("warn.data_temp_failure"));
+                events().warn("warn.data_temp_failure").emit();
                 envelope.quit();
                 failCount += domainRecipients.size() - domainFailed;
                 domainFailed = domainRecipients.size();
@@ -877,8 +877,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handlePermanentFailure(String message) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.data_permanent_failure"), message));
+                events().warn("warn.data_permanent_failure").attr("message", message).emit();
                 failCount += domainRecipients.size() - domainFailed;
                 domainFailed = domainRecipients.size();
                 currentDomainIndex++;
@@ -889,10 +888,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handleMessageAccepted(String queueId, ClientSession session) {
-                if (LOGGER.isLoggable(Level.INFO)) {
-                    LOGGER.info(MessageFormat.format(
-                            L10N.getString("info.message_accepted"), queueId));
-                }
+                events().info("info.message_accepted").attr("queue_id", queueId).emit();
                 successCount += domainRecipients.size() - domainFailed;
                 session.quit();
                 currentDomainIndex++;
@@ -901,7 +897,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handleTemporaryFailure(ClientSession session) {
-                LOGGER.warning(L10N.getString("warn.message_temp_failure"));
+                events().warn("warn.message_temp_failure").emit();
                 session.quit();
                 failCount += domainRecipients.size() - domainFailed;
                 domainFailed = domainRecipients.size();
@@ -911,8 +907,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             @Override
             public void handlePermanentFailure(String message, ClientSession session) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.message_permanent_failure"), message));
+                events().warn("warn.message_permanent_failure").attr("message", message).emit();
                 session.quit();
                 failCount += domainRecipients.size() - domainFailed;
                 domainFailed = domainRecipients.size();

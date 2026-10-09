@@ -25,8 +25,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
@@ -37,6 +35,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import java.net.InetAddress;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * TCP transport listener for IMAP connections.
@@ -63,8 +62,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public class ImapListener extends TcpListener {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(ImapListener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(ImapListener.class, ImapProtocolHandler.L10N);
+    }
 
     /**
      * The default IMAP port (cleartext or with STARTTLS).
@@ -178,7 +178,6 @@ public class ImapListener extends TcpListener {
         super.tls(tls);
         return this;
     }
-
 
     /**
      * Returns the authentication realm.
@@ -630,7 +629,7 @@ public class ImapListener extends TcpListener {
         }
 
         if (realm == null) {
-            LOGGER.warning(ImapProtocolHandler.L10N.getString("warn.no_realm_configured"));
+            events().warn("warn.no_realm_configured").emit();
         }
 
         if (isMetricsEnabled()) {
@@ -700,11 +699,7 @@ public class ImapListener extends TcpListener {
             try {
                 return sessionProvider.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            ImapProtocolHandler.L10N.getString("warn.failed_create_imap_handler_session_provider"),
-                            e);
-                }
+                events().warn("warn.failed_create_imap_handler_session_provider").thrown(e).emit();
             }
         }
         org.bluezoo.gumdrop.imap.server.ImapServer srv = getServer();
@@ -712,10 +707,7 @@ public class ImapListener extends TcpListener {
             try {
                 return srv.openSession(this);
             } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            ImapProtocolHandler.L10N.getString("warn.failed_create_imap_handler_server"), e);
-                }
+                events().warn("warn.failed_create_imap_handler_server").thrown(e).emit();
             }
         }
         return null;

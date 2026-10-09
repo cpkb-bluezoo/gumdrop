@@ -50,6 +50,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -842,7 +843,7 @@ public class SmtpHandlerEdgeCasesTest {
         final List<Trace> traces = new ArrayList<Trace>();
 
         CapturingConfig() {
-            setTracesEnabled(true);
+            exporter(new RecordingExporter());
         }
 
         @Override
@@ -955,11 +956,6 @@ public class SmtpHandlerEdgeCasesTest {
 
         TeleEndpoint(TelemetryConfig config) {
             this.config = config;
-        }
-
-        @Override
-        public boolean isTelemetryEnabled() {
-            return enabled;
         }
 
         @Override

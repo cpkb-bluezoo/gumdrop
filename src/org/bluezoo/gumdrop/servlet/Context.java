@@ -106,6 +106,8 @@ import org.bluezoo.gumdrop.servlet.jsp.JspParserFactory;
 import org.bluezoo.gumdrop.servlet.jsp.JspPropertyGroupResolver;
 import org.bluezoo.gumdrop.servlet.jsp.JspServlet;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 import java.net.URLClassLoader;
 import jakarta.servlet.http.HttpSession;
 import jakarta.servlet.http.HttpSessionActivationListener;
@@ -128,6 +130,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     public static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
+
+    private EventLogger events() {
+        return getTelemetryConfig().getLogger(Context.class, L10N);
+    }
 
     private static final String SCI_SERVICE =
             "META-INF/services/jakarta.servlet.ServletContainerInitializer";
@@ -312,7 +318,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 try {
                     warArchive.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_war"), e);
+                    events().warn("warn.error_closing_war").thrown(e).emit();
                 }
                 warArchive = null;
             }
@@ -322,7 +328,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             try {
                 jar.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_lib_jar"), e);
+                events().warn("warn.error_closing_lib_jar").thrown(e).emit();
             }
         }
         libArchiveCache.clear();
@@ -363,6 +369,27 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     private static final long SESSION_SWEEP_INTERVAL_MS = 1000;
     TimerHandle sessionSweepTimer;
     private Gumdrop gumdrop;
+
+    /**
+     * Returns the telemetry configuration this context's events go to: its
+     * runtime's, else its container's, else one of its own, which prints
+     * events through {@code java.util.logging}. Never null.
+     */
+    synchronized TelemetryConfig getTelemetryConfig() {
+        Gumdrop g = gumdrop;
+        if (g != null) {
+            return g.getTelemetryConfig();
+        }
+        Container c = container;
+        if (c != null) {
+            return c.getTelemetryConfig();
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
+    }
+    private TelemetryConfig standaloneTelemetry;
 
     boolean distributable;
     boolean initialized;
@@ -560,9 +587,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 e2.initCause(e);
                 throw e2;
             } catch (IOException e) {
-                String message = L10N.getString("err.manager_war_checksum");
-                message = MessageFormat.format(message, root);
-                LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.manager_war_checksum").attr("root", String.valueOf(root)).thrown(e).emit();
             }
         }
 
@@ -694,7 +719,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             initializeInternal();
         }
         InputStream webXml = getResourceAsStream("/WEB-INF/web.xml");
-        DeploymentDescriptorParser parser = new DeploymentDescriptorParser();
+        DeploymentDescriptorParser parser = new DeploymentDescriptorParser(getTelemetryConfig());
         if (webXml != null) {
             parser.parse(this, webXml);
             resolve();
@@ -763,9 +788,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             jspServletMapping.addUrlPattern("*.jspx");
             servletMappings.add(jspServletMapping);
             
-            if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info(L10N.getString("info.jsp_servlet_auto_configured"));
-            }
+            events().info("info.jsp_servlet_auto_configured").emit();
         }
 
     }
@@ -885,9 +908,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             try {
                 sci.onStartup(types, this);
             } catch (ServletException e) {
-                String message = L10N.getString("err.sci_startup");
-                message = MessageFormat.format(message, sci.getClass().getName());
-                LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.sci_startup")
+                        .attr("provider", sci.getClass().getName())
+                        .thrown(e).emit();
             }
         }
     }
@@ -965,26 +988,20 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 }
             }
         } catch (IOException e) {
-            String message = L10N.getString("err.load_resource");
-            message = MessageFormat.format(message, SCI_SERVICE);
-            LOGGER.log(Level.SEVERE, message, e);
+            events().error("err.load_resource").attr("resource", SCI_SERVICE).thrown(e).emit();
         }
         List<ServletContainerInitializer> initializers = new ArrayList<>();
         for (String providerName : providerNames) {
             try {
                 Class<?> t = contextClassLoader.loadClass(providerName);
                 if (!ServletContainerInitializer.class.isAssignableFrom(t)) {
-                    String message = L10N.getString("err.sci_startup");
-                    message = MessageFormat.format(message, providerName);
-                    LOGGER.log(Level.SEVERE, message);
+                    events().error("err.sci_startup").attr("provider", providerName).emit();
                     continue;
                 }
                 initializers.add((ServletContainerInitializer)
                         t.getDeclaredConstructor().newInstance());
             } catch (ReflectiveOperationException e) {
-                String message = L10N.getString("err.sci_startup");
-                message = MessageFormat.format(message, providerName);
-                LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.sci_startup").attr("provider", providerName).thrown(e).emit();
             }
         }
         return initializers;
@@ -1088,9 +1105,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 webFragments.add(webFragment);
             }
         } catch (IOException e) {
-            String message = L10N.getString("err.load_resource");
-            message = MessageFormat.format(message, path);
-            LOGGER.log(Level.SEVERE, message, e);
+            events().error("err.load_resource").attr("resource", path).thrown(e).emit();
         }
     }
     
@@ -1130,9 +1145,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 if (annotation instanceof WebFilter) {
                     WebFilter webFilter = (WebFilter) annotation;
                     if (!Filter.class.isAssignableFrom(t)) {
-                        String message = L10N.getString("err.bad_annotation");
-                        message = MessageFormat.format(message, className);
-                        LOGGER.log(Level.SEVERE, message);
+                        events().error("err.bad_annotation").attr("class_name", className).emit();
                         return;
                     }
                     FilterDef filterDef;
@@ -1173,9 +1186,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 } else if (annotation instanceof WebListener) {
                     WebListener webListener = (WebListener) annotation;
                     if (!EventListener.class.isAssignableFrom(t)) {
-                        String message = L10N.getString("err.bad_annotation");
-                        message = MessageFormat.format(message, className);
-                        LOGGER.log(Level.SEVERE, message);
+                        events().error("err.bad_annotation").attr("class_name", className).emit();
                         return;
                     }
                     ListenerDef listenerDef;
@@ -1193,9 +1204,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 } else if (annotation instanceof WebServlet) {
                     WebServlet webServlet = (WebServlet) annotation;
                     if (!Servlet.class.isAssignableFrom(t)) {
-                        String message = L10N.getString("err.bad_annotation");
-                        message = MessageFormat.format(message, className);
-                        LOGGER.log(Level.SEVERE, message);
+                        events().error("err.bad_annotation").attr("class_name", className).emit();
                         return;
                     }
                     ServletDef servletDef;
@@ -1225,9 +1234,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 } else if (annotation instanceof MultipartConfig) {
                     MultipartConfig multipartConfig = (MultipartConfig) annotation;
                     if (!Servlet.class.isAssignableFrom(t)) {
-                        String message = L10N.getString("err.bad_annotation");
-                        message = MessageFormat.format(message, className);
-                        LOGGER.log(Level.SEVERE, message);
+                        events().error("err.bad_annotation").attr("class_name", className).emit();
                         return;
                     }
                     ServletDef servletDef;
@@ -1241,9 +1248,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 } else if (annotation instanceof ServletSecurity) {
                     ServletSecurity servletSecurity = (ServletSecurity) annotation;
                     if (!Servlet.class.isAssignableFrom(t)) {
-                        String message = L10N.getString("err.bad_annotation");
-                        message = MessageFormat.format(message, className);
-                        LOGGER.log(Level.SEVERE, message);
+                        events().error("err.bad_annotation").attr("class_name", className).emit();
                         return;
                     }
                     ServletDef servletDef;
@@ -1394,8 +1399,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 }
             }
         } catch (ClassNotFoundException e) {
-            String message = L10N.getString("err.load_resource");
-            message = MessageFormat.format(message, className);
+            String message = MessageFormat.format(L10N.getString("err.load_resource"), className);
             JulWarnings.severe(LOGGER, message, e);
         } catch (NoClassDefFoundError e) {
             // The class is there but a class it refers to is not. That is
@@ -1403,9 +1407,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             // dependency cannot be linked without it, and it is no fault
             // in the application: the class is just not one to scan.
             if (LOGGER.isLoggable(Level.FINE)) {
-                String message = L10N.getString("err.load_resource");
-                message = MessageFormat.format(message, className);
-                LOGGER.log(Level.FINE, message, e);
+                LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("err.load_resource"), className), e);
             }
         }
     }
@@ -1558,9 +1560,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             load();
             init();
             long t2 = System.currentTimeMillis();
-            String message = L10N.getString("info.reloaded_context");
-            message = MessageFormat.format(message, contextPath, (t2 - t1));
-            LOGGER.info(message);
+            events().info("info.reloaded_context")
+                    .attr("context_path", contextPath)
+                    .attr("elapsed_ms", (t2 - t1)).emit();
         } finally {
             thread.setContextClassLoader(originalClassLoader);
         }
@@ -1614,8 +1616,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         ctx.bind("java:comp/env/" + name, interfaceName, instance);
                     }
                 } catch (ServletException e) {
-                    String message = Context.L10N.getString("err.init_resource");
-                    Context.LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.init_resource").thrown(e).emit();
                 }
             }
             for (Injectable injectable : getInjectables()) {
@@ -1678,18 +1679,17 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 filters.put(filterDef.name, filter);
             } catch (UnavailableException e) {
                 if (e.isPermanent()) {
-                    String message = L10N.getString("err.filter_permanently_unavailable");
-                    message = MessageFormat.format(message, filterDef.name);
-                    LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.filter_permanently_unavailable")
+                            .attr("name", filterDef.name)
+                            .thrown(e).emit();
                 } else {
-                    String message = L10N.getString("err.filter_temporarily_unavailable");
-                    message = MessageFormat.format(message, filterDef.name, e.getUnavailableSeconds());
-                    LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.filter_temporarily_unavailable")
+                            .attr("name", filterDef.name)
+                            .attr("unavailable_seconds", e.getUnavailableSeconds())
+                            .thrown(e).emit();
                 }
             } catch (ServletException e) {
-                String message = L10N.getString("err.init_filter");
-                message = MessageFormat.format(message, filterDef.name);
-                LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.init_filter").attr("name", filterDef.name).thrown(e).emit();
             }
         }
         // Init servlets in loadOnStartup order
@@ -1702,18 +1702,19 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     servlets.put(servletDef.name, servlet);
                 } catch (UnavailableException e) {
                     if (e.isPermanent()) {
-                        String message = L10N.getString("err.servlet_permanently_unavailable");
-                        message = MessageFormat.format(message, servletDef.name);
-                        LOGGER.log(Level.SEVERE, message, e);
+                        events().error("err.servlet_permanently_unavailable")
+                                .attr("name", servletDef.name)
+                                .thrown(e).emit();
                     } else {
-                        String message = L10N.getString("err.servlet_temporarily_unavailable");
-                        message = MessageFormat.format(message, servletDef.name, e.getUnavailableSeconds());
-                        LOGGER.log(Level.SEVERE, message, e);
+                        events().error("err.servlet_temporarily_unavailable")
+                                .attr("name", servletDef.name)
+                                .attr("unavailable_seconds", e.getUnavailableSeconds())
+                                .thrown(e).emit();
                     }
                 } catch (ServletException e) {
-                    String message = L10N.getString("err.init_servlet");
-                    message = MessageFormat.format(message, servletDef.name);
-                    LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.init_servlet")
+                            .attr("name", servletDef.name)
+                            .thrown(e).emit();
                 }
             }
         }
@@ -1919,7 +1920,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return false;
     }
 
-
     /**
      * Gets a session by ID.
      * @param id the session ID
@@ -1954,20 +1954,17 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return contextClassLoader;
     }
 
-
     Servlet loadServlet(ServletDef servletDef) throws ServletException {
         String name = servletDef.name;
         Servlet servlet = servlets.get(name);
         if (servlet == null) {
             if (servletDef.unavailableUntil == -1L) { // permanently out of action
-                String message = L10N.getString("err.servlet_permanently_unavailable");
-                message = MessageFormat.format(message, servletDef.name);
+                String message = MessageFormat.format(L10N.getString("err.servlet_permanently_unavailable"), servletDef.name);
                 throw new UnavailableException(message);
             } else if (servletDef.unavailableUntil > 0L) {
                 // We will not try to initialize the servlet yet
                 int seconds = (int) ((servletDef.unavailableUntil - System.currentTimeMillis()) / 1000L);
-                String message = L10N.getString("err.servlet_temporarily_unavailable");
-                message = MessageFormat.format(message, servletDef.name, seconds);
+                String message = MessageFormat.format(L10N.getString("err.servlet_temporarily_unavailable"), servletDef.name, seconds);
                 throw new UnavailableException(message, seconds);
             } else {
                 servlet = servletDef.newInstance();
@@ -1982,14 +1979,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         Filter filter = filters.get(name);
         if (filter == null) {
             if (filterDef.unavailableUntil == -1L) { // permanently out of action
-                String message = L10N.getString("err.filter_permanently_unavailable");
-                message = MessageFormat.format(message, filterDef.name);
+                String message = MessageFormat.format(L10N.getString("err.filter_permanently_unavailable"), filterDef.name);
                 throw new UnavailableException(message);
             } else if (filterDef.unavailableUntil > 0L) {
                 // We will not try to initialize the filter yet
                 int seconds = (int) ((filterDef.unavailableUntil - System.currentTimeMillis()) / 1000L);
-                String message = L10N.getString("err.filter_temporarily_unavailable");
-                message = MessageFormat.format(message, filterDef.name, seconds);
+                String message = MessageFormat.format(L10N.getString("err.filter_temporarily_unavailable"), filterDef.name, seconds);
                 throw new UnavailableException(message, seconds);
             } else {
                 filter = filterDef.newInstance();
@@ -2218,9 +2213,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 }
                 libJarFiles.addAll(index.libJarEntryNames);
             } catch (IOException e) {
-                String message = L10N.getString("err.reading_jar");
-                message = MessageFormat.format(message, root);
-                LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.reading_jar").attr("jar", String.valueOf(root)).thrown(e).emit();
             }
         }
         if (searchJars) {
@@ -2251,9 +2244,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         }
                     }
                 } catch (IOException e) {
-                    String message = L10N.getString("err.reading_jar");
-                    message = MessageFormat.format(message, libJar);
-                    LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.reading_jar").attr("jar", libJar).thrown(e).emit();
                 }
             }
         }
@@ -2311,9 +2302,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     libJarFiles.addAll(getWarIndex().libJarEntryNames);
                 }
             } catch (IOException e) {
-                String message = L10N.getString("err.reading_jar");
-                message = MessageFormat.format(message, root);
-                LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.reading_jar").attr("jar", String.valueOf(root)).thrown(e).emit();
             }
         }
         if (!found) {
@@ -2331,9 +2320,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         break;
                     }
                 } catch (IOException e) {
-                    String message = L10N.getString("err.reading_jar");
-                    message = MessageFormat.format(message, libJar);
-                    LOGGER.log(Level.SEVERE, message, e);
+                    events().error("err.reading_jar").attr("jar", libJar).thrown(e).emit();
                 }
             }
             if (!found) {
@@ -2421,9 +2408,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 }
             }
         } catch (IOException e) {
-            String message = L10N.getString("err.reading_jar");
-            message = MessageFormat.format(message, root);
-            LOGGER.log(Level.SEVERE, message, e);
+            events().error("err.reading_jar").attr("jar", String.valueOf(root)).thrown(e).emit();
         }
         return null;
     }
@@ -2733,9 +2718,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     @Override public void log(String msg, Throwable e) {
         if (e != null) {
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("log.servlet_context_warning").attr("message", msg).thrown(e).emit();
         } else {
-            LOGGER.log(Level.INFO, msg);
+            events().info("log.servlet_context_info").attr("message", msg).emit();
         }
     }
 
@@ -2927,8 +2912,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (isApplicationClass(t)) {
             return addServlet(servletName, t.getName());
         } else {
-            String message = L10N.getString("err.bad_servlet");
-            message = MessageFormat.format(message, t.getName());
+            String message = MessageFormat.format(L10N.getString("err.bad_servlet"), t.getName());
             throw new SecurityException(message);
         }
     }
@@ -2945,8 +2929,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 }
             }
             if (servletDef == null) {
-                String message = L10N.getString("err.servlet_not_registered");
-                message = MessageFormat.format(message, t.getName());
+                String message = MessageFormat.format(L10N.getString("err.servlet_not_registered"), t.getName());
                 throw new SecurityException(message);
             }
             Servlet servlet = servlets.get(servletDef.name);
@@ -2956,8 +2939,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
             return (T) servlet;
         } else {
-            String message = L10N.getString("err.bad_servlet");
-            message = MessageFormat.format(message, t.getName());
+            String message = MessageFormat.format(L10N.getString("err.bad_servlet"), t.getName());
             throw new SecurityException(message);
         }
     }
@@ -3013,8 +2995,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (isApplicationClass(t)) {
             return addFilter(filterName, t.getName());
         } else {
-            String message = L10N.getString("err.bad_filter");
-            message = MessageFormat.format(message, t.getName());
+            String message = MessageFormat.format(L10N.getString("err.bad_filter"), t.getName());
             throw new SecurityException(message);
         }
     }
@@ -3031,8 +3012,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 }
             }
             if (filterDef == null) {
-                String message = L10N.getString("err.filter_not_registered");
-                message = MessageFormat.format(message, t.getName());
+                String message = MessageFormat.format(L10N.getString("err.filter_not_registered"), t.getName());
                 throw new SecurityException(message);
             }
             Filter filter = filters.get(filterDef.name);
@@ -3042,8 +3022,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
             return (T) filter;
         } else {
-            String message = L10N.getString("err.bad_filter");
-            message = MessageFormat.format(message, t.getName());
+            String message = MessageFormat.format(L10N.getString("err.bad_filter"), t.getName());
             throw new SecurityException(message);
         }
     }
@@ -3098,8 +3077,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         // check classloader
         Class<?> t = listener.getClass();
         if (!isApplicationClass(t)) {
-            String message = L10N.getString("err.bad_listener");
-            message = MessageFormat.format(message, t.getName());
+            String message = MessageFormat.format(L10N.getString("err.bad_listener"), t.getName());
             throw new SecurityException(message);
         }
         boolean match = false;
@@ -3158,8 +3136,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 String name = listenerClass.getName();
                 Class<?> loadedClass = contextClassLoader.loadClass(name);
                 if (!listenerClass.isAssignableFrom(loadedClass)) {
-                    String message = L10N.getString("err.class_not_assignable");
-                    message = MessageFormat.format(message, loadedClass.getName(), name);
+                    String message = MessageFormat.format(L10N.getString("err.class_not_assignable"), loadedClass.getName(), name);
                     throw new ServletException(message);
                 }
                 listenerClass = (Class<T>) loadedClass;
@@ -3291,8 +3268,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     jspInputStream.close();
                 } catch (IOException e) {
                     // Log but don't fail
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.jsp_input_stream_close_failed"), path));
+                    events().warn("warn.jsp_input_stream_close_failed").attr("path", path).emit();
                 }
             }
 
@@ -3364,7 +3340,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 try {
                     jspCompiler.setClasspath(((DependencyClassLoader) cl).getClasspathFiles());
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.jsp_compilation_classpath_failed"), e);
+                    events().warn("warn.jsp_compilation_classpath_failed").thrown(e).emit();
                 }
             }
         }
