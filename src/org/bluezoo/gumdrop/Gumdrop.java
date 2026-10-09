@@ -239,7 +239,7 @@ public class Gumdrop {
      */
     public static Gumdrop boot(GumdropConfig config) {
         Gumdrop gumdrop = new Gumdrop(config.getWorkerThreads());
-        gumdrop.setDrainTimeoutMs(config.getDrainTimeoutMs());
+        gumdrop.drainTimeoutMs(config.getDrainTimeoutMs());
         gumdrop.start();
         return gumdrop;
     }
@@ -1481,9 +1481,11 @@ public class Gumdrop {
      * (shutdown force-closes connections immediately).
      *
      * @param drainTimeoutMs the drain timeout in milliseconds
+     * @return this runtime
      */
-    public void setDrainTimeoutMs(long drainTimeoutMs) {
+    public Gumdrop drainTimeoutMs(long drainTimeoutMs) {
         this.drainTimeoutMs = drainTimeoutMs;
+        return this;
     }
 
     /**
@@ -1505,12 +1507,14 @@ public class Gumdrop {
      * exporters down once the servers have closed.
      *
      * @param telemetryConfig the configuration
+     * @return this runtime
      */
-    public void setTelemetryConfig(TelemetryConfig telemetryConfig) {
+    public Gumdrop telemetryConfig(TelemetryConfig telemetryConfig) {
         if (telemetryConfig == null) {
             throw new IllegalArgumentException("telemetryConfig");
         }
         this.telemetryConfig = telemetryConfig;
+        return this;
     }
 
     /**

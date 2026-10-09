@@ -147,7 +147,7 @@ user-visible themes since 2.2.x.
 ### Changed
 
 - **One `TelemetryConfig` per runtime** (#551): telemetry is configured with
-  `Gumdrop.setTelemetryConfig` and reached through the runtime by every
+  `Gumdrop.telemetryConfig` and reached through the runtime by every
   listener, endpoint and component, instead of being attached to individual
   listeners. `Endpoint.getTelemetryConfig()` never returns null, there is no
   `isTelemetryEnabled()`, and the exporter is chosen by constructing it:

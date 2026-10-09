@@ -210,7 +210,7 @@ public class FtpDataTransferFailureMockTest {
     @Test
     public void listenerStartedWithTelemetryCreatesMetrics() {
         FtpListener metered = new FtpListener();
-        gumdrop.setTelemetryConfig(new org.bluezoo.gumdrop.telemetry.TelemetryConfig());
+        gumdrop.telemetryConfig(new org.bluezoo.gumdrop.telemetry.TelemetryConfig());
         metered.start(gumdrop);
         assertNotNull(metered.getMetrics());
         FtpListener plain = new FtpListener();

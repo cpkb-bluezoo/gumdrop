@@ -331,7 +331,7 @@ public class MqttProtocolHandlerStreamingTest {
         tc.exporter(new RecordingExporter());
         tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();
-        g.setTelemetryConfig(tc);
+        g.telemetryConfig(tc);
         listener.start(g);
         assertNotNull(listener.getMetrics());
         BasicRealm realm = new BasicRealm() {

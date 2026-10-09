@@ -239,7 +239,7 @@ public class ImapListenerCoverageTest {
         TelemetryConfig tc = new TelemetryConfig();
         tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();
-        g.setTelemetryConfig(tc);
+        g.telemetryConfig(tc);
         l.start(g);
         assertNotNull(l.getMetrics());
     }

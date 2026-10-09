@@ -141,7 +141,7 @@ public class TelemetryIntegrationTest {
 
         // Start both servers using their own dedicated runtime
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
-        gumdrop.setTelemetryConfig(telemetryConfig);
+        gumdrop.telemetryConfig(telemetryConfig);
         gumdrop.addListener(httpServer);
         gumdrop.addListener(smtpServer);
 

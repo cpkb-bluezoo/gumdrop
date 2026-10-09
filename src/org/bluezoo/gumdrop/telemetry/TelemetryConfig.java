@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Top-level telemetry configuration for Gumdrop: where traces, log
  * events and metrics go. Composed in Java and set on the runtime with
- * {@link org.bluezoo.gumdrop.Gumdrop#setTelemetryConfig}, one per runtime:
+ * {@link org.bluezoo.gumdrop.Gumdrop#telemetryConfig}, one per runtime:
  * listeners and endpoints reach it through the runtime, and the runtime
  * flushes and shuts it down when it shuts down.
  *

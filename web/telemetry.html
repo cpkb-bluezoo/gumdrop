@@ -288,7 +288,7 @@ is what happens.
 
 <p>
 A Gumdrop runtime has exactly one <code>TelemetryConfig</code>. It is set on
-the runtime with <code>setTelemetryConfig</code>, before servers are added,
+the runtime with <code>telemetryConfig</code>, before servers are added,
 and every listener, endpoint, client and component on that runtime reaches it
 from there. A runtime that is never given one has a default configuration
 whose only exporter prints operational events through
@@ -324,7 +324,7 @@ telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
 telemetry.init();
 
 Gumdrop gumdrop = Gumdrop.boot();
-gumdrop.setTelemetryConfig(telemetry);
+gumdrop.telemetryConfig(telemetry);
 gumdrop.addServer(server);
 </pre>
 
@@ -1005,7 +1005,7 @@ telemetry.exporter(new TeeExporter(otlp, new DefaultExporter()));
 telemetry.init();
 
 Gumdrop gumdrop = Gumdrop.boot();
-gumdrop.setTelemetryConfig(telemetry);
+gumdrop.telemetryConfig(telemetry);
 
 SmtpServer smtp = SmtpServer.compose()
     .listener(new SmtpListener().port(25))

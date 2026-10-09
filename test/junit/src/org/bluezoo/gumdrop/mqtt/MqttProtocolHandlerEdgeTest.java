@@ -698,7 +698,7 @@ public class MqttProtocolHandlerEdgeTest {
         TelemetryConfig tc = new TelemetryConfig();
         tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();
-        g.setTelemetryConfig(tc);
+        g.telemetryConfig(tc);
         listener.start(g);
         handler.connected(endpoint);
         ConnectPacket p = connectPacket("nopw", true, 0, MqttVersion.V3_1_1);

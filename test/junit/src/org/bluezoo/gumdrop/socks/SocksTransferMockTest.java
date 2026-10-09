@@ -87,7 +87,7 @@ public class SocksTransferMockTest {
         server = new SocksServer();
         listener = new SocksListener();
         listener.setServer(server);
-        gumdrop.setTelemetryConfig(telemetryConfig());
+        gumdrop.telemetryConfig(telemetryConfig());
         listener.start(gumdrop);
         newSession(gumdrop.nextWorkerLoop());
     }

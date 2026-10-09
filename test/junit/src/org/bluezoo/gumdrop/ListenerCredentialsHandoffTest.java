@@ -93,7 +93,7 @@ public class ListenerCredentialsHandoffTest {
         TelemetryConfig telemetry = new TelemetryConfig();
         telemetry.metricsEnabled(false);
         Gumdrop g = TestGumdrop.create();
-        g.setTelemetryConfig(telemetry);
+        g.telemetryConfig(telemetry);
         l.start(g);
         assertFalse(l.metrics());
         telemetry.metricsEnabled(true);

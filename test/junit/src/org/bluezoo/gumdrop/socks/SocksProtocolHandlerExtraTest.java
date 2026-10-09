@@ -70,7 +70,7 @@ public class SocksProtocolHandlerExtraTest {
         listener = new SocksListener();
         listener.setServer(server);
         Gumdrop g = TestGumdrop.create();
-        g.setTelemetryConfig(telemetryConfig());
+        g.telemetryConfig(telemetryConfig());
         listener.start(g);
         handler = server.createProtocolHandler(listener);
         endpoint = new StubEndpoint();

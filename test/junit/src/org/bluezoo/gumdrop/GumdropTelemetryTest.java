@@ -56,7 +56,7 @@ public class GumdropTelemetryTest {
         assertNotNull(telemetry);
         assertTrue(telemetry.getExporter() instanceof DefaultExporter);
         try {
-            gumdrop.setTelemetryConfig(null);
+            gumdrop.telemetryConfig(null);
             fail();
         } catch (IllegalArgumentException expected) {
         }
@@ -67,7 +67,7 @@ public class GumdropTelemetryTest {
     public void aListenerReachesTheConfigurationThroughItsRuntime() {
         Gumdrop gumdrop = TestGumdrop.create();
         TelemetryConfig telemetry = new TelemetryConfig();
-        gumdrop.setTelemetryConfig(telemetry);
+        gumdrop.telemetryConfig(telemetry);
         Plain listener = new Plain();
         assertNull(listener.getGumdrop());
         assertNull(listener.getTelemetryConfig());
@@ -83,7 +83,7 @@ public class GumdropTelemetryTest {
         TelemetryConfig telemetry = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter();
         telemetry.exporter(exporter);
-        gumdrop.setTelemetryConfig(telemetry);
+        gumdrop.telemetryConfig(telemetry);
         gumdrop.start();
         assertEquals(0, exporter.shutdowns);
         gumdrop.shutdown();
