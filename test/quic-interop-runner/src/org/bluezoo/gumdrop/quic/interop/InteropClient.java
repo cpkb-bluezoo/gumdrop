@@ -104,6 +104,7 @@ public final class InteropClient {
             factory.setCaFile(env.caFile());
             InteropEnvironment.enableQlog(factory);
             factory.setEarlyDataEnabled(testCase == InteropTestCase.ZERORTT);
+            factory.setAckFrequencyEnabled(!"0".equals(System.getenv("ACK_FREQUENCY")));
             if (testCase == InteropTestCase.CHACHA20) {
                 factory.setCipherSuites(InteropServer.CHACHA20_ONLY);
             }

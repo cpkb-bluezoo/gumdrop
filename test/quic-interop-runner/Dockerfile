@@ -31,6 +31,8 @@ FROM martenseemann/quic-network-simulator-endpoint:latest
 
 COPY --from=jre /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
+# EXPERIMENT (msquic stall): client does not send ACK_FREQUENCY; remove once diagnosed
+ENV ACK_FREQUENCY=0
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 WORKDIR /gumdrop

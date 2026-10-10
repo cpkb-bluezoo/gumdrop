@@ -3353,7 +3353,15 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         int zeroRttHandshakeAndOneRttBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
                 + (handshakeBytes != null ? handshakeBytes.length : 0)
                 + (oneRttBytes != null ? oneRttBytes.length : 0);
-        int initialMinDatagramSize = !isServer ? Math.max(0, MIN_DATAGRAM_SIZE - zeroRttHandshakeAndOneRttBytes) : 0;
+        // RFC 9000 section 14.1: a client expands every datagram carrying
+        // an Initial packet, a server every datagram carrying an
+        // ack-eliciting one (an ACK-only Initial reply needs no padding).
+        // picoquic enforces the server's half and drops the packet
+        // unseen, so a short HelloRetryRequest flight never got through.
+        boolean initialAckEliciting = !pendingCrypto.get(EncryptionLevel.INITIAL).isEmpty()
+                || pendingPing[EncryptionLevel.INITIAL.ordinal()];
+        int initialMinDatagramSize = (!isServer || initialAckEliciting)
+                ? Math.max(0, MIN_DATAGRAM_SIZE - zeroRttHandshakeAndOneRttBytes) : 0;
         coalescedBytes = zeroRttHandshakeAndOneRttBytes;
         byte[] initialBytes = buildLevelPacketOrNull(EncryptionLevel.INITIAL, initialMinDatagramSize);
         coalescedBytes = 0;
