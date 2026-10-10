@@ -507,6 +507,17 @@ user-visible themes since 2.2.x.
   bytes beyond the highest offset sent are now charged. Found by the
   quic-interop-runner (#550).
 
+- **QUIC kept sending to a connection ID the peer had retired**: a
+  NEW_CONNECTION_ID frame whose Retire Prior To is above the sequence number in
+  use retires that connection ID, and the endpoint must stop addressing packets
+  to it (RFC 9000 section 5.1.2). gumdrop sent the RETIRE_CONNECTION_ID frame but
+  kept using the retired ID, so msquic, which issues its first spare ID this way,
+  answered every later packet with a stateless reset. It never saw gumdrop's
+  acknowledgements, backed off its probe timer and a download from msquic stalled
+  after about 30 KB. The connection now switches to the newest ID that is left.
+  quic-go, ngtcp2, quiche and picoquic do not retire an ID in use, so they were
+  unaffected. Found by the quic-interop-runner (#550).
+
 - **Security advisories fixed since 2.2.0** (affected versions up to 2.2.0):
   - GHSA-4vx4-8xxq-gvwj: the protobuf varint parser mistook a field value of
     `-1` for "need more data" and stalled gRPC and telemetry parsing for good.

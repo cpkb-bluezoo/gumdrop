@@ -2934,6 +2934,21 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             byte[] token = new byte[statelessResetToken.remaining()];
             statelessResetToken.get(token);
             connectionIdManager.addPeerConnectionId(sequenceNumber, retirePriorTo, cid, token);
+            // RFC 9000 section 5.1.2: a connection ID below Retire Prior To
+            // has been retired by the manager (its RETIRE_CONNECTION_ID is
+            // queued), and the peer no longer accepts packets addressed to
+            // it -- it answers them with stateless resets. Switch to the
+            // newest one that is left.
+            if (activePeerConnectionIdSequence < retirePriorTo) {
+                ConnectionIdEntry replacement = connectionIdManager.getActivePeerConnectionId();
+                if (replacement != null) {
+                    if (qlog != null) {
+                        qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, replacement.getConnectionId());
+                    }
+                    peerConnectionId = replacement.getConnectionId();
+                    activePeerConnectionIdSequence = replacement.getSequenceNumber();
+                }
+            }
         }
 
         @Override

@@ -27,6 +27,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
@@ -275,6 +278,43 @@ public class QuicLoopbackFramesTest {
         QuicFrameWriter.writeRetireConnectionId(b, 77);
         f.toServer(b);
         assertFalse(f.server.conn.isClosed());
+    }
+
+    // RFC 9000 section 5.1.2: a NEW_CONNECTION_ID whose Retire Prior To is
+    // above the sequence number in use retires that connection ID, and the
+    // endpoint stops sending to it. msquic issues its first spare ID this
+    // way, and a peer that keeps being addressed by a retired ID answers
+    // with stateless resets.
+    @Test
+    public void connectionIdRetiredByRetirePriorToIsNoLongerUsed() throws Exception {
+        Fixture f = Fixture.create();
+        final byte[] spare = new byte[] {7, 7, 7, 7, 7, 7, 7, 7, 7};
+        final byte[] before = f.client.conn.getPeerConnectionId();
+        assertFalse(Arrays.equals(spare, before));
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeNewConnectionId(b, 1, 1, spare, new byte[16]);
+        f.toClient(b);
+        assertTrue(Arrays.equals(spare, f.client.conn.getPeerConnectionId()));
+
+        final List<byte[]> toServer = new ArrayList<byte[]>();
+        f.lb.filter = new QuicLoopback.Filter() {
+            @Override
+            public boolean deliver(boolean toServerDirection, int index, byte[] datagram) {
+                if (toServerDirection) {
+                    toServer.add(datagram);
+                }
+                return true;
+            }
+        };
+        Rec c = new Rec();
+        Endpoint e = f.client.conn.openStream(c);
+        e.send(ByteBuffer.wrap(new byte[100]));
+        f.lb.pump();
+        assertFalse(toServer.isEmpty());
+        for (byte[] datagram : toServer) {
+            assertTrue(Arrays.equals(spare, Arrays.copyOfRange(datagram, 1, 1 + spare.length)));
+        }
+        assertFalse(f.client.conn.isClosed());
     }
 
     @Test
