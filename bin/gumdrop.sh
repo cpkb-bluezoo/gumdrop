@@ -30,14 +30,16 @@ fi
 LOGGING_PROPERTIES="${LOGGING_PROPERTIES:-$GUMDROP_HOME/logging.properties}"
 MAX_RAM_PERCENTAGE="${MAX_RAM_PERCENTAGE:-75.0}"
 
-logging=
-if [ -n "$LOGGING_PROPERTIES" ] && [ -f "$LOGGING_PROPERTIES" ]; then
-	logging="-Djava.util.logging.config.file=$LOGGING_PROPERTIES"
-fi
-
 # Java 25+: cgroup/container memory limits are automatic; +UseContainerSupport was removed.
 jvm_opts="-XX:MaxRAMPercentage=$MAX_RAM_PERCENTAGE"
 
-exec "$java" $jvm_opts $logging \
+# $JAVA_OPTS is deliberately left unquoted so it splits into separate options;
+# the logging path is quoted so a GUMDROP_HOME containing spaces survives.
+if [ -n "$LOGGING_PROPERTIES" ] && [ -f "$LOGGING_PROPERTIES" ]; then
+	exec "$java" $jvm_opts "-Djava.util.logging.config.file=$LOGGING_PROPERTIES" \
+		$JAVA_OPTS \
+		-cp "$BOOTSTRAP" org.bluezoo.gumdrop.Bootstrap "$@"
+fi
+exec "$java" $jvm_opts \
 	$JAVA_OPTS \
 	-cp "$BOOTSTRAP" org.bluezoo.gumdrop.Bootstrap "$@"
