@@ -163,8 +163,11 @@ def pom_dependencies(pom):
 
 
 def main():
+    # dist/ also holds the versioned copies "ant release" makes (gumdrop-core-3.0.0.jar);
+    # they declare the same modules as the plain jars and would be seen twice.
     jars = sorted(p for p in DIST.glob("gumdrop-*.jar")
-                  if not any(x in p.name for x in ("container", "sources", "javadoc")))
+                  if not any(x in p.name for x in ("container", "sources", "javadoc"))
+                  and not re.search(r"-\d+\.\d+", p.name))
     if not jars:
         print("error: no module jars in dist/ - run 'ant jar' first", file=sys.stderr)
         return 2
