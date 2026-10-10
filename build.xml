@@ -1059,8 +1059,10 @@
   </target>
 
   <!-- Build integration tests -->
-  <!-- Also compiles the examples, so they cannot drift from the API unnoticed. -->
-  <target name='integration-build' depends='junit-build,build-modules,examples-compile'>
+  <!-- Also compiles the examples and the quic-interop-runner endpoint, so
+       they cannot drift from the API unnoticed (the endpoint is otherwise
+       only built inside the interop Docker image). -->
+  <target name='integration-build' depends='junit-build,build-modules,examples-compile,quic-interop-build'>
     <mkdir dir='${testdir}/integration/classes'/>
     <javac srcdir='${testdir}/integration/src'
            destdir='${testdir}/integration/classes'

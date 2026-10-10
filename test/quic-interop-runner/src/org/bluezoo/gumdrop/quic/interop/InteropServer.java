@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -176,9 +177,8 @@ public final class InteropServer {
     private static void runHttp3(InteropEnvironment env) throws Exception {
         Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         Http3Listener listener = new Http3Listener().port(env.port()).requireRetry(false);
-        listener.setCertFile(env.certFile());
-        listener.setKeyFile(env.keyFile());
-        listener.setCompressResponses(false);
+        listener.tls(new TlsConfig().certFile(env.certFile()).keyFile(env.keyFile()));
+        listener.compressResponses(false);
         listener.bindWildcard();
         HttpServer server = HttpServer.compose()
                 .listener(listener)

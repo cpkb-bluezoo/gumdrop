@@ -40,10 +40,12 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpError;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * The {@code http3} test case on the client: one HTTP/3 connection,
@@ -67,13 +69,14 @@ final class H3Downloader {
         try {
             SelectorLoop loop = gumdrop.nextWorkerLoop();
             final HttpClient client = new HttpClient(loop, first.host, first.port);
-            client.setSecure(true);
-            client.setH3Enabled(true);
-            client.setAltSvcEnabled(false);
-            client.setDnsHttpsRecordEnabled(false);
-            client.setBlockPrivateAddresses(false);
-            client.setSendAcceptEncodingHeader(false);
-            client.setTrustManager(PemCredentials.loadTrustManager(caFile));
+            client.secure(true);
+            // HTTP/3 only: straight to QUIC, with no discovery and no fallback
+            client.versions(HttpVersion.HTTP_3);
+            client.altSvcEnabled(false);
+            client.dnsHttpsRecordEnabled(false);
+            client.blockPrivateAddresses(false);
+            client.sendAcceptEncodingHeader(false);
+            client.tls(new TlsConfig().trustManager(PemCredentials.loadTrustManager(caFile)));
 
             final CountDownLatch connected = new CountDownLatch(1);
             final AtomicReference<Exception> connectError = new AtomicReference<Exception>();
