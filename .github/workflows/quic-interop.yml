@@ -18,6 +18,10 @@ on:
         description: 'Test cases (comma-separated; empty runs the whole suite)'
         default: ''
         type: string
+      ref:
+        description: 'Gumdrop commit, branch or tag to build the endpoint from (empty builds this workflow''s own commit)'
+        default: ''
+        type: string
   schedule:
     - cron: '0 4 * * 1'
 
@@ -36,6 +40,8 @@ jobs:
       peers: ${{ steps.peers.outputs.peers }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Build image
         run: docker build -f test/quic-interop-runner/Dockerfile -t gumdrop-interop:ci .
@@ -72,6 +78,14 @@ jobs:
         with:
           repository: quic-interop/quic-interop-runner
           path: runner
+
+      # The ACK counting script comes from this workflow's own commit, so a
+      # run of an older gumdrop (inputs.ref) is analysed the same way.
+      - name: Check out the analysis script
+        uses: actions/checkout@v7
+        with:
+          path: gumdrop-ci
+          sparse-checkout: test/quic-interop-runner
 
       # The runner's compose file needs a newer engine than the runner
       # image ships; this mirrors the runner's own CI.
@@ -116,6 +130,7 @@ jobs:
         env:
           TESTS: ${{ inputs.tests }}
           PEER: ${{ matrix.peer }}
+          REF: ${{ inputs.ref }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/results"
           args=(-s gumdrop -c "$PEER" --markdown
@@ -123,7 +138,10 @@ jobs:
                 --json "$GITHUB_WORKSPACE/results/server-gumdrop_client-$PEER.json")
           if [ -n "$TESTS" ]; then args+=(-t "$TESTS"); fi
           python run.py "${args[@]}" | tee server.txt || true
-          { echo "### gumdrop server, $PEER client"; echo; cat server.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### gumdrop server, $PEER client (gumdrop ${REF:-$GITHUB_SHA})"; echo; cat server.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+          python3 "$GITHUB_WORKSPACE/gumdrop-ci/test/quic-interop-runner/ack_stats.py" server \
+            "$GITHUB_WORKSPACE/logs/gumdrop-server" > acks.md || echo "ack_stats failed" > acks.md
+          { echo "#### ACK-only packets, gumdrop server vs $PEER"; echo; cat acks.md; echo; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: ${{ matrix.peer }} server, gumdrop client
         if: always()
@@ -131,6 +149,7 @@ jobs:
         env:
           TESTS: ${{ inputs.tests }}
           PEER: ${{ matrix.peer }}
+          REF: ${{ inputs.ref }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/results"
           args=(-s "$PEER" -c gumdrop --markdown
@@ -138,7 +157,10 @@ jobs:
                 --json "$GITHUB_WORKSPACE/results/server-${PEER}_client-gumdrop.json")
           if [ -n "$TESTS" ]; then args+=(-t "$TESTS"); fi
           python run.py "${args[@]}" | tee client.txt || true
-          { echo "### $PEER server, gumdrop client"; echo; cat client.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### $PEER server, gumdrop client (gumdrop ${REF:-$GITHUB_SHA})"; echo; cat client.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+          python3 "$GITHUB_WORKSPACE/gumdrop-ci/test/quic-interop-runner/ack_stats.py" client \
+            "$GITHUB_WORKSPACE/logs/gumdrop-client" > acks.md || echo "ack_stats failed" > acks.md
+          { echo "#### ACK-only packets, gumdrop client vs $PEER"; echo; cat acks.md; echo; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload logs and results
         if: always()

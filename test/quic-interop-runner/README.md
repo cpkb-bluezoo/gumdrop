@@ -124,4 +124,29 @@ peer implementation runs the whole suite twice, with gumdrop as server
 and as client, and appends the runner's result matrices to the job
 summary. Logs and the runner's JSON results are uploaded as artifacts
 named `quic-interop-<peer>`. Run it from the Actions tab; the `peers` and
-`tests` inputs narrow it down.
+`tests` inputs narrow it down, and `ref` builds the endpoint from another
+gumdrop commit, branch or tag (a full commit SHA, not `sha^`) while the
+workflow itself stays at the commit it was dispatched from.
+
+## Counting ACK-only packets
+
+`ack_stats.py` reads a runner `--log-dir` and, from the pcap taken on
+gumdrop's own side of the simulator, counts per case how many 1-RTT packets
+gumdrop sent, how many of those carried only ACK frames, how many data packets
+the peer sent, and how many `ACK_FREQUENCY`, `IMMEDIATE_ACK` and
+`CONNECTION_CLOSE` frames each side sent. It needs `tshark` and the key logs
+the endpoints write, and `ack_stats.py --self-test` checks its counting on
+sample `tshark` output. The workflow runs it after each direction and adds
+the table to the job summary, so comparing two revisions (issue #550: the
+last commit before ACK scheduling against the one that completed it) is two
+dispatches and a look at the summaries:
+
+```bash
+gh workflow run quic-interop.yml -f ref=feb3fc5217ae741e6276319ede30ed3159b5249f \
+    -f tests=transfer,goodput -f peers=quic-go,ngtcp2,quiche,picoquic,msquic
+gh workflow run quic-interop.yml -f ref=b482d4babbe0ab234ff7357741a954bd090c559e \
+    -f tests=transfer,goodput -f peers=quic-go,ngtcp2,quiche,picoquic,msquic
+```
+
+To switch gumdrop's sending side off without a rebuild if a peer rejects its
+frames, use `QuicTransportFactory.setAckFrequencyEnabled(false)`.
