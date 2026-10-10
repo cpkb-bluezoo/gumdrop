@@ -594,6 +594,8 @@
     <copy file='bin/gumdrop.sh' todir='${container.home}/bin'/>
     <copy file='bin/gumdrop.bat' todir='${container.home}/bin'/>
     <chmod file='${container.home}/bin/gumdrop.sh' perm='ugo+rx'/>
+    <!-- cmd.exe wants CRLF; the repo copy may be LF -->
+    <fixcrlf srcdir='${container.home}/bin' includes='*.bat' eol='crlf'/>
     <copy file='${dist}/lib/gumdrop-bootstrap.jar' todir='${container.home}/lib'/>
     <copy file='${gumdrop.core.jar}' tofile='${container.home}/lib/gumdrop-core.jar'/>
     <copy file='${gumdrop.http.jar}' tofile='${container.home}/lib/gumdrop-http.jar'/>

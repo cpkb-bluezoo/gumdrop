@@ -21,7 +21,7 @@ set "JVM_OPTS=-XX:MaxRAMPercentage=%MAX_RAM_PERCENTAGE%"
 
 set "LOGGING="
 if exist "%LOGGING_PROPERTIES%" (
-	set "LOGGING=-Djava.util.logging.config.file=%LOGGING_PROPERTIES%"
+	set LOGGING=-Djava.util.logging.config.file="%LOGGING_PROPERTIES%"
 )
 
 "%JAVA%" %JVM_OPTS% %LOGGING% %JAVA_OPTS% -cp "%BOOTSTRAP%" org.bluezoo.gumdrop.Bootstrap %*
