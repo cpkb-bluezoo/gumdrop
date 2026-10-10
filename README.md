@@ -173,6 +173,12 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - idle connection timeout, graceful shutdown, Expect: 100-continue
         - OPTIONS * and configurable TRACE method support
     - HTTP client: Connection: close, obs-fold, Content-Length validation, header size limit, Digest SHA-256
+        - protocol version negotiation across HTTP/3, HTTP/2 and HTTP/1.1: DNS HTTPS records,
+          cached Alt-Svc, ALPN and h2c, with fallback from QUIC to TCP; `versions(...)`
+          selects the permitted set
+    - MASQUE tunnels over HTTP/3, HTTP/2 and HTTP/1.1
+        - CONNECT-UDP (RFC 9298) and CONNECT-IP (RFC 9484) clients
+        - HTTP Datagrams and the Capsule Protocol (RFC 9297)
     - authentication framework supporting:
         - Basic
         - HTTP Digest (MD5, SHA-256)
@@ -184,6 +190,8 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - unified flow control over HTTP transports
     - WebDAV file service
         - supports fast NIO based data transfer
+        - XML requests and responses streamed in near-constant memory, including
+          Multi-Status for PROPFIND, PROPPATCH, LOCK and DELETE
         - PUT and DELETE (including recursive collection DELETE with Multi-Status)
         - RFC 4918 distributed authoring with full If header conditional evaluation
             - PROPFIND, PROPPATCH for live and dead property management
@@ -246,6 +254,8 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - FUTURERELEASE
         - DELIVERBY
     - LIMITS support
+    - SIZE, PIPELINING, 8BITMIME and ENHANCEDSTATUSCODES
+    - per-recipient DSN parameters (NOTIFY, ORCPT) available to handlers
     - ETRN command recognition (RFC 1985)
     - SMTP client implementation for MTA forward message delivery
         - step-by-step asynchronous handler interfaces for event-driven
@@ -256,9 +266,11 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - MAIL FROM extension parameters (BODY, SMTPUTF8, RET/ENVID, REQUIRETLS, MT-PRIORITY, FUTURERELEASE, DELIVERBY)
         - RCPT TO with DSN parameters (NOTIFY, ORCPT)
         - VRFY and EXPN commands
-    - example services for local mailbox delivery and relay
+    - example services for local mailbox delivery and relay, and a compiled
+      example server with SPF, DKIM and DMARC checks
 - IMAP4rev2
-    - complete IMAP4rev2 implementation (RFC 9051)
+    - complete IMAP4rev2 implementation (RFC 9051), also advertising IMAP4rev1
+      so that clients which look only for it will connect
     - IMAPS (implicit TLS on port 993)
     - STARTTLS support
     - full SASL authentication (see SASL section below)
@@ -285,6 +297,9 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - QRESYNC (RFC 7162) - efficient mailbox resynchronization
             - VANISHED (EARLIER) for expunged UIDs on reconnect
             - session-wide VANISHED instead of EXPUNGE
+        - SORT and THREAD (RFC 5256) - ORDEREDSUBJECT and REFERENCES
+        - OBJECTID (RFC 8474), BINARY (RFC 3516), PREVIEW (RFC 8970)
+        - NOTIFY (RFC 5465) and METADATA (RFC 5464)
     - async FETCH streaming for large message bodies
     - comprehensive SEARCH command with full RFC 9051 syntax
         - flag, date, size, header, body, and MODSEQ searches
@@ -311,7 +326,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - AUTH-RESP-CODE (RFC 3206) - authentication error codes
         - EXPIRE, LOGIN-DELAY (RFC 2449) - policy advertisement
     - pluggable mailbox backend via standardised API
-    - exclusive mailbox locking for session isolation
+    - session isolation through the mailbox backend (file locking for mbox)
     - POP3 client with POP3S and STLS support
 - mailbox API
     - mbox backend
@@ -351,7 +366,8 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - allows abort to cancel in-progress transfers
     - fully functional FTP file service implementation
 - WebSockets
-    - server and client built on top of HTTP transports
+    - server and client built on top of HTTP transports, with the client
+      falling back from QUIC to TCP like the HTTP client
     - unified socket handler interface
     - extension negotiation framework (RFC 6455 §9) with permessage-deflate
       compression (RFC 7692)
@@ -516,7 +532,10 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - Redis Streams (XADD, XREAD, XRANGE, XLEN, XTRIM, XACK, XGROUP, XPENDING)
     - TLS support, fully async, pipelining
 - gRPC service and client
-    - efficient event based processing of .proto definitions
+    - efficient event based processing of .proto definitions, using
+      [jprotobuf](https://github.com/cpkb-bluezoo/jprotobuf)
+    - unary calls with typed status codes; the call API is shaped to take
+      streaming, metadata and deadlines later without breaking changes
     - no stubs or external dependencies required
     - operates over HTTP/2 or HTTP/3
 

@@ -40,7 +40,7 @@ For a pure async microservice without servlets:
 **Required (libraries the modules depend on):**
 - `gonzalez-core-1.2.0.jar` — XML parsing (149,662 bytes)
 - `jsonparser-1.3.jar` — JSON parsing (31,331 bytes)
-- `jprotobuf-1.1.0.jar` — protobuf for OTLP export (15,234 bytes)
+- `jprotobuf-1.1.1.jar` — protobuf for OTLP export (16,941 bytes)
 - `micula-1.1.0.jar` — Brotli, for HTTP content encoding and TLS certificate compression (437,500 bytes)
 
 **Total:** ~2.5 MB of Gumdrop modules plus ~0.6 MB of libraries, ~3.1 MB overall. The module descriptors declare all four libraries as `requires`, so they are needed on the module path even if your service only uses JSON or only XML. Add further protocol modules (`gumdrop-smtp`, `gumdrop-mqtt`, ...) only if you use them.
@@ -60,7 +60,7 @@ For a pure async microservice without servlets:
 - gumdrop.jar (aggregate of all modules, 5.5 MB)
 - gonzalez-core-1.2.0.jar
 - jsonparser-1.3.jar
-- jprotobuf-1.1.0.jar
+- jprotobuf-1.1.1.jar
 - micula-1.1.0.jar
 - jakarta.servlet-api-6.1.0.jar (398 KB)
 - jakarta.mail-api-2.1.3.jar (236 KB), jakarta.activation-api-2.1.3.jar (67 KB), angus-mail-2.0.3.jar (499 KB), angus-activation-2.0.2.jar (27 KB)
@@ -86,7 +86,7 @@ For a pure async microservice without servlets:
 | gumdrop-container.jar | 7,268,988 bytes |
 | gonzalez-core-1.2.0.jar | 149,662 bytes |
 | jsonparser-1.3.jar | 31,331 bytes |
-| jprotobuf-1.1.0.jar | 15,234 bytes |
+| jprotobuf-1.1.1.jar | 16,941 bytes |
 | micula-1.1.0.jar | 437,500 bytes |
 | lib/ total (all deps) | ~3.5 MB |
 
@@ -149,7 +149,7 @@ Notes:
 - Brotli is likewise native: `brotli4j` loads a platform-specific native library (the `native-*` jar). Gumdrop's micula is pure Java.
 - OpenTelemetry's default OTLP/HTTP sender pulls in OkHttp, Okio, and the Kotlin stdlib (1.7 MB on its own). OTLP/gRPC would instead pull in grpc-java and protobuf-java.
 - Asynchronous DNS resolution is built into Gumdrop's core, whereas Netty needs the separate `netty-resolver-dns` add-on (plus its DNS codec). It is left out of both totals because it is mainly needed for inter-service client calls rather than a straightforward microservice.
-- Gumdrop's equivalent set is ~3.1 MB (see section 1), all pure Java, with OTLP protobuf encoding done by the 15 KB jprotobuf.
+- Gumdrop's equivalent set is ~3.1 MB (see section 1), all pure Java, with OTLP protobuf encoding done by the 17 KB jprotobuf.
 
 Netty with only HTTP/1.1 and no telemetry is much smaller (about 2.3 MB with `netty-codec-xml`), but that is not feature-for-feature.
 
