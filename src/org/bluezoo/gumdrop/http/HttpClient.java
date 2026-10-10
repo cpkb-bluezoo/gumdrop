@@ -103,8 +103,11 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * <ul>
  *   <li>TLS with ALPN "h2" (section 3.2) -- default for secure connections</li>
  *   <li>h2c cleartext upgrade (section 3.1, deprecated by RFC 9113 but
- *       intentionally retained) -- see {@link #versions(HttpVersion...)}</li>
- *   <li>Prior knowledge (section 3.3) -- see {@link #h2WithPriorKnowledge(boolean)}</li>
+ *       intentionally retained) -- attempted when {@link #versions(HttpVersion...)}
+ *       permits both HTTP/2 and HTTP/1.1 and the connection is not secure</li>
+ *   <li>Prior knowledge (section 3.3) -- the HTTP/2 preface is sent at once,
+ *       with no upgrade. Used when requested with {@link #h2WithPriorKnowledge(boolean)},
+ *       and implied when a cleartext client permits HTTP/2 but not HTTP/1.1</li>
  * </ul>
  *
  * <h4>Basic Usage</h4>
