@@ -233,9 +233,27 @@ public final class DnssecTestFixtures {
         return sign(rrset, key, signer, n - 3600, n + 3600);
     }
 
-    /** Builds a DS record for the key using the given digest type (2 = SHA-256). */
+    /**
+     * Builds a DS record for the key using the given digest type (1 = SHA-1,
+     * 2 = SHA-256, 4 = SHA-384). The digest names are fixed here, not taken
+     * from the production table, so tests can build a type the validator
+     * does not accept.
+     */
     public static DnsResourceRecord ds(TestKey key, int digestType) throws Exception {
-        String digestAlg = DnssecAlgorithm.dsDigestAlgorithm(digestType);
+        String digestAlg;
+        switch (digestType) {
+            case 1:
+                digestAlg = "SHA-1";
+                break;
+            case 2:
+                digestAlg = "SHA-256";
+                break;
+            case 4:
+                digestAlg = "SHA-384";
+                break;
+            default:
+                throw new IllegalArgumentException("digest type " + digestType);
+        }
         MessageDigest md = MessageDigest.getInstance(digestAlg);
         String name = key.dnskey.getName();
         String lower = name.toLowerCase();

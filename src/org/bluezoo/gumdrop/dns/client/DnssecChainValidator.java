@@ -485,12 +485,33 @@ public final class DnssecChainValidator {
             int depth) {
 
         if (!dsMatched) {
+            if (hasSupportedDigest(dsRecords)) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine(MessageFormat.format(
+                            L10N.getString("dnssec.ds_mismatch"), zone));
+                }
+                callback.onValidated(DnssecStatus.BOGUS, originalResponse);
+                return;
+            }
+            // RFC 4035 section 5.2: no DS record uses a digest type this
+            // validator supports (SHA-1 is not), so there is no usable path
+            // from the parent and the zone is treated as unsigned. That is
+            // only safe once the DS RRset itself is authenticated, or an
+            // attacker could downgrade a signed zone by injecting one; so
+            // the chain walk continues and a SECURE outcome becomes INSECURE.
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
-                        L10N.getString("dnssec.ds_mismatch"), zone));
+                        L10N.getString("dnssec.ds_no_supported_digest"), zone));
             }
-            callback.onValidated(DnssecStatus.BOGUS, originalResponse);
-            return;
+            final DnssecValidationCallback inner = callback;
+            callback = new DnssecValidationCallback() {
+                @Override
+                public void onValidated(DnssecStatus status,
+                                        DnsMessage response) {
+                    inner.onValidated(status == DnssecStatus.SECURE
+                            ? DnssecStatus.INSECURE : status, response);
+                }
+            };
         }
 
         List<DnsResourceRecord> dsRRSIGs =
@@ -513,6 +534,17 @@ public final class DnssecChainValidator {
 
         fetchDNSKEYForParent(dsRecords, dsRRSIG, parentZone,
                 originalResponse, callback, depth + 1);
+    }
+
+    /** Returns whether any DS record uses a digest type this validator supports. */
+    private static boolean hasSupportedDigest(List<DnsResourceRecord> dsRecords) {
+        for (int i = 0; i < dsRecords.size(); i++) {
+            if (DnssecAlgorithm.dsDigestAlgorithm(
+                    dsRecords.get(i).getDSDigestType()) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

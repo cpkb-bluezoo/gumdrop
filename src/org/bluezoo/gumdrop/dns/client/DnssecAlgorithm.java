@@ -108,15 +108,14 @@ public enum DnssecAlgorithm {
     /**
      * Returns the JCA {@code MessageDigest} algorithm name for
      * a DS digest type.
-     * RFC 4034 section 5.1.3 and RFC 4509.
+     * RFC 4509 and RFC 6605. Digest type 1 (SHA-1) is deliberately not
+     * supported, so a DS record that uses it authenticates nothing.
      *
      * @param digestType the DS digest type number
      * @return the JCA digest algorithm, or null if unsupported
      */
     public static String dsDigestAlgorithm(int digestType) {
         switch (digestType) {
-            case 1:
-                return "SHA-1";
             case 2:
                 return "SHA-256";
             case 4:

@@ -1096,7 +1096,7 @@ anchors. The bare <code>DnsServer</code> shell does not validate DNSSEC by itsel
 <li>Ed448 (algorithm 16)</li>
 </ul>
 
-<p>Supported DS digest types: SHA-1 (1), SHA-256 (2), SHA-384 (4).</p>
+<p>Supported DS digest types: SHA-256 (2) and SHA-384 (4). SHA-1 (1) is not supported. A zone whose DS RRset offers no supported digest is treated as unsigned (insecure), once the DS RRset itself has been authenticated.</p>
 
 <p>
 Cryptographic operations use <code>java.security</code> from the

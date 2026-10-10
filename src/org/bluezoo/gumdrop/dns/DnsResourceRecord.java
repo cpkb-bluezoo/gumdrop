@@ -1485,7 +1485,7 @@ public final class DnsResourceRecord {
      * Returns the DS digest type.
      * RFC 4034 section 5.1: octet 3.
      *
-     * @return the digest type (1=SHA-1, 2=SHA-256, 4=SHA-384)
+     * @return the digest type (2=SHA-256, 4=SHA-384 are supported; 1=SHA-1 is not)
      * @throws IllegalStateException if this is not a DS record
      */
     public int getDSDigestType() {

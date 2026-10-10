@@ -224,6 +224,66 @@ public class DnssecChainValidatorTest {
         assertEquals(DnssecStatus.BOGUS, status);
     }
 
+    /**
+     * A DS RRset whose only digest type is SHA-1 gives this validator no
+     * supported path from the parent (RFC 4035 section 5.2), so once the DS
+     * RRset itself is authenticated the zone is insecure rather than bogus.
+     */
+    @Test
+    public void testSha1OnlyDsIsInsecure() throws Exception {
+        TestKey ksk = ecdsaP256("example.com.", 257);
+        TestKey parent = ecdsaP256("com.", 257);
+        anchors.addDNSKEYAnchor("com.", parent.dnskey);
+        DnsResourceRecord ds = ds(ksk, 1);
+        DnsResourceRecord dsSig = signCurrent(list(ds), parent, "com.");
+        resolver.put("example.com.", DnsType.DS, message(list(ds, dsSig), none()));
+        resolver.put("com.", DnsType.DNSKEY, message(list(parent.dnskey), none()));
+        List<DnsResourceRecord> rrset = a("www.example.com.");
+        DnsResourceRecord sig = signCurrent(rrset, ksk, "example.com.");
+        run(concat(rrset, sig, ksk.dnskey), none());
+        assertEquals(DnssecStatus.INSECURE, status);
+    }
+
+    /**
+     * The downgrade guard: a forged DS RRset (signed by a key the parent does
+     * not hold) that offers only SHA-1 must not turn a signed zone insecure.
+     */
+    @Test
+    public void testForgedSha1OnlyDsIsNotInsecure() throws Exception {
+        TestKey ksk = ecdsaP256("example.com.", 257);
+        TestKey parent = ecdsaP256("com.", 257);
+        TestKey attacker = ecdsaP256("com.", 257);
+        anchors.addDNSKEYAnchor("com.", parent.dnskey);
+        DnsResourceRecord ds = ds(ksk, 1);
+        DnsResourceRecord dsSig = signCurrent(list(ds), attacker, "com.");
+        resolver.put("example.com.", DnsType.DS, message(list(ds, dsSig), none()));
+        resolver.put("com.", DnsType.DNSKEY, message(list(parent.dnskey), none()));
+        List<DnsResourceRecord> rrset = a("www.example.com.");
+        DnsResourceRecord sig = signCurrent(rrset, ksk, "example.com.");
+        run(concat(rrset, sig, ksk.dnskey), none());
+        assertNotEquals(DnssecStatus.INSECURE, status);
+        assertNotEquals(DnssecStatus.SECURE, status);
+    }
+
+    /** A matching SHA-1 DS must not rescue a SHA-256 DS that does not match. */
+    @Test
+    public void testSha1MatchDoesNotRescueMismatchedSha256Ds() throws Exception {
+        TestKey ksk = ecdsaP256("example.com.", 257);
+        TestKey parent = ecdsaP256("com.", 257);
+        TestKey wrong = ecdsaP256("example.com.", 257);
+        anchors.addDNSKEYAnchor("com.", parent.dnskey);
+        DnsResourceRecord dsSha1 = ds(ksk, 1);
+        DnsResourceRecord dsSha256 = ds(wrong, 2);
+        DnsResourceRecord dsSig = signCurrent(list(dsSha1, dsSha256), parent, "com.");
+        resolver.put("example.com.", DnsType.DS,
+                message(list(dsSha1, dsSha256, dsSig), none()));
+        resolver.put("com.", DnsType.DNSKEY, message(list(parent.dnskey), none()));
+        List<DnsResourceRecord> rrset = a("www.example.com.");
+        DnsResourceRecord sig = signCurrent(rrset, ksk, "example.com.");
+        run(concat(rrset, sig, ksk.dnskey), none());
+        assertEquals(DnssecStatus.BOGUS, status);
+    }
+
     @Test
     public void testNoDsIsInsecure() throws Exception {
         TestKey ksk = ecdsaP256("example.com.", 257);

@@ -175,8 +175,10 @@ public class DnssecValidatorTest {
         assertTrue(DnssecValidator.verifyDS(key.dnskey, ds256));
         DnsResourceRecord ds384 = ds(key, 4);
         assertTrue(DnssecValidator.verifyDS(key.dnskey, ds384));
+        // SHA-1 DS digests are not accepted: a correct SHA-1 digest does not authenticate the key
         DnsResourceRecord ds1 = ds(key, 1);
-        assertTrue(DnssecValidator.verifyDS(key.dnskey, ds1));
+        assertFalse(DnssecValidator.verifyDS(key.dnskey, ds1));
+        assertNull(DnssecAlgorithm.dsDigestAlgorithm(1));
         TestKey other = ecdsaP256("example.com.", 257);
         assertFalse(DnssecValidator.verifyDS(other.dnskey, ds256));
         DnsResourceRecord badDigest = rawDs("example.com.", key.keyTag, key.algorithm, 77,

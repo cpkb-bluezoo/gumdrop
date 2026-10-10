@@ -830,6 +830,12 @@ user-visible themes since 2.2.x.
     and `{SSHA}`. A user stored with one cannot authenticate until the password
     is re-stored as `{PBKDF2}` (recommended), `{SHA256}` or `{SSHA256}`.
     `Realm.ScramCredentials.derive` accepts only `SHA-256`.
+  - **DNSSEC** no longer accepts SHA-1 DS digests (type 1). A DS RRset that
+    offers no supported digest type is now treated as unsigned (`INSECURE`)
+    once the DS RRset itself has been authenticated, as RFC 4035 section 5.2
+    describes; it used to be `BOGUS`. Delegations that carry only a SHA-1 DS
+    still resolve but lose DNSSEC protection. RSASHA1 key algorithms were
+    already unsupported.
   - Not removed, because a protocol requires them and they do not authenticate
     anyone: SHA-1 in the WebSocket handshake accept key (RFC 6455), the NSEC3
     hash in DNSSEC, and Redis `EVALSHA` script ids.

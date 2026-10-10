@@ -427,7 +427,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - EDNS0 DO bit, AD/CD flags
         - RRSIG signature verification (RSA-SHA256/512, ECDSA P-256/P-384,
           Ed25519, Ed448)
-        - DS digest verification (SHA-1, SHA-256, SHA-384)
+        - DS digest verification (SHA-256, SHA-384)
         - chain-of-trust validation with async DNSKEY/DS fetching
         - NSEC and NSEC3 authenticated denial-of-existence
         - configurable trust anchors (IANA root KSK pre-loaded)
