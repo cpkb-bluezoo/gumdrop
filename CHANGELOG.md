@@ -491,6 +491,22 @@ user-visible themes since 2.2.x.
   gets an RTT sample from the client's acknowledgement of the ticket and
   starts asking for fewer ACKs sooner. Found by the quic-interop-runner.
 
+- **QUIC server Initial datagrams were not padded to 1200 bytes**: a server's
+  datagram carrying an ack-eliciting Initial packet must be at least 1200 bytes
+  (RFC 9000 section 14.1), but only the client padded. With classical key shares
+  the server's first flight was well under that, and picoquic rejected it ("Server
+  initial too short"). Found by the quic-interop-runner (#550).
+
+- **QUIC retransmitted stream data used up flow-control credit again**: the
+  send-side limits were charged for every byte put on the wire, so each
+  retransmission cost credit a second time, although RFC 9000 section 4.1 counts
+  only the largest offset sent on a stream. After enough loss a stream's limit was
+  used up by retransmissions, the lost bytes could never be sent again and the
+  transfer stalled until the peer gave up (seen against msquic with three
+  concurrent downloads, where the simulator's small queue drops packets). Only
+  bytes beyond the highest offset sent are now charged. Found by the
+  quic-interop-runner (#550).
+
 - **Security advisories fixed since 2.2.0** (affected versions up to 2.2.0):
   - GHSA-4vx4-8xxq-gvwj: the protobuf varint parser mistook a field value of
     `-1` for "need more data" and stalled gRPC and telemetry parsing for good.

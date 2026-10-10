@@ -4016,12 +4016,33 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         return limit != null ? limit.longValue() : initialPeerStreamLimit(streamId);
     }
 
-    private int checkSendBlocked(long streamId, int length) {
-        if (connectionBytesSent + length > peerMaxData) {
+    // RFC 9000 section 4.1: the limits apply to the largest offset sent on
+    // a stream, so only bytes beyond the highest offset sent so far use up
+    // credit. A retransmission of bytes sent before costs nothing.
+    private long highestOffsetSent(long streamId) {
+        Long sent = streamBytesSent.get(Long.valueOf(streamId));
+        return sent != null ? sent.longValue() : 0;
+    }
+
+    // The bytes of a chunk that would use up credit: those past the
+    // highest offset already sent on the stream.
+    private int newCreditNeeded(long streamId, long offset, int length) {
+        long newBytes = offset + length - highestOffsetSent(streamId);
+        if (newBytes <= 0) {
+            return 0;
+        }
+        return newBytes >= length ? length : (int) newBytes;
+    }
+
+    private int checkSendBlocked(long streamId, long offset, int length) {
+        int needed = newCreditNeeded(streamId, offset, length);
+        if (needed == 0) {
+            return SEND_NOT_BLOCKED;
+        }
+        if (connectionBytesSent + needed > peerMaxData) {
             return SEND_BLOCKED_BY_CONNECTION_LIMIT;
         }
-        long sent = streamBytesSent.containsKey(Long.valueOf(streamId)) ? streamBytesSent.get(Long.valueOf(streamId)).longValue() : 0;
-        if (sent + length > currentPeerStreamLimit(streamId)) {
+        if (highestOffsetSent(streamId) + needed > currentPeerStreamLimit(streamId)) {
             return SEND_BLOCKED_BY_STREAM_LIMIT;
         }
         return SEND_NOT_BLOCKED;
@@ -4054,11 +4075,12 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 : peerTransportParameters.getInitialMaxStreamDataBidiLocal();
     }
 
-    private void recordBytesSent(long streamId, int length) {
-        connectionBytesSent += length;
-        Long key = Long.valueOf(streamId);
-        long sent = streamBytesSent.containsKey(key) ? streamBytesSent.get(key).longValue() : 0;
-        streamBytesSent.put(key, Long.valueOf(sent + length));
+    private void recordBytesSent(long streamId, long offset, int length) {
+        connectionBytesSent += newCreditNeeded(streamId, offset, length);
+        long end = offset + length;
+        if (end > highestOffsetSent(streamId)) {
+            streamBytesSent.put(Long.valueOf(streamId), Long.valueOf(end));
+        }
     }
 
     // The mirror image of initialPeerStreamLimit: OUR OWN declared
@@ -4268,12 +4290,15 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 // Waiting until the whole chunk fits would deadlock
                 // against a peer that raises its limits only as it
                 // consumes data it has not yet been sent.
-                int allowance = flowControlAllowance(streamId);
+                // A retransmitted prefix needs no credit, so it is allowed
+                // on top of what the limits leave for new bytes.
+                long alreadySent = Math.max(0, Math.min(chunk.data.length, highestOffsetSent(streamId) - chunk.offset));
+                long allowance = alreadySent + flowControlAllowance(streamId);
                 if (allowance > 0 && allowance < chunk.data.length) {
                     PendingChunk head = new PendingChunk(chunk.offset,
-                            Arrays.copyOfRange(chunk.data, 0, allowance), false);
+                            Arrays.copyOfRange(chunk.data, 0, (int) allowance), false);
                     PendingChunk tail = new PendingChunk(chunk.offset + allowance,
-                            Arrays.copyOfRange(chunk.data, allowance, chunk.data.length), chunk.fin);
+                            Arrays.copyOfRange(chunk.data, (int) allowance, chunk.data.length), chunk.fin);
                     queued.set(index, head);
                     queued.add(index + 1, tail);
                     chunk = head;
@@ -4288,7 +4313,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                     PendingChunk head = new PendingChunk(chunk.offset, Arrays.copyOfRange(chunk.data, 0, fit), false);
                     PendingChunk tail = new PendingChunk(chunk.offset + fit,
                             Arrays.copyOfRange(chunk.data, fit, chunk.data.length), chunk.fin);
-                    int blockedHead = checkSendBlocked(streamId, head.data.length);
+                    int blockedHead = checkSendBlocked(streamId, head.offset, head.data.length);
                     if (blockedHead != SEND_NOT_BLOCKED) {
                         signalSendBlocked(streamId, blockedHead);
                         break;
@@ -4298,10 +4323,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                     chunk = head;
                     split = true;
                 }
-                int blocked = split ? SEND_NOT_BLOCKED : checkSendBlocked(streamId, chunk.data.length);
+                int blocked = split ? SEND_NOT_BLOCKED : checkSendBlocked(streamId, chunk.offset, chunk.data.length);
                 if (blocked == SEND_NOT_BLOCKED) {
                     toSend.add(chunk);
-                    recordBytesSent(streamId, chunk.data.length);
+                    recordBytesSent(streamId, chunk.offset, chunk.data.length);
                     budget -= QuicFrameWriter.streamLength(streamId, chunk.offset, chunk.data.length);
                     if (split) {
                         budget = 0;
