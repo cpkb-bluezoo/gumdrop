@@ -12,6 +12,15 @@ The implementation provides enterprise-grade resource management including:
 - **Connection Pooling** - Efficient database resource management
 - **Transaction Support** - Basic JTA integration (future enhancement)
 
+## Compiling
+
+`JCAExampleServlet.java` uses the JCA and JMS APIs, which are not bundled with
+Gumdrop (`lib/` only carries the Servlet, Mail, Activation, Annotation and
+Persistence APIs). To compile it, put them on the classpath yourself, for example
+`javax.resource:javax.resource-api` and `javax.jms:javax.jms-api` from Maven Central, plus
+the Servlet API and Gumdrop jars from `dist/container-home/lib`. The example is therefore
+not part of `ant examples-compile`.
+
 ## Supported Resource Types
 
 ### JDBC DataSources

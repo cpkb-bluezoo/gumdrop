@@ -809,7 +809,9 @@
     </javac>
   </target>
 
-  <!-- Standalone examples (default package) and small demos; not the oauth WAR tree. -->
+  <!-- Standalone examples (default package) and small demos, plus the Java sources of
+       the servlet and OAuth examples. Not compiled here: jsp-code-generation (built by its
+       own build.sh) and servlet-jca-jndi (needs the JCA and JMS APIs, see its README). -->
   <target name='examples-compile' depends='build'
           description='Compile migrated Gumdrop 3 composition examples'>
     <mkdir dir='${build.dir}/examples'/>
@@ -827,6 +829,12 @@
       <src path='examples/imap-server'/>
       <src path='examples/p2p-mesh'/>
       <src path='examples/microservices'/>
+      <src path='examples/async-timeout'/>
+      <src path='examples/http2-priority'/>
+      <src path='examples/servlet-server-push'/>
+      <src path='examples/servlet-trailer-fields'/>
+      <src path='examples/websocket-servlet/src/main/java'/>
+      <src path='examples/oauth-servlet-auth/src/main/java'/>
     </javac>
   </target>
 
@@ -959,9 +967,10 @@
     </junit>
   </target>
 
-  <!-- Main test target: guards first (fail fast), then unit tests. -->
-  <target name='test' depends='guard-test,junit-test'
-          description='Run guard tests, then all unit tests'>
+  <!-- Main test target: guards first (fail fast), then unit tests, then a compile check
+       of the examples so they cannot drift from the API unnoticed. -->
+  <target name='test' depends='guard-test,junit-test,examples-compile'
+          description='Run guard tests, all unit tests, and compile the examples'>
   </target>
 
   <!-- Unit-test coverage report (not part of ant test). HTML under test/junit/report/. -->

@@ -12,12 +12,15 @@ This example demonstrates how to use Gumdrop's JSP code generation facility prog
 ## Files
 
 - `JSPCodeGeneratorExample.java` - Main example class with two demonstration methods
+- `test-example.jsp` - Sample input
+- `TestExample_jsp.java` - Sample output (regenerate with `./build.sh`)
+- `build.sh` - Compiles and runs the example against the container distribution
 
 ## Key Features Demonstrated
 
 ### 1. JSP-to-Java File Generation
 ```java
-JSPCodeGeneratorExample.convertJSPToFile(
+JSPCodeGeneratorExample.convertJSPToJava(
     "example.jsp",          // Input JSP file
     "ExampleServlet.java",  // Output Java file
     "UTF-8"                 // Character encoding
@@ -34,8 +37,8 @@ String javaSource = JSPCodeGeneratorExample.convertJSPToString(
 
 ## Workflow Steps
 
-1. **Parse JSP File**: Uses `JspParserFactory.parseJSP()` to create JSP Abstract Syntax Tree (AST)
-2. **Create Code Generator**: Instantiates `JspCodeGenerator` with JSP page and `TaglibRegistry`
+1. **Parse JSP File**: Uses `new JspParserFactory().parseJSP()` to create JSP Abstract Syntax Tree (AST)
+2. **Create Code Generator**: Instantiates `JspCodeGenerator` with the JSP page, an output stream and a `TaglibRegistry` (null here)
 3. **Generate Code**: Calls `generateCode()` to produce Java servlet source
 4. **Output Results**: Writes to file or returns as string
 
@@ -45,7 +48,7 @@ String javaSource = JSPCodeGeneratorExample.convertJSPToString(
 public class MyJSPProcessor {
     public void processJSP() throws IOException, JspParseException {
         // Generate servlet source file from JSP
-        JSPCodeGeneratorExample.convertJSPToFile(
+        JSPCodeGeneratorExample.convertJSPToJava(
             "src/main/webapp/hello.jsp",
             "generated/HelloServlet.java", 
             "UTF-8"
@@ -93,17 +96,23 @@ This example shows the same code generation process that Gumdrop uses internally
 
 ## Notes
 
-- **TaglibRegistry**: The example creates a dummy `TaglibRegistry(null)` for demonstration. In a real application, this would be configured with the servlet context.
+- **TaglibRegistry**: The example passes `null` for the `TaglibRegistry`, so custom tags are not resolved. In a real application it would be configured with the servlet context.
 - **Error Handling**: Both methods include proper exception handling for I/O and parsing errors.
 - **Encoding**: Always specify the correct character encoding for your JSP files.
 - **File Paths**: Input JSP files should exist and be readable; output paths should be writable.
 
 ## Building and Running
 
-To compile and run this example:
+Build the distribution (`ant assemble-container` in the project root), then:
 
-1. Ensure the Gumdrop JAR is in your classpath
-2. Compile: `javac -cp gumdrop.jar JSPCodeGeneratorExample.java`
-3. Run: `java -cp .:gumdrop.jar examples.jsp.JSPCodeGeneratorExample`
+```bash
+./build.sh                       # regenerates TestExample_jsp.java from test-example.jsp
+./build.sh hello.jsp Hello_jsp.java
+```
+
+The script compiles the example against `dist/container-home/lib` (override with
+`GUMDROP_LIB`), runs it, and with no arguments checks that the generated servlet
+compiles. The output file should be named after the generated class
+(`test-example.jsp` becomes `TestExample_jsp`).
 
 This example provides a foundation for building custom JSP processing tools, static site generators, or development utilities that need to work with JSP source code programmatically.

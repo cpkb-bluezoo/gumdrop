@@ -99,7 +99,7 @@ public class JSPCodeGeneratorExample {
         if (args.length == 0) {
             // Use default test file if no arguments provided
             jspFile = "test-example.jsp";
-            javaFile = "GeneratedTestServlet.java";
+            javaFile = "TestExample_jsp.java";
             encoding = "UTF-8";
             
             System.out.println("JSP Code Generation Example");

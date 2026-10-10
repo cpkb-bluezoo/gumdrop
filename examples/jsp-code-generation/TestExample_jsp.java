@@ -1,18 +1,13 @@
-/*
- * GeneratedTestServlet.java
- * Generated servlet from JSP: test-example.jsp
- */
-
+import jakarta.servlet.*;
 import java.lang.*;
-import jakarta.servlet.http.*;
 import java.util.Date;
 import java.io.*;
 import jakarta.servlet.jsp.*;
-import jakarta.servlet.*;
+import jakarta.servlet.http.*;
 
 /**
  * Generated servlet from JSP: test-example.jsp
- * Generated at: Sat Nov 08 21:16:30 GMT 2025
+ * Generated at: Sat Oct 10 07:00:44 BST 2026
  */
 public class TestExample_jsp extends HttpServlet {
 
@@ -33,7 +28,7 @@ public class TestExample_jsp extends HttpServlet {
         
         response.setContentType("text/html; charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
-        PrintWriter out = response.getWriter();
+        JspWriter out = null;
         HttpSession session = request.getSession();
         PageContext pageContext = null;
         try {
@@ -56,7 +51,7 @@ public class TestExample_jsp extends HttpServlet {
             out.write(String.valueOf(formatDate(now)));
             out.write("</p>\n    <p>Visit count: ");
             out.write(String.valueOf(visitCount));
-            out.write("</p>\n    \n    <p>This JSP file demonstrates the elements that will be converted \n       to Java servlet source code by the JspCodeGenerator.</p>\n       \n    ");
+            out.write("</p>\n    \n    <p>This JSP file demonstrates the elements that will be converted \n       to Java servlet source code by the JSPCodeGenerator.</p>\n       \n    ");
             out.write("\n</body>\n</html>\n");
         } catch (Exception e) {
             throw new ServletException("JSP processing error", e);
