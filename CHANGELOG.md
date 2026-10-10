@@ -6,10 +6,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-**Gumdrop 3.0.0** (release date not set). Major version: Java 25 baseline,
-in-tree TLS, Jakarta Servlet 6.1, and a handler-first public API reshape.
-Further 3.0 work may land before release; the items below are the large
-user-visible themes since 2.2.x.
+## [3.0.0] - 2026-10-10
+
+Major version: Java 25 baseline, in-tree TLS, Jakarta Servlet 6.1, and a
+handler-first public API reshape. The items below are the large user-visible
+themes since 2.2.x.
 
 ### Added
 
