@@ -14,7 +14,7 @@
   manager/ directory as-is, so there is nothing to declare.
 
   See gumdrop-pom.xml for the general notes on why this file exists
-  separately from the root pom.xml, and on the SNAPSHOT version blocker.
+  separately from the root pom.xml.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -23,7 +23,7 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-manager</artifactId>
-    <version>3.0.0-SNAPSHOT</version>
+    <version>3.0.0</version>
     <packaging>war</packaging>
 
     <name>Gumdrop Manager</name>

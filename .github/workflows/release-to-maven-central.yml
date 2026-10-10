@@ -9,11 +9,6 @@ name: Publish to Maven Central
 # publishes all Gumdrop Maven coordinates in one bundle - see the script's
 # comments for the full artifact list.
 #
-# NOTE: as of this writing, build.xml's version is 2.1-SNAPSHOT - the
-# script hard-refuses to publish a SNAPSHOT version (Central doesn't
-# accept them), so this workflow will fail until a real release version is
-# cut in build.xml and all three central/*-pom.xml files.
-#
 # publishingType defaults to AUTOMATIC in the script (see its own
 # comments): the bundle is uploaded and goes live on Central automatically
 # once validation passes, no manual "Publish" click needed. A released

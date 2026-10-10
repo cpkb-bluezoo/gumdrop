@@ -6,12 +6,30 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-mime</artifactId>
-    <version>3.0.0-SNAPSHOT</version>
+    <version>3.0.0</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop MIME</name>
     <description>MIME parsing and encoding for Gumdrop</description>
     <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <name>Chris Burdess</name>
+            <email>dog@gnu.org</email>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:git://github.com/cpkb-bluezoo/gumdrop.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/cpkb-bluezoo/gumdrop.git</developerConnection>
+        <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+    </scm>
 
     <dependencies>
         <dependency>

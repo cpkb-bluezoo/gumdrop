@@ -6,7 +6,7 @@
 
   gumdrop is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published by
-  the Free Software Foundation; either version 2 of the License, or
+  the Free Software Foundation; either version 3 of the License, or
   (at your option) any later version.
 
   gumdrop is distributed in the hope that it will be useful,
@@ -21,7 +21,7 @@
 <project name='gumdrop' default='dist' xmlns:jacoco='antlib:org.jacoco.ant'>
 
   <!-- Project version -->
-  <property name='version' value='3.0.0-SNAPSHOT'/>
+  <property name='version' value='3.0.0'/>
 
   <!-- External dependency versions (sync with pom.xml and boms/* — Ant-only build) -->
   <property file='boms/versions.properties'/>
@@ -967,10 +967,9 @@
     </junit>
   </target>
 
-  <!-- Main test target: guards first (fail fast), then unit tests, then a compile check
-       of the examples so they cannot drift from the API unnoticed. -->
-  <target name='test' depends='guard-test,junit-test,examples-compile'
-          description='Run guard tests, all unit tests, and compile the examples'>
+  <!-- Main test target: guards first (fail fast), then unit tests. -->
+  <target name='test' depends='guard-test,junit-test'
+          description='Run guard tests, then all unit tests'>
   </target>
 
   <!-- Unit-test coverage report (not part of ant test). HTML under test/junit/report/. -->
@@ -1060,7 +1059,8 @@
   </target>
 
   <!-- Build integration tests -->
-  <target name='integration-build' depends='junit-build,build-modules'>
+  <!-- Also compiles the examples, so they cannot drift from the API unnoticed. -->
+  <target name='integration-build' depends='junit-build,build-modules,examples-compile'>
     <mkdir dir='${testdir}/integration/classes'/>
     <javac srcdir='${testdir}/integration/src'
            destdir='${testdir}/integration/classes'
