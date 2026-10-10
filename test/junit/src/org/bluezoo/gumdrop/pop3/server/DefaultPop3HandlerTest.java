@@ -57,11 +57,6 @@ public class DefaultPop3HandlerTest {
             }
 
             @Override
-            public void acceptConnectionWithApop(String greetingMsg, String timestamp,
-                                                 AuthorizationHandler authorizationHandler) {
-            }
-
-            @Override
             public void rejectConnection(String message) {
             }
 

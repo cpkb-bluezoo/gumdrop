@@ -36,7 +36,7 @@
  *
  * <p>Authentication runs through the standard {@link
  * org.bluezoo.gumdrop.auth.Realm} interface for every mechanism:
- * USER/PASS, APOP, and SASL AUTH (PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5,
+ * USER/PASS and SASL AUTH (PLAIN, LOGIN,
  * SCRAM-SHA-256, OAUTHBEARER, GSSAPI, EXTERNAL). Transport security is
  * either implicit TLS (POP3S, port 995) or STARTTLS via STLS.
  *

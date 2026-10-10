@@ -34,7 +34,7 @@ import java.util.Base64;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SaslUtils;
+import org.bluezoo.gumdrop.testsupport.DigestTestSupport;
 import org.junit.Test;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,7 +66,7 @@ public class HttpAuthenticationProviderSchemesTest {
         }
         @Override protected String getDigestHA1(String r, String u) {
             if ("alice".equals(u)) {
-                return SaslUtils.computeDigestHA1("alice", "r", "pw");
+                return DigestTestSupport.ha1("alice", "r", "pw");
             }
             return null;
         }
@@ -220,13 +220,13 @@ public class HttpAuthenticationProviderSchemesTest {
         assertFalse(p.authenticate(digestHeader("username=\"alice, realm=\"r\""), "GET", "/").success);
         assertFalse(p.authenticate(digestHeader("username=\"nobody\", realm=\"r\""), "GET", "/").success);
         String unknownNonce = "username=\"alice\", realm=\"r\", nonce=\"zzz\", uri=\"/\", "
-                + "response=\"00\", qop=auth, nc=00000001, cnonce=\"c\"";
+                + "response=\"00\", qop=auth, nc=00000001, cnonce=\"c\", algorithm=SHA-256";
         assertFalse(p.authenticate(digestHeader(unknownNonce), "GET", "/").success);
         String badNc = "username=\"alice\", realm=\"r\", nonce=\"zzz\", uri=\"/\", "
-                + "response=\"00\", qop=auth, nc=xyz, cnonce=\"c\"";
+                + "response=\"00\", qop=auth, nc=xyz, cnonce=\"c\", algorithm=SHA-256";
         assertFalse(p.authenticate(digestHeader(badNc), "GET", "/").success);
         String uriMismatch = "username=\"alice\", realm=\"r\", nonce=\"zzz\", uri=\"/other\", "
-                + "response=\"00\", qop=auth, nc=00000001, cnonce=\"c\"";
+                + "response=\"00\", qop=auth, nc=00000001, cnonce=\"c\", algorithm=SHA-256";
         assertFalse(p.authenticate(digestHeader(uriMismatch), "GET", "/").success);
         P noDigest = new P(HttpServletRequest.DIGEST_AUTH);
         noDigest.digest = false;
@@ -243,7 +243,7 @@ public class HttpAuthenticationProviderSchemesTest {
         int i = challenge.indexOf("nonce=\"") + 7;
         String nonce = challenge.substring(i, challenge.indexOf('"', i));
         String hdr = "username=\"alice\", realm=\"r\", nonce=\"" + nonce + "\", uri=\"/\", "
-                + "response=\"00\", qop=auth-int, nc=00000001, cnonce=\"c\"";
+                + "response=\"00\", qop=auth-int, nc=00000001, cnonce=\"c\", algorithm=SHA-256";
         assertFalse(p.authenticate(digestHeader(hdr), "GET", "/").success);
     }
 
@@ -254,7 +254,7 @@ public class HttpAuthenticationProviderSchemesTest {
         int i = challenge.indexOf("nonce=\"") + 7;
         String nonce = challenge.substring(i, challenge.indexOf('"', i));
         String hdr = "username=\"alice\", realm=\"r\", nonce=\"" + nonce + "\", uri=\"/\", "
-                + "response=\"00\", qop=auth, nc=00000005, cnonce=\"c\"";
+                + "response=\"00\", qop=auth, nc=00000005, cnonce=\"c\", algorithm=SHA-256";
         assertFalse(p.authenticate(digestHeader(hdr), "GET", "/").success);
     }
 

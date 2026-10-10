@@ -39,7 +39,7 @@ import java.io.IOException;
 public interface SaslClientMechanism {
 
     /**
-     * Returns the IANA-registered mechanism name (e.g. {@code "DIGEST-MD5"}).
+     * Returns the IANA-registered mechanism name (e.g. {@code "PLAIN"}).
      *
      * @return the mechanism name
      */

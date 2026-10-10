@@ -240,9 +240,11 @@ public class ImapListenerCoverageTest {
     public void testUnauthenticatedCapabilities() {
         ImapListener l = new ImapListener();
         l.realm(new MechRealm(SaslMechanism.PLAIN,
-                SaslMechanism.CRAM_MD5));
+                SaslMechanism.SCRAM_SHA_256));
         String clear = l.getCapabilities(false, false);
-        assertTrue(clear, clear.contains("AUTH=CRAM-MD5"));
+        assertTrue(clear, clear.contains("AUTH=SCRAM-SHA-256"));
+        assertFalse(clear, clear.contains("CRAM-MD5"));
+        assertFalse(clear, clear.contains("DIGEST-MD5"));
         assertFalse(clear, clear.contains("AUTH=PLAIN"));
         assertTrue(clear, clear.contains("LOGINDISABLED"));
         assertFalse(clear, clear.contains("STARTTLS"));

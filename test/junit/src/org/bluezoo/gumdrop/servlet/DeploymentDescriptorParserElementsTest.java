@@ -370,7 +370,7 @@ public class DeploymentDescriptorParserElementsTest {
         parse("<display-name>x</display-name>");
         byte[] digest = parser.getDigest();
         assertNotNull(digest);
-        assertEquals(16, digest.length);
+        assertEquals(32, digest.length);
     }
 
     @Test

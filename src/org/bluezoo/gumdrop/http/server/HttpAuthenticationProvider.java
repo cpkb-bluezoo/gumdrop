@@ -28,9 +28,7 @@ import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectOutputStream;
 import java.net.ProtocolException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -105,6 +103,9 @@ public abstract class HttpAuthenticationProvider {
         return telemetry().getLogger(HttpAuthenticationProvider.class, L10N);
     }
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
+
+    /** The one Digest hash algorithm offered and accepted (RFC 7616). */
+    private static final String DIGEST_ALGORITHM = "SHA-256";
 
     /** Cryptographically strong randomness for Digest nonce generation. */
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -278,7 +279,7 @@ public abstract class HttpAuthenticationProvider {
     /**
      * Gets the precomputed H(A1) hash for Digest authentication.
      * 
-     * <p>For Digest authentication, H(A1) = MD5(username:realm:password).
+     * <p>For Digest authentication, H(A1) = SHA-256(username:realm:password).
      * Implementations may store this precomputed hash for security, avoiding
      * the need to store plaintext passwords.</p>
      * 
@@ -467,13 +468,10 @@ public abstract class HttpAuthenticationProvider {
                     events().error("auth.err.digest_not_supported_by_realm").emit();
                     return null; // Cannot generate challenge - realm doesn't support Digest
                 }
-                try {
-                    String nonce = generateNonce();
-                    return "Digest realm=\"" + realmName + "\", nonce=\"" + nonce + "\", qop=\"auth\"";
-                } catch (NoSuchAlgorithmException e) {
-                    events().error("auth.err.generate_digest_challenge").thrown(e).emit();
-                    return null;
-                }
+                // RFC 7616: only SHA-256 is offered. MD5 (the RFC's default
+                // when algorithm is absent) is never accepted.
+                return "Digest realm=\"" + realmName + "\", nonce=\"" + generateNonce()
+                        + "\", qop=\"auth\", algorithm=" + DIGEST_ALGORITHM;
 
             case HttpAuthenticationMethods.BEARER_AUTH:
                 return "Bearer realm=\"" + realmName + "\"";
@@ -690,12 +688,16 @@ public abstract class HttpAuthenticationProvider {
             return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
         }
 
-        if (algorithm == null) {
-            algorithm = "MD5";
+        // Only the algorithm this server offered is accepted. An absent
+        // algorithm means MD5 under RFC 7616 and is refused like any other,
+        // as is a response that does not use qop=auth (the RFC 2069
+        // fallback has no client nonce and so no replay protection).
+        if (!DIGEST_ALGORITHM.equalsIgnoreCase(algorithm) || !"auth".equals(qop)) {
+            return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
         }
 
         // Verify digest response
-        if (verifyDigestResponse(ha1Hex, algorithm, nonce, qop, nc, cnonce,
+        if (verifyDigestResponse(ha1Hex, nonce, nc, cnonce,
                 requestMethod, digestUri, requestDigest)) {
             return AuthenticationResult.success(username, realm, "Digest");
         }
@@ -835,97 +837,56 @@ public abstract class HttpAuthenticationProvider {
     }
 
     /**
-     * Generates a nonce value for Digest authentication.
-     * 
+     * Generates a nonce value for Digest authentication: 24 bytes from a
+     * cryptographically strong source, so it cannot be guessed (RFC 7616
+     * section 3.3).
+     *
      * @return the generated nonce as a hex string
-     * @throws NoSuchAlgorithmException if MD5 is not available
      */
-    private String generateNonce() throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        // Mix the current time with cryptographically strong random bytes so
-        // the nonce is unpredictable (RFC 7616 section 3.3 recommends nonce
-        // values that cannot be guessed by an attacker).
-        byte[] randomBytes = new byte[16];
+    private String generateNonce() {
+        byte[] randomBytes = new byte[24];
         SECURE_RANDOM.nextBytes(randomBytes);
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        try {
-            ObjectOutputStream oo = new ObjectOutputStream(bo);
-            oo.writeLong(System.currentTimeMillis());
-            oo.flush();
-            md.update(bo.toByteArray());
-        } catch (IOException e) {
-            throw new RuntimeException(e); // Should not happen
-        }
-        md.update(randomBytes);
-
-        String nonce = ByteArrays.toHexString(Base64.getEncoder().encode(md.digest()));
+        String nonce = ByteArrays.toHexString(randomBytes);
         newNonce(nonce);
         return nonce;
     }
 
     /**
-     * Verifies a Digest authentication response against the expected values.
+     * Verifies a Digest authentication response against the expected values
+     * (RFC 7616 section 3.4.1, algorithm SHA-256, qop=auth).
      * 
      * @param ha1Hex the precomputed H(A1) hash as hex string
-     * @param algorithm the digest algorithm (MD5 or MD5-sess)
      * @param nonce the server-provided nonce
-     * @param qop the quality of protection (auth or auth-int)
      * @param nc the nonce count as hex string
      * @param cnonce the client nonce
      * @param method the HTTP method
      * @param digestUri the request URI
      * @param requestDigest the client-provided digest response
      * @return true if the digest matches, false otherwise
-     * @throws NoSuchAlgorithmException if the algorithm is not available
+     * @throws NoSuchAlgorithmException if SHA-256 is not available
      */
-    private boolean verifyDigestResponse(String ha1Hex, String algorithm, String nonce, String qop, 
-                                       String nc, String cnonce, String method, String digestUri, 
+    private boolean verifyDigestResponse(String ha1Hex, String nonce,
+                                       String nc, String cnonce, String method, String digestUri,
                                        String requestDigest) throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance(algorithm);
+        MessageDigest md = MessageDigest.getInstance(DIGEST_ALGORITHM);
 
-        // Get final H(A1)
-        String finalHA1Hex;
-        if ("MD5-sess".equals(algorithm)) {
-            if (cnonce == null) {
-                return false;
-            }
-            md.reset();
-            byte[] ha1 = ByteArrays.toByteArray(ha1Hex);
-            md.update(ha1);
-            md.update(COLON);
-            md.update(nonce.getBytes());
-            md.update(COLON);
-            md.update(cnonce.getBytes());
-            byte[] sessHA1 = md.digest();
-            finalHA1Hex = ByteArrays.toHexString(sessHA1);
-        } else {
-            finalHA1Hex = ha1Hex;
-        }
-
-        // Compute H(A2)
-        md.reset();
+        // H(A2) = H(method:digest-uri)
         md.update(method.getBytes());
         md.update(COLON);
         md.update(digestUri.getBytes());
-        if ("auth-int".equals(qop)) {
-            throw new UnsupportedOperationException("auth-int not supported");
-        }
-        byte[] ha2 = md.digest();
-        String ha2Hex = ByteArrays.toHexString(ha2);
+        String ha2Hex = ByteArrays.toHexString(md.digest());
 
-        // Calculate response
+        // response = H(H(A1):nonce:nc:cnonce:qop:H(A2))
         md.reset();
-        md.update(finalHA1Hex.getBytes());
+        md.update(ha1Hex.getBytes());
         md.update(COLON);
         md.update(nonce.getBytes());
-        if ("auth".equals(qop)) {
-            md.update(COLON);
-            md.update(nc.getBytes());
-            md.update(COLON);
-            md.update(cnonce.getBytes());
-            md.update(COLON);
-            md.update(qop.getBytes());
-        }
+        md.update(COLON);
+        md.update(nc.getBytes());
+        md.update(COLON);
+        md.update(cnonce.getBytes());
+        md.update(COLON);
+        md.update("auth".getBytes());
         md.update(COLON);
         md.update(ha2Hex.getBytes());
         String computed = ByteArrays.toHexString(md.digest());

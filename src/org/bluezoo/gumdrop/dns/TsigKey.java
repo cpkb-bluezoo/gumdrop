@@ -25,13 +25,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * Shared secret TSIG key (RFC 2845).
+ * Shared secret TSIG key (RFC 2845). Only {@link #HMAC_SHA256} is supported.
   * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class TsigKey {
 
-    public static final String HMAC_MD5 = "hmac-md5";
-    public static final String HMAC_SHA1 = "hmac-sha1";
     public static final String HMAC_SHA256 = "hmac-sha256";
 
     private final String name;
@@ -41,6 +39,10 @@ public final class TsigKey {
     public TsigKey(String name, String algorithm, byte[] secret) {
         if (name == null || algorithm == null || secret == null) {
             throw new IllegalArgumentException("name/algorithm/secret");
+        }
+        if (!TsigAlgorithm.WIRE_HMAC_SHA256.equals(TsigAlgorithm.toWireName(algorithm))) {
+            throw new IllegalArgumentException("Unsupported TSIG algorithm (only "
+                    + HMAC_SHA256 + " is supported): " + algorithm);
         }
         this.name = normalizeName(name);
         this.algorithm = algorithm;

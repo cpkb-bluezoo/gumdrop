@@ -40,7 +40,7 @@ package org.bluezoo.gumdrop.smtp.client;
  * });
  * }</pre>
  * 
- * <p><strong>Multi-round mechanisms (e.g., LOGIN, CRAM-MD5):</strong>
+ * <p><strong>Multi-round mechanisms (e.g., LOGIN):</strong>
  * <pre>{@code
  * session.auth("LOGIN", null, new AuthReplyHandler() {
  *     private boolean sentUsername = false;

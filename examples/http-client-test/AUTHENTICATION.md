@@ -49,7 +49,7 @@ client.setAuthentication(digest);
 **Features:**
 - Challenge-response mechanism with nonce
 - Password never transmitted over network
-- Support for MD5, SHA-256, SHA-512-256 algorithms
+- Support for SHA-256 and SHA-256-sess (MD5 challenges are refused)
 - Automatic retry after 401 challenges
 
 ### ✅ **OAuth 2.0 Authentication (RFC 6749)**

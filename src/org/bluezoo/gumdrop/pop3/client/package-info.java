@@ -24,7 +24,7 @@
  *
  * <p>This package provides an asynchronous, event-driven POP3 client for
  * retrieving email messages, with support for STLS (explicit TLS),
- * SASL authentication, APOP, and streaming message content via ByteBuffer
+ * SASL authentication, and streaming message content via ByteBuffer
  * chunks.
  *
  * <h2>Key Components</h2>
@@ -37,7 +37,7 @@
  *   <li>{@link org.bluezoo.gumdrop.pop3.client.RemoteGreeting} -
  *       Entry point callback interface for receiving the initial greeting</li>
  *   <li>{@link org.bluezoo.gumdrop.pop3.client.ClientAuthorizationState} -
- *       State interface for AUTHORIZATION commands (CAPA, USER, APOP, AUTH, STLS)</li>
+ *       State interface for AUTHORIZATION commands (CAPA, USER, AUTH, STLS)</li>
  *   <li>{@link org.bluezoo.gumdrop.pop3.client.ClientTransactionState} -
  *       State interface for TRANSACTION commands (STAT, LIST, RETR, DELE, etc.)</li>
  * </ul>
@@ -49,7 +49,6 @@
  *   <li>STLS support for upgrading to encrypted connections (RFC 2595)</li>
  *   <li>Implicit TLS (POP3S, port 995)</li>
  *   <li>SASL authentication (RFC 5034)</li>
- *   <li>APOP digest authentication (RFC 1939)</li>
  *   <li>Streaming message content without memory buffering</li>
  *   <li>Transparent dot-unstuffing for RETR and TOP responses</li>
  *   <li>Type-safe stateful handler pattern enforcing correct command sequences</li>
@@ -68,7 +67,6 @@
  *   <li>{@link CapaReplyHandler} - Receives CAPA response</li>
  *   <li>{@link UserReplyHandler} - Receives USER response</li>
  *   <li>{@link PassReplyHandler} - Receives PASS response</li>
- *   <li>{@link ApopReplyHandler} - Receives APOP response</li>
  *   <li>{@link StlsReplyHandler} - Receives STLS response</li>
  *   <li>{@link AuthReplyHandler} - Receives AUTH responses</li>
  *   <li>{@link AuthAbortHandler} - Receives AUTH abort response</li>
@@ -88,10 +86,10 @@
  * to issue POP3 commands at the appropriate protocol stage:
  * <ul>
  *   <li>{@link ClientAuthorizationState} - AUTHORIZATION state
- *       (CAPA, USER, APOP, AUTH, STLS, QUIT)</li>
+ *       (CAPA, USER, AUTH, STLS, QUIT)</li>
  *   <li>{@link ClientPasswordState} - After USER accepted (PASS, QUIT)</li>
  *   <li>{@link ClientPostStls} - After STLS succeeds
- *       (CAPA, USER, APOP, AUTH, QUIT)</li>
+ *       (CAPA, USER, AUTH, QUIT)</li>
  *   <li>{@link ClientTransactionState} - TRANSACTION state
  *       (STAT, LIST, RETR, DELE, RSET, TOP, UIDL, NOOP, QUIT)</li>
  *   <li>{@link ClientAuthExchange} - SASL authentication exchange</li>

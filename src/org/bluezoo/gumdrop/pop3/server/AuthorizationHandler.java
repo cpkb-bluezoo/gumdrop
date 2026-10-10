@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  * verified client credentials. The handler's role is to make a policy
  * decision: should this authenticated principal be allowed access?
  * 
- * <p>The actual authentication mechanics (USER/PASS, APOP, SASL) are
+ * <p>The actual authentication mechanics (USER/PASS, SASL) are
  * handled internally by the POP3Connection using the configured Realm.
  * The handler only sees the result: an authenticated principal.
  * 

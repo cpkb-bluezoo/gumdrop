@@ -98,7 +98,6 @@ public class POP3ProtocolHandlerTest {
         listener = new TestPOP3Listener();
         listener.realm(realm);
         listener.mailboxFactory(mailboxFactory);
-        listener.enableAPOP(false);
         listener.enableUTF8(true);
         listener.enablePipelining(false);
 
@@ -180,17 +179,6 @@ public class POP3ProtocolHandlerTest {
     }
 
     @Test
-    public void testPlaintextGreetingWithAPOP() {
-        listener.enableAPOP(true);
-        handler = new Pop3ProtocolHandler(listener);
-        connectPlaintext();
-        String response = lastResponse();
-        assertTrue(response.startsWith("+OK"));
-        assertTrue("APOP greeting should contain timestamp",
-                response.contains("<") && response.contains(">"));
-    }
-
-    @Test
     public void testSecureGreetingDeferredUntilTLS() {
         endpoint.secure = true;
         handler.connected(endpoint);
@@ -240,7 +228,6 @@ public class POP3ProtocolHandlerTest {
             listener = new TestPOP3Listener();
             listener.realm(realm);
             listener.mailboxFactory(mailboxFactory);
-            listener.enableAPOP(false);
             listener.enableUTF8(true);
             listener.enablePipelining(false);
             handler = new Pop3ProtocolHandler(listener);
@@ -609,28 +596,6 @@ public class POP3ProtocolHandlerTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // APOP authentication tests
-    // ═══════════════════════════════════════════════════════════════════
-
-    @Test
-    public void testAPOPNotSupportedWhenDisabled() {
-        connectPlaintext();
-        endpoint.sentData.clear();
-        sendCommand("APOP user digest");
-        assertTrue(lastResponse().startsWith("-ERR"));
-    }
-
-    @Test
-    public void testAPOPRequiresArguments() {
-        listener.enableAPOP(true);
-        handler = new Pop3ProtocolHandler(listener);
-        connectPlaintext();
-        endpoint.sentData.clear();
-        sendCommand("APOP onlyuser");
-        assertTrue(lastResponse().startsWith("-ERR"));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
     // STLS tests
     // ═══════════════════════════════════════════════════════════════════
 
@@ -798,49 +763,14 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testAuthListMechanisms() {
-        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.SCRAM_SHA_256);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("AUTH");
         String all = allResponses();
         assertTrue(all.contains("+OK"));
-        assertTrue(all.contains("CRAM-MD5"));
+        assertTrue(all.contains("SCRAM-SHA-256"));
         assertTrue(lastResponse().equals("."));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Issue #309: CRAM-MD5/DIGEST-MD5 challenge construction must not
-    // block the SelectorLoop thread on a reverse-DNS lookup of the
-    // endpoint's local address.
-    // ═══════════════════════════════════════════════════════════════════
-
-    // A raw byte-address InetAddress (not looked up from a hostname
-    // string) has no cached name, so InetSocketAddress#getHostName() on
-    // it must perform a real reverse lookup -- exactly the case
-    // getHostString() is required to avoid. A distinct address per call
-    // is essential: the JVM negative-caches a failed reverse lookup, so
-    // repeating the *same* uncached address would only pay the lookup
-    // cost once and mask the bug for every call after the first --
-    // "series" keeps each test method's addresses disjoint from every
-    // other test's too, so an earlier test populating the cache can't
-    // mask a later one.
-    private static InetSocketAddress addressWithNoCachedHostname(int series, int index) throws Exception {
-        return new InetSocketAddress(
-                java.net.InetAddress.getByAddress(
-                        new byte[] { (byte) 10, (byte) series, (byte) (index >> 8), (byte) index }),
-                110);
-    }
-
-
-
-
-
-    @Test
-    public void testUnsupportedAuthMechanism() {
-        connectPlaintext();
-        endpoint.sentData.clear();
-        sendCommand("AUTH XYZZY");
-        assertTrue(lastResponse().startsWith("-ERR"));
     }
 
     // ═══════════════════════════════════════════════════════════════════

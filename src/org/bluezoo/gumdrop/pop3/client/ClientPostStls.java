@@ -56,16 +56,6 @@ public interface ClientPostStls {
     void user(String username, UserReplyHandler callback);
 
     /**
-     * Sends an APOP command for digest-based authentication.
-     *
-     * @param username the username to authenticate
-     * @param digest the MD5 hex digest of timestamp + password
-     * @param callback receives the server's response
-     */
-    void apop(String username, String digest,
-              ApopReplyHandler callback);
-
-    /**
      * Initiates SASL authentication.
      *
      * @param mechanism the SASL mechanism name

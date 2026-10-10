@@ -22,8 +22,6 @@
 package org.bluezoo.gumdrop.servlet.session;
 
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Collection;
 import java.util.HashMap;
@@ -307,25 +305,16 @@ public class SessionManager {
      * @return a 32-character hex string
      */
     private String generateSessionId() {
-        try {
-            // Generate 16 random bytes
-            byte[] bytes = new byte[16];
-            random.nextBytes(bytes);
-
-            // Hash with MD5 for consistent 16-byte output
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] digest = md.digest(bytes);
-
-            // Convert to hex string
-            StringBuilder sb = new StringBuilder(32);
-            for (byte b : digest) {
-                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
-                sb.append(Character.forDigit(b & 0xF, 16));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(L10N.getString("err.md5_unavailable"), e);
+        // 16 bytes (128 bits) straight from the SecureRandom; hashing random
+        // bytes would add nothing
+        byte[] bytes = new byte[16];
+        random.nextBytes(bytes);
+        StringBuilder sb = new StringBuilder(32);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
         }
+        return sb.toString();
     }
 
     /**

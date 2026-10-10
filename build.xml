@@ -565,8 +565,8 @@
   <!-- Trust pin for the manager webapp (bundled in gumdrop.jar for Context) -->
   <target name='manager-war-digest' depends='manager-war'>
     <mkdir dir='${build.core}/META-INF'/>
-    <checksum file='${manager.war}' algorithm='MD5' property='manager.war.md5'/>
-    <echo file='${build.core}/META-INF/gumdrop-manager-war.md5' message='${manager.war.md5}'/>
+    <checksum file='${manager.war}' algorithm='SHA-256' property='manager.war.sha256'/>
+    <echo file='${build.core}/META-INF/gumdrop-manager-war.sha256' message='${manager.war.sha256}'/>
   </target>
 
   <!-- Sample ROOT webapp: keep WEB-INF/classes in sync with TestServlet.java (Jakarta Servlet). -->

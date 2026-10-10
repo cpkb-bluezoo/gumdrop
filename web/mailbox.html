@@ -324,7 +324,7 @@ shared locks allow concurrent read access</li>
 in-memory index of message offsets</li>
 <li><b>Deletion</b> - messages are marked for deletion in memory; the file is
 rewritten on expunge</li>
-<li><b>Unique IDs</b> - computed as MD5 hash of message content</li>
+<li><b>Unique IDs</b> - computed as a SHA-256 hash of message content (64 hex characters, so POP3 UIDL and IMAP unique ids are 64 hex characters; mailboxes created before 3.0.0 get different ids, and POP3 clients that leave mail on the server will see it as new once)</li>
 <li><b>From escaping</b> - handled transparently on read and write</li>
 </ul>
 

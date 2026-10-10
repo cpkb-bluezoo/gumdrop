@@ -93,8 +93,8 @@ public class RealmDefaultsTest {
     @Test
     public void asyncAdapterReportsUnsupportedAsFailure() {
         Realm realm = new BareRealm().forSelectorLoop(null);
-        CapturedCallback<String> cb = new CapturedCallback<String>();
-        realm.getCramMD5Response("u", "c", cb);
+        CapturedCallback<Realm.ScramCredentials> cb = new CapturedCallback<Realm.ScramCredentials>();
+        realm.getScramCredentials("u", cb);
         assertTrue(cb.isDone());
         assertTrue(cb.failure() instanceof UnsupportedOperationException);
     }
@@ -103,19 +103,10 @@ public class RealmDefaultsTest {
     public void optionalFeaturesDefaultToUnsupported() {
         SynchronousRealm realm = new BareRealm();
         assertFalse(realm.userExists("x"));
+        assertFalse("HTTP Digest HA1 is not offered by default", realm.supportsDigestHA1());
         assertNull(realm.validateBearerToken("t"));
         assertNull(realm.validateOAuthToken("t"));
         assertNull(realm.authenticateCertificate(null));
-    }
-
-    @Test(expected = UnsupportedOperationException.class)
-    public void cramMd5UnsupportedByDefault() {
-        new BareRealm().getCramMD5Response("u", "c");
-    }
-
-    @Test(expected = UnsupportedOperationException.class)
-    public void apopUnsupportedByDefault() {
-        new BareRealm().getApopResponse("u", "t");
     }
 
     @Test(expected = UnsupportedOperationException.class)

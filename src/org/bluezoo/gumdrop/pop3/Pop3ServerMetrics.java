@@ -176,7 +176,7 @@ public class Pop3ServerMetrics {
     /**
      * Records an authentication attempt.
      *
-     * @param mechanism the authentication mechanism used (USER/PASS, APOP, AUTH)
+     * @param mechanism the authentication mechanism used (USER/PASS, AUTH)
      */
     public void authAttempt(String mechanism) {
         authAttempts.add(1, Attributes.of("pop3.auth.mechanism", mechanism));

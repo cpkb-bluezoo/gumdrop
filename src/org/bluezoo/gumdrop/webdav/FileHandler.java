@@ -3415,7 +3415,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     private String generateETag(Path resource, BasicFileAttributes attrs) {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
             md.update(resource.toString().getBytes(StandardCharsets.UTF_8));
             md.update(String.valueOf(attrs.size()).getBytes(StandardCharsets.UTF_8));
             md.update(String.valueOf(attrs.lastModifiedTime().toMillis()).getBytes(StandardCharsets.UTF_8));

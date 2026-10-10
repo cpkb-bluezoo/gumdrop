@@ -165,6 +165,55 @@ public class DKIMValidatorTest {
                 DkimResult.PASS, result);
     }
 
+    /**
+     * RFC 8301: rsa-sha1 signatures must not be treated as valid. The
+     * verdict is FAIL, reached without fetching the key.
+     */
+    @Test
+    public void testRsaSha1SignatureFailsWithoutKeyLookup() throws Exception {
+        String raw = "DKIM-Signature: v=1; a=rsa-sha1; d=example.com; s=sel1;"
+                + " c=simple/simple; h=from; bh=AAAAAAAAAAAAAAAAAAAAAAAAAAA=; b=AAAA\r\n"
+                + "From: sender@example.com\r\n\r\nHello world\r\n";
+        DkimMessageParser parser = new DkimMessageParser();
+        parser.setMessageHandler(new NoopMessageHandler());
+        parser.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.US_ASCII)));
+        parser.close();
+
+        final int[] lookups = new int[1];
+        DnsResolver resolver = new DnsResolver() {
+            @Override
+            public void queryTXT(String name, DnsQueryCallback callback) {
+                lookups[0]++;
+            }
+        };
+        DkimValidator validator = new DkimValidator(resolver);
+        validator.setMessageParser(parser);
+
+        final DkimResult[] result = new DkimResult[1];
+        validator.verify(new DkimCallback() {
+            @Override
+            public void dkimResult(DkimResult r, String signingDomain, String selector) {
+                result[0] = r;
+            }
+        });
+
+        assertEquals(DkimResult.FAIL, result[0]);
+        assertEquals("the key must not be fetched for an unacceptable algorithm", 0, lookups[0]);
+    }
+
+    @Test
+    public void testSignerRefusesRsaSha1() throws Exception {
+        KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
+        gen.initialize(2048);
+        DkimSigner signer = new DkimSigner(gen.generateKeyPair().getPrivate(), "example.com", "sel1");
+        try {
+            signer.algorithm("rsa-sha1");
+            fail("signing with SHA-1 must be refused");
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
+
     @Test
     public void testVerifyPassesWhenFromIsSigned() throws Exception {
         // Sanity/non-regression companion: a normal signature that does

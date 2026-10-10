@@ -127,7 +127,7 @@ What each protocol asks of the realm:
     <td>SASL (see <a href="#sasl">below</a>). IMAP also has <code>LOGIN</code>
         (refused on a plaintext connection unless the server is composed with
         <code>allowPlaintextLogin(true)</code>), POP3 also has
-        <code>USER</code>/<code>PASS</code> and <code>APOP</code>.</td></tr>
+        <code>USER</code>/<code>PASS</code>.</td></tr>
 <tr><td>FTP</td><td><code>USER</code>/<code>PASS</code> checked with
     <code>passwordMatch</code>; the FTP roles are then resolved once at login.</td></tr>
 <tr><td>HTTP</td><td>Basic, Digest or Bearer, chosen from the realm (see
@@ -182,14 +182,10 @@ operations are:
 <tr><td><code>passwordMatch(user, password)</code></td><td>Boolean</td>
     <td>PLAIN, LOGIN, FTP, IMAP LOGIN, POP3 USER/PASS, HTTP Basic, MQTT, SOCKS</td></tr>
 <tr><td><code>getDigestHA1(user, realmName)</code></td><td>String</td>
-    <td>DIGEST-MD5, HTTP Digest</td></tr>
+    <td>HTTP Digest only: lowercase hex SHA-256 of <code>user:realm:password</code>; guarded by <code>supportsDigestHA1()</code> (default: false)</td></tr>
 <tr><td><code>isUserInRole(user, role)</code></td><td>Boolean</td>
     <td>authorisation (see <a href="#rbac">roles</a>)</td></tr>
 <tr><td><code>userExists(user)</code></td><td>Boolean</td><td>default: false</td></tr>
-<tr><td><code>getCramMD5Response(user, challenge)</code></td><td>String</td>
-    <td>CRAM-MD5 (default: unsupported)</td></tr>
-<tr><td><code>getApopResponse(user, timestamp)</code></td><td>String</td>
-    <td>POP3 APOP (default: unsupported)</td></tr>
 <tr><td><code>getScramCredentials(user)</code></td><td><code>Realm.ScramCredentials</code></td>
     <td>SCRAM-SHA-256 (default: unsupported)</td></tr>
 <tr><td><code>validateBearerToken(token)</code>, <code>validateOAuthToken(token)</code></td>
@@ -312,18 +308,19 @@ is logged when one is loaded. Use a hash instead. The recommended format is
 <code>{PBKDF2}</code>, a salted, iterated <code>PBKDF2WithHmacSHA256</code>:
 <code>{PBKDF2}&lt;iterations&gt;$&lt;base64-salt&gt;$&lt;base64-hash&gt;</code>,
 generated with <code>BasicRealm.createPbkdf2Hash(password)</code> (210,000
-iterations). The LDAP-style RFC 2307 formats <code>{SHA}</code>,
-<code>{SSHA}</code>, <code>{SHA256}</code> and <code>{SSHA256}</code> are
-also accepted so that values exported from a directory's
+iterations). The LDAP-style RFC 2307 formats <code>{SHA256}</code> and
+<code>{SSHA256}</code> are also accepted so that values exported from a directory's
 <code>userPassword</code> can be reused, but they are weak: fast, unsalted
-(<code>{SHA}</code>, <code>{SHA256}</code>) or single-iteration hashes that
-are cheap to brute-force.
+(<code>{SHA256}</code>) or single-iteration hashes that
+are cheap to brute-force. The SHA-1 formats <code>{SHA}</code> and
+<code>{SSHA}</code> are no longer supported: a user stored with one cannot
+authenticate.
 </p>
 
 <ul>
 <li>A hashed user can only use <b>PLAIN</b> and <b>LOGIN</b> (and the
-    password-based protocols such as FTP and HTTP Basic). CRAM-MD5, SCRAM,
-    DIGEST-MD5 and APOP need the plaintext password, so they fail for hashed
+    password-based protocols such as FTP and HTTP Basic). SCRAM and
+    HTTP Digest need the plaintext password, so they fail for hashed
     users.</li>
 <li>Checking a hashed password is deliberately slow. Once the realm is bound to
     a loop, <code>BasicRealm</code> runs it on the storage executor, so it
@@ -332,8 +329,9 @@ are cheap to brute-force.
 </ul>
 
 <p>
-<code>BasicRealm</code> advertises PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5,
-SCRAM-SHA-256 and EXTERNAL. For production user stores prefer
+<code>BasicRealm</code> advertises PLAIN, LOGIN,
+SCRAM-SHA-256 and EXTERNAL, and supports HTTP Digest (SHA-256) through
+<code>supportsDigestHA1()</code> for users with plaintext passwords. For production user stores prefer
 <a href="#ldaprealm">LdapRealm</a> or <a href="#oauthrealm">OAuthRealm</a>.
 </p>
 
@@ -463,10 +461,6 @@ until the connection is encrypted. FTP, MQTT and SOCKS do not use SASL.
     <td>Password sent (Base64); fine over TLS</td></tr>
 <tr><td><b>LOGIN</b></td><td>yes</td><td><code>passwordMatch</code></td>
     <td>Legacy clients</td></tr>
-<tr><td><b>CRAM-MD5</b> (RFC 2195)</td><td>no</td><td><code>getCramMD5Response</code></td>
-    <td>No password sent, but the realm needs the plaintext. Not recommended.</td></tr>
-<tr><td><b>DIGEST-MD5</b> (RFC 2831)</td><td>no</td><td><code>getDigestHA1</code></td>
-    <td>Historic (RFC 6331). Not recommended.</td></tr>
 <tr><td><b>SCRAM-SHA-256</b> (RFC 5802, 7677)</td><td>no</td><td><code>getScramCredentials</code></td>
     <td><b>Recommended.</b> No password sent, the server proves itself, and the
         realm can hold derived keys instead of the password.</td></tr>
@@ -477,6 +471,14 @@ until the connection is encrypted. FTP, MQTT and SOCKS do not use SASL.
 <tr><td><b>EXTERNAL</b> (RFC 4422 App. A)</td><td>yes</td><td><code>authenticateCertificate</code></td>
     <td>Identity from the TLS client certificate (mutual TLS must be on)</td></tr>
 </table>
+
+<p>
+CRAM-MD5 and DIGEST-MD5 are intentionally not supported (offline dictionary
+attack on a captured exchange, the server must hold the plaintext or a
+password-equivalent, no channel binding; DIGEST-MD5 is Historic per RFC 6331),
+and POP3 APOP has been removed. Use SCRAM-SHA-256, or PLAIN or OAUTHBEARER over
+TLS.
+</p>
 
 <h4>SCRAM-SHA-256</h4>
 
@@ -532,14 +534,15 @@ these schemes the realm supports:
 
 <ol>
 <li><b>Bearer</b> if the realm supports OAUTHBEARER</li>
-<li><b>Digest</b> if it supports DIGEST-MD5</li>
+<li><b>Digest</b> if <code>realm.supportsDigestHA1()</code> is true</li>
 <li><b>Basic</b> otherwise</li>
 </ol>
 
 <p>
 Basic sends the password, so use it only over TLS. Note that
-<code>BasicRealm</code> advertises DIGEST-MD5, so an HTTP server over a
-<code>BasicRealm</code> uses Digest, and Digest needs the plaintext password:
+<code>BasicRealm</code> supports Digest, so an HTTP server over a
+<code>BasicRealm</code> uses Digest (RFC 7616, algorithm SHA-256 with
+<code>qop=auth</code> only; MD5 variants are rejected), and Digest needs the plaintext password:
 users stored as hashes cannot log in over HTTP that way. Either keep those
 users in a realm that answers Digest, or supply your own
 <code>HttpAuthenticationProvider</code> (subclass it and implement the
@@ -712,7 +715,7 @@ it:
 <tr><th>Protocol</th><th>A locked-out client gets</th></tr>
 <tr><td>SMTP</td><td><code>454 4.7.0</code> to <code>AUTH</code></td></tr>
 <tr><td>IMAP</td><td><code>NO [UNAVAILABLE]</code> to <code>LOGIN</code> and <code>AUTHENTICATE</code></td></tr>
-<tr><td>POP3</td><td><code>-ERR [SYS/TEMP]</code> to <code>PASS</code>, <code>APOP</code> and <code>AUTH</code></td></tr>
+<tr><td>POP3</td><td><code>-ERR [SYS/TEMP]</code> to <code>PASS</code> and <code>AUTH</code></td></tr>
 <tr><td>FTP</td><td><code>421</code> to <code>PASS</code></td></tr>
 <tr><td>HTTP (1.1, 2 and 3), WebDAV</td>
     <td><code>429 Too Many Requests</code> to a request that carries credentials;

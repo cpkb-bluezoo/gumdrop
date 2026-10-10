@@ -429,10 +429,10 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
 
     DeploymentDescriptorParser() {
         try {
-            digest = MessageDigest.getInstance("MD5");
+            digest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             // fatal
-            RuntimeException e2 = new RuntimeException("No MD5 support in JRE");
+            RuntimeException e2 = new RuntimeException("No SHA-256 support in JRE");
             e2.initCause(e);
             throw e2;
         }
@@ -453,7 +453,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
     }
 
     /**
-     * Returns the MD5 digest of the deployment descriptor parsed by this
+     * Returns the SHA-256 digest of the deployment descriptor parsed by this
      * object.
      */
     byte[] getDigest() {

@@ -563,10 +563,46 @@ public class HttpClientProtocolHandlerEdgeTest {
     }
 
     @Test
+    public void sha256ChallengeWinsOverEarlierMd5ChallengeHeader() {
+        handler.credentials("user", "pass");
+        get();
+        respondChallenge("401 Unauthorized",
+                "WWW-Authenticate: Digest realm=\"r\", nonce=\"nmd5\", qop=\"auth\", algorithm=MD5\r\n"
+                + "WWW-Authenticate: Digest realm=\"r\", nonce=\"nsha\", qop=\"auth\", algorithm=SHA-256");
+        String wire = sent();
+        int at = wire.indexOf("Authorization: Digest ");
+        assertTrue(wire, at > 0);
+        String auth = wire.substring(at, wire.indexOf("\r\n", at));
+        assertTrue(auth, auth.contains("nonce=\"nsha\""));
+        assertTrue(auth, auth.contains("algorithm=SHA-256"));
+    }
+
+    @Test
+    public void digestChallengeIsPreferredOverBasicWhenAccepted() {
+        handler.credentials("user", "pass");
+        get();
+        respondChallenge("401 Unauthorized",
+                "WWW-Authenticate: Basic realm=\"r\"\r\n"
+                + "WWW-Authenticate: Digest realm=\"r\", nonce=\"n\", qop=\"auth\", algorithm=SHA-256");
+        assertTrue(sent(), sent().contains("Authorization: Digest "));
+        assertFalse(sent(), sent().contains("Authorization: Basic"));
+    }
+
+    @Test
+    public void basicIsUsedWhenOnlyMd5DigestIsOffered() {
+        handler.credentials("user", "pass");
+        get();
+        respondChallenge("401 Unauthorized",
+                "WWW-Authenticate: Digest realm=\"r\", nonce=\"n\", qop=\"auth\", algorithm=MD5\r\n"
+                + "WWW-Authenticate: Basic realm=\"r\"");
+        assertTrue(sent(), sent().contains("Authorization: Basic "));
+    }
+
+    @Test
     public void digestWithoutQopOmitsClientNonceFields() {
         handler.credentials("user", "pass");
         get();
-        respondChallenge("401 Unauthorized", "WWW-Authenticate: Digest realm=r nonce=n");
+        respondChallenge("401 Unauthorized", "WWW-Authenticate: Digest realm=r nonce=n algorithm=SHA-256");
         String wire = sent();
         int at = wire.indexOf("Authorization: Digest ");
         assertTrue(wire, at > 0);
@@ -575,7 +611,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         assertTrue(auth, auth.contains("nonce=\"n\""));
         assertFalse(auth, auth.contains("qop="));
         assertFalse(auth, auth.contains("opaque="));
-        assertFalse(auth, auth.contains("algorithm="));
+        assertTrue(auth, auth.contains("algorithm=SHA-256"));
         assertFalse(auth, auth.contains("userhash"));
     }
 
@@ -583,7 +619,7 @@ public class HttpClientProtocolHandlerEdgeTest {
     public void digestWithAuthIntOnlyQopStillUsesAuth() {
         handler.credentials("user", "pass");
         get();
-        respondChallenge("401 Unauthorized", "WWW-Authenticate: Digest realm=\"r\", nonce=\"n\", qop=\"auth-int\"");
+        respondChallenge("401 Unauthorized", "WWW-Authenticate: Digest realm=\"r\", nonce=\"n\", qop=\"auth-int\", algorithm=SHA-256");
         assertTrue(sent(), sent().contains("qop=auth, nc=00000001"));
     }
 
@@ -593,6 +629,9 @@ public class HttpClientProtocolHandlerEdgeTest {
         String[] challenges = {
             "Bearer realm=\"x\"",
             "Digest realm=\"r\", nonce=\"n\", algorithm=NO-SUCH-DIGEST",
+            "Digest realm=\"r\", nonce=\"n\", algorithm=MD5",
+            "Digest realm=\"r\", nonce=\"n\", qop=\"auth\", algorithm=MD5-sess",
+            "Digest realm=\"r\", nonce=\"n\", qop=\"auth\"",
             "Digest nonce=\"n\"",
             "Digest nonce=\"n\", realm=\"unterminated",
             "Digest nonce=n, realm=",

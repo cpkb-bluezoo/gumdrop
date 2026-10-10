@@ -53,9 +53,9 @@ public class DnsTsigFramingEdgeTest {
     @Test
     public void keyNormalisesNameAndClonesSecret() {
         byte[] secret = new byte[] {1, 2, 3};
-        TsigKey k = new TsigKey("  KeY ", TsigKey.HMAC_SHA1, secret);
+        TsigKey k = new TsigKey("  KeY ", TsigKey.HMAC_SHA256, secret);
         assertEquals("key.", k.getName());
-        assertEquals(TsigKey.HMAC_SHA1, k.getAlgorithm());
+        assertEquals(TsigKey.HMAC_SHA256, k.getAlgorithm());
         secret[0] = 9;
         assertEquals(1, k.getSecret()[0]);
         k.getSecret()[1] = 7;
@@ -95,21 +95,27 @@ public class DnsTsigFramingEdgeTest {
         assertFalse(a.equals(null));
         assertFalse(a.equals("k."));
         assertFalse(a.equals(key("other.")));
-        assertFalse(a.equals(TsigKey.fromBase64("k.", TsigKey.HMAC_SHA1, "c2VjcmV0")));
         assertFalse(a.equals(TsigKey.fromBase64("k.", TsigKey.HMAC_SHA256, "b3RoZXI=")));
     }
 
     // ---- TsigAlgorithm ----
 
     @Test
+    public void onlyHmacSha256HasAJcaName() {
+        assertEquals("HmacSHA256", TsigAlgorithm.toJcaName("hmac-sha256"));
+        String[] other = {"hmac-md5", "hmac-sha1", "custom"};
+        for (int i = 0; i < other.length; i++) {
+            try {
+                TsigAlgorithm.toJcaName(other[i]);
+                fail(other[i] + " must have no JCA name");
+            } catch (IllegalArgumentException expected) {
+                // expected
+            }
+        }
+    }
+
+    @Test
     public void algorithmWireNames() {
-        assertEquals(TsigAlgorithm.WIRE_HMAC_MD5, TsigAlgorithm.toWireName("hmac-md5"));
-        assertEquals(TsigAlgorithm.WIRE_HMAC_MD5,
-                TsigAlgorithm.toWireName("HMAC-MD5.sig-alg.reg.int"));
-        assertEquals(TsigAlgorithm.WIRE_HMAC_MD5,
-                TsigAlgorithm.toWireName(TsigAlgorithm.WIRE_HMAC_MD5));
-        assertEquals(TsigAlgorithm.WIRE_HMAC_SHA1, TsigAlgorithm.toWireName("hmac-sha1"));
-        assertEquals(TsigAlgorithm.WIRE_HMAC_SHA1, TsigAlgorithm.toWireName("hmac-sha1."));
         assertEquals(TsigAlgorithm.WIRE_HMAC_SHA256, TsigAlgorithm.toWireName(" hmac-sha256 "));
         assertEquals(TsigAlgorithm.WIRE_HMAC_SHA256, TsigAlgorithm.toWireName("hmac-sha256."));
         assertEquals("custom.", TsigAlgorithm.toWireName("custom"));
@@ -119,14 +125,6 @@ public class DnsTsigFramingEdgeTest {
     @Test(expected = NullPointerException.class)
     public void algorithmNullIdRejected() {
         TsigAlgorithm.toWireName(null);
-    }
-
-    @Test
-    public void algorithmJcaNames() {
-        assertEquals("HmacSHA256", TsigAlgorithm.toJcaName("hmac-sha256"));
-        assertEquals("HmacSHA1", TsigAlgorithm.toJcaName("hmac-sha1"));
-        assertEquals("HmacMD5", TsigAlgorithm.toJcaName("hmac-md5"));
-        assertEquals("HmacMD5", TsigAlgorithm.toJcaName("unknown"));
     }
 
     @Test
@@ -170,13 +168,6 @@ public class DnsTsigFramingEdgeTest {
     public void verifyWrongKeyNameFails() throws Exception {
         DnsMessage signed = DnsTsig.sign(query(), key("k."));
         assertFalse(DnsTsig.verify(signed, key("other."), false));
-    }
-
-    @Test
-    public void verifyWrongAlgorithmFails() throws Exception {
-        DnsMessage signed = DnsTsig.sign(query(), key("k."));
-        TsigKey sha1 = TsigKey.fromBase64("k.", TsigKey.HMAC_SHA1, "c2VjcmV0");
-        assertFalse(DnsTsig.verify(signed, sha1, false));
     }
 
     @Test
@@ -234,8 +225,6 @@ public class DnsTsigFramingEdgeTest {
         assertFalse(DnsTsig.verifyResponse(resp, k, query()));
         assertFalse(DnsTsig.verifyResponse(resp, null, req));
         assertFalse(DnsTsig.verifyResponse(resp, key("other."), req));
-        TsigKey sha1 = TsigKey.fromBase64("k.", TsigKey.HMAC_SHA1, "c2VjcmV0");
-        assertFalse(DnsTsig.verifyResponse(resp, sha1, req));
         TsigKey wrongSecret = TsigKey.fromBase64("k.", TsigKey.HMAC_SHA256, "b3RoZXI=");
         assertFalse(DnsTsig.verifyResponse(resp, wrongSecret, req));
         DnsMessage stale = DnsTsig.signResponse(unsigned, k, req, 1000L, 60);

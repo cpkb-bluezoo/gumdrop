@@ -211,6 +211,17 @@ public class DkimValidator {
             return;
         }
 
+        // RFC 8301: rsa-sha1 (and anything else unrecognised) must not be
+        // treated as valid; fail it without fetching the key.
+        String signatureAlgorithm = signature.getAlgorithm();
+        if (signatureAlgorithm == null
+                || !(signatureAlgorithm.startsWith("rsa-sha256")
+                        || signatureAlgorithm.startsWith("ed25519"))) {
+            callback.dkimResult(DkimResult.FAIL, signature.getDomain(),
+                    signature.getSelector());
+            return;
+        }
+
         if (messageParser == null && explicitSignedData == null) {
             // No raw header bytes available
             callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),

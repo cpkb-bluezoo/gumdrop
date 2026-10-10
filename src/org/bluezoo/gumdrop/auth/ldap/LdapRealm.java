@@ -97,9 +97,10 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * <h3>SASL Bind (RFC 4513 §5.2)</h3>
  * <p>Optionally set {@code saslMechanism} to use SASL instead of simple bind.
  * Any mechanism {@link SaslUtils#createClient} can create may be named, for
- * example PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL or GSSAPI; they are
- * implemented using gumdrop's own cryptographic primitives (no JDK SASL
- * dependency).
+ * example PLAIN, EXTERNAL or GSSAPI; they are implemented using gumdrop's
+ * own cryptographic primitives (no JDK SASL dependency). The MD5-based
+ * mechanisms (CRAM-MD5, DIGEST-MD5) are not supported and are rejected when
+ * configured.
  *
  * <h3>TLS Support</h3>
  * <ul>
@@ -267,14 +268,20 @@ public class LdapRealm implements Realm {
      *
      * <p>When set, all LDAP binds (service account and user
      * authentication) use SASL instead of simple bind. Common
-     * mechanisms include {@code DIGEST-MD5}, {@code CRAM-MD5},
-     * {@code GSSAPI}, and {@code EXTERNAL}.
+     * mechanisms include {@code GSSAPI} and {@code EXTERNAL}.
      *
      * @param mechanism the SASL mechanism name, or null for simple bind
+     * @throws IllegalArgumentException for {@code CRAM-MD5} or
+     *         {@code DIGEST-MD5}, which are not supported
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-5.2">RFC 4513 §5.2</a>
      * @return this realm
      */
     public LdapRealm saslMechanism(String mechanism) {
+        if ("DIGEST-MD5".equalsIgnoreCase(mechanism)
+                || "CRAM-MD5".equalsIgnoreCase(mechanism)) {
+            throw new IllegalArgumentException("SASL mechanism not supported "
+                    + "(MD5-based mechanisms were removed): " + mechanism);
+        }
         this.saslMechanism = mechanism;
         return this;
     }

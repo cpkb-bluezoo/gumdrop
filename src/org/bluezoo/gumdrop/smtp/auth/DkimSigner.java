@@ -103,6 +103,10 @@ public class DkimSigner {
 
     /** Sets the signing algorithm: "rsa-sha256" (default) or "ed25519-sha256". */
     public DkimSigner algorithm(String algorithm) {
+        if (!"rsa-sha256".equals(algorithm) && !"ed25519-sha256".equals(algorithm)) {
+            throw new IllegalArgumentException("Unsupported DKIM algorithm "
+                    + "(RFC 8301 forbids rsa-sha1): " + algorithm);
+        }
         this.algorithm = algorithm;
         return this;
     }

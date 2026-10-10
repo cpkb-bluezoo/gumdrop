@@ -71,7 +71,6 @@ public class POP3Example {
                 .sessionProvider(Pop3ServerSessionProviders.mailbox(mailboxFactory))
                 .realm(realm)
                 .loginDelayMs(2000)
-                .enableAPOP(true)
                 .enableUTF8(true);
 
         String cert = null;

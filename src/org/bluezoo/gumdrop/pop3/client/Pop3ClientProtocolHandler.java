@@ -64,7 +64,6 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  *   <li>CAPA — RFC 2449 (capability discovery)</li>
  *   <li>STLS — RFC 2595 section 4 (STARTTLS upgrade)</li>
  *   <li>AUTH — RFC 5034 (SASL authentication)</li>
- *   <li>APOP — RFC 1939 section 7 (challenge-response auth)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -450,15 +449,6 @@ public final class Pop3ClientProtocolHandler
         sendCommand("USER " + username, Pop3State.USER_SENT);
     }
 
-    // RFC 1939 section 7 — APOP command
-    @Override
-    public void apop(String username, String digest,
-                     ApopReplyHandler callback) {
-        this.currentCallback = callback;
-        sendCommand("APOP " + username + " " + digest,
-                Pop3State.APOP_SENT);
-    }
-
     // RFC 5034 section 4 — AUTH command with optional initial response
     @Override
     public void auth(String mechanism, byte[] initialResponse,
@@ -657,9 +647,6 @@ public final class Pop3ClientProtocolHandler
             case PASS_SENT:
                 dispatchPassReply(response);
                 break;
-            case APOP_SENT:
-                dispatchApopReply(response);
-                break;
             case STLS_SENT:
                 dispatchStlsReply(response);
                 break;
@@ -711,9 +698,8 @@ public final class Pop3ClientProtocolHandler
         if (response.isOk()) {
             state = Pop3State.AUTHORIZATION;
             String message = response.getMessage();
-            String apopTimestamp = parseApopTimestamp(message);
             handler.onConnected(endpoint);
-            handler.handleGreeting(this, message, apopTimestamp);
+            handler.handleGreeting(this, message);
         } else {
             state = Pop3State.ERROR;
             handler.handleServiceUnavailable(response.getMessage());
@@ -721,18 +707,6 @@ public final class Pop3ClientProtocolHandler
         }
     }
 
-    // RFC 1939 section 7 — extract APOP timestamp from greeting
-    private String parseApopTimestamp(String greeting) {
-        int start = greeting.indexOf('<');
-        if (start < 0) {
-            return null;
-        }
-        int end = greeting.indexOf('>', start);
-        if (end < 0) {
-            return null;
-        }
-        return greeting.substring(start, end + 1);
-    }
 
     // ── CAPA ──
 
@@ -824,22 +798,6 @@ public final class Pop3ClientProtocolHandler
     private void dispatchPassReply(Pop3Response response) {
         PassReplyHandler callback =
                 (PassReplyHandler) currentCallback;
-        currentCallback = null;
-
-        if (response.isOk()) {
-            state = Pop3State.TRANSACTION;
-            callback.handleAuthenticated(this);
-        } else {
-            state = Pop3State.AUTHORIZATION;
-            callback.handleAuthFailed(this, response.getMessage());
-        }
-    }
-
-    // ── APOP ──
-
-    private void dispatchApopReply(Pop3Response response) {
-        ApopReplyHandler callback =
-                (ApopReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {

@@ -72,15 +72,15 @@ import org.xml.sax.SAXException;
  * {@link #createPbkdf2Hash(String)}. The encoding is
  * {@code {PBKDF2}<iterations>$<base64-salt>$<base64-hash>}.
  *
- * <p>The LDAP-style RFC 2307 formats {@code {SHA}}, {@code {SSHA}},
- * {@code {SHA256}} and {@code {SSHA256}} are also accepted for backward
- * compatibility (values can be exported from LDAP {@code userPassword}
- * directly), but are <strong>weak</strong>: {@code {SHA}}/{@code {SHA256}}
- * are unsalted and all four are single-iteration fast hashes vulnerable to
- * offline brute-force and rainbow-table attacks. Prefer {@code {PBKDF2}}.
+ * <p>The LDAP-style RFC 2307 formats {@code {SHA256}} and {@code {SSHA256}}
+ * are also accepted (values can be exported from LDAP {@code userPassword}
+ * directly), but are <strong>weak</strong>: {@code {SHA256}} is unsalted and
+ * both are single-iteration fast hashes vulnerable to offline brute-force
+ * attacks. Prefer {@code {PBKDF2}}. The SHA-1 formats {@code {SHA}} and
+ * {@code {SSHA}} are not supported.
  *
- * <p>Hashed users support only PLAIN and LOGIN; CRAM-MD5, SCRAM, etc. require
- * plaintext.
+ * <p>Hashed users support only PLAIN and LOGIN; SCRAM and HTTP Digest
+ * require plaintext.
  *
  * <h4>XML Format</h4>
  * <p>The realm XML file supports two formats for defining groups:</p>
@@ -193,8 +193,7 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
     private static final int PBKDF2_DEFAULT_ITERATIONS = 210000;
 
     private static boolean isHashedPassword(String stored) {
-        return stored.startsWith("{PBKDF2}") || stored.startsWith("{SHA}")
-                || stored.startsWith("{SSHA}") || stored.startsWith("{SHA256}")
+        return stored.startsWith("{PBKDF2}") || stored.startsWith("{SHA256}")
                 || stored.startsWith("{SSHA256}");
     }
 
@@ -202,30 +201,11 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
         try {
             if (stored.startsWith("{PBKDF2}")) {
                 return verifyPbkdf2(stored.substring(8), password);
-            } else if (stored.startsWith("{SHA}")) {
-                byte[] storedDigest = Base64.getDecoder().decode(stored.substring(5));
-                MessageDigest md = MessageDigest.getInstance("SHA-1");
-                byte[] computed = md.digest(password.getBytes(StandardCharsets.UTF_8));
-                return storedDigest.length == 20 && MessageDigest.isEqual(storedDigest, computed);
             } else if (stored.startsWith("{SHA256}")) {
                 byte[] storedDigest = Base64.getDecoder().decode(stored.substring(8));
                 MessageDigest md = MessageDigest.getInstance("SHA-256");
                 byte[] computed = md.digest(password.getBytes(StandardCharsets.UTF_8));
                 return storedDigest.length == 32 && MessageDigest.isEqual(storedDigest, computed);
-            } else if (stored.startsWith("{SSHA}")) {
-                byte[] decoded = Base64.getDecoder().decode(stored.substring(6));
-                if (decoded.length < 21) {
-                    return false;
-                }
-                byte[] digest = new byte[20];
-                byte[] salt = new byte[decoded.length - 20];
-                System.arraycopy(decoded, 0, digest, 0, 20);
-                System.arraycopy(decoded, 20, salt, 0, salt.length);
-                MessageDigest md = MessageDigest.getInstance("SHA-1");
-                md.update(password.getBytes(StandardCharsets.UTF_8));
-                md.update(salt);
-                byte[] computed = md.digest();
-                return MessageDigest.isEqual(digest, computed);
             } else if (stored.startsWith("{SSHA256}")) {
                 byte[] decoded = Base64.getDecoder().decode(stored.substring(9));
                 if (decoded.length < 33) {
@@ -325,8 +305,8 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
         }
 
         try {
-            // Compute MD5(username:realm:password)
-            MessageDigest md = MessageDigest.getInstance("MD5");
+            // Compute SHA-256(username:realm:password) (RFC 7616 section 3.4.2)
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
             md.update(username.getBytes(StandardCharsets.US_ASCII));
             md.update((byte) ':');
             md.update(realmName.getBytes(StandardCharsets.US_ASCII));
@@ -336,9 +316,14 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
             byte[] hash = md.digest();
             return ByteArrays.toHexString(hash);
         } catch (NoSuchAlgorithmException e) {
-            // MD5 should always be available
-            throw new RuntimeException("MD5 algorithm not available", e);
+            // SHA-256 is required of every JRE
+            throw new RuntimeException("SHA-256 algorithm not available", e);
         }
+    }
+
+    @Override
+    public boolean supportsDigestHA1() {
+        return true;
     }
 
     @Override
@@ -364,8 +349,6 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
             Collections.unmodifiableSet(EnumSet.of(
                     SaslMechanism.PLAIN,
                     SaslMechanism.LOGIN,
-                    SaslMechanism.CRAM_MD5,
-                    SaslMechanism.DIGEST_MD5,
                     SaslMechanism.SCRAM_SHA_256,
                     SaslMechanism.EXTERNAL
             ));
@@ -496,6 +479,11 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
         }
 
         @Override
+        public boolean supportsDigestHA1() {
+            return BasicRealm.this.supportsDigestHA1();
+        }
+
+        @Override
         public void isUserInRole(String username, String role,
                 RealmCallback<Boolean> callback) {
             BasicRealm.this.isUserInRole(username, role, callback);
@@ -507,71 +495,9 @@ public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
         }
 
         @Override
-        public void getCramMD5Response(String username, String challenge,
-                RealmCallback<String> callback) {
-            BasicRealm.this.getCramMD5Response(username, challenge, callback);
-        }
-
-        @Override
-        public void getApopResponse(String username, String timestamp,
-                RealmCallback<String> callback) {
-            BasicRealm.this.getApopResponse(username, timestamp, callback);
-        }
-
-        @Override
-        public void validateBearerToken(String token,
-                RealmCallback<Realm.TokenValidationResult> callback) {
-            BasicRealm.this.validateBearerToken(token, callback);
-        }
-
-        @Override
-        public void validateOAuthToken(String accessToken,
-                RealmCallback<Realm.TokenValidationResult> callback) {
-            BasicRealm.this.validateOAuthToken(accessToken, callback);
-        }
-
-        @Override
-        public void authenticateCertificate(X509Certificate certificate,
-                RealmCallback<Realm.CertificateAuthenticationResult> callback) {
-            BasicRealm.this.authenticateCertificate(certificate, callback);
-        }
-
-        @Override
-        public void authorizeAs(String authenticatedUser, String requestedUser,
-                RealmCallback<Boolean> callback) {
-            BasicRealm.this.authorizeAs(authenticatedUser, requestedUser, callback);
-        }
-
-        @Override
         public void mapKerberosPrincipal(String gssName,
                 RealmCallback<String> callback) {
             BasicRealm.this.mapKerberosPrincipal(gssName, callback);
-        }
-    }
-
-    @Override
-    public String getCramMD5Response(String username, String challenge) {
-        String password = passwords.get(username);
-        if (password == null || isHashedPassword(password)) {
-            return null; // User doesn't exist or hashed (requires plaintext)
-        }
-        return SaslUtils.computeCramMD5Response(password, challenge);
-    }
-
-    @Override
-    public String getApopResponse(String username, String timestamp) {
-        String password = passwords.get(username);
-        if (password == null || isHashedPassword(password)) {
-            return null; // User doesn't exist or hashed (requires plaintext)
-        }
-        // APOP uses MD5(timestamp + password)
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            md.update(timestamp.getBytes(StandardCharsets.US_ASCII));
-            md.update(password.getBytes(StandardCharsets.US_ASCII));
-            return ByteArrays.toHexString(md.digest());
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(L10N.getString("err.no_md5"), e);
         }
     }
 

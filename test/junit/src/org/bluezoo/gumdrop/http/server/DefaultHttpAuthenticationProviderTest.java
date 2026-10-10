@@ -47,12 +47,14 @@ public class DefaultHttpAuthenticationProviderTest {
 
     private static final class StubRealm implements SynchronousRealm {
         final Set<SaslMechanism> mechanisms;
+        boolean digestHA1;
 
         StubRealm(Set<SaslMechanism> mechanisms) {
             this.mechanisms = mechanisms;
         }
 
         @Override public Set<SaslMechanism> getSupportedSASLMechanisms() { return mechanisms; }
+        @Override public boolean supportsDigestHA1() { return digestHA1; }
         @Override public boolean passwordMatch(String username, String password) {
             return "u".equals(username) && "p".equals(password);
         }
@@ -109,12 +111,22 @@ public class DefaultHttpAuthenticationProviderTest {
     }
 
     @Test
-    public void testDigestWhenDigestMd5Supported() {
-        Set<SaslMechanism> m = EnumSet.of(SaslMechanism.DIGEST_MD5);
-        DefaultHttpAuthenticationProvider p = new DefaultHttpAuthenticationProvider(new StubRealm(m), "dr");
+    public void testDigestWhenRealmSupportsDigestHA1() {
+        Set<SaslMechanism> m = EnumSet.noneOf(SaslMechanism.class);
+        StubRealm realm = new StubRealm(m);
+        realm.digestHA1 = true;
+        DefaultHttpAuthenticationProvider p = new DefaultHttpAuthenticationProvider(realm, "dr");
         String challenge = p.generateChallenge();
         assertNotNull(challenge);
         assertTrue(challenge, challenge.startsWith("Digest realm=\"dr\""));
+        assertTrue(challenge, challenge.contains("algorithm=SHA-256"));
         assertTrue(p.supportsScheme("Digest"));
+    }
+
+    @Test
+    public void testNoDigestWhenRealmLacksDigestHA1() {
+        Set<SaslMechanism> m = EnumSet.noneOf(SaslMechanism.class);
+        DefaultHttpAuthenticationProvider p = new DefaultHttpAuthenticationProvider(new StubRealm(m), "dr");
+        assertFalse(p.supportsScheme("Digest"));
     }
 }

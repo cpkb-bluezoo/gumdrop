@@ -43,7 +43,7 @@ public class BasicRealmHrefIntegrationTest {
 
     @Test
     public void xmlConfigurationViaStringHref() throws Exception {
-        String xml = "<realm><user name='zed' password='{SHA}AAAAAAAAAAAAAAAAAAAAAAAAAAA='/></realm>";
+        String xml = "<realm><user name='zed' password='{SHA256}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='/></realm>";
         Path file = Files.createTempFile("basicrealm", ".xml");
         try {
             Files.write(file, xml.getBytes(StandardCharsets.UTF_8));

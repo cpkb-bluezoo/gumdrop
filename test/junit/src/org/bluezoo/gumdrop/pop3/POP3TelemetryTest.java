@@ -98,7 +98,6 @@ public class POP3TelemetryTest {
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
         listener.realm(new POP3ProtocolHandlerTest.StubRealm());
         listener.mailboxFactory(new POP3ProtocolHandlerTest.StubMailboxFactory());
-        listener.enableAPOP(false);
         endpoint = new TelemetryEndpoint(config);
         handler = new Pop3ProtocolHandler(listener);
     }

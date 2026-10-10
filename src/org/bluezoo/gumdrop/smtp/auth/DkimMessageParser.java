@@ -576,7 +576,7 @@ public class DkimMessageParser extends MessageParser {
      * <p>Call this after headers are complete and the DKIM-Signature has been
      * parsed. The algorithm and canonicalization are determined from the signature.
      *
-     * @param algorithm the hash algorithm ("SHA-256" or "SHA-1")
+     * @param algorithm the hash algorithm (normally "SHA-256")
      * @param relaxed true for relaxed body canonicalization
      * @param lengthLimit body length limit from l= tag, or -1 for no limit
      * @throws NoSuchAlgorithmException if algorithm not supported
@@ -648,9 +648,8 @@ public class DkimMessageParser extends MessageParser {
         String digestName;
         if (algorithm != null && algorithm.contains("sha256")) {
             digestName = "SHA-256";
-        } else if (algorithm != null && algorithm.contains("sha1")) {
-            digestName = "SHA-1";
         } else {
+            // rsa-sha1 is not acceptable (RFC 8301), so no body hash is made
             return;
         }
 

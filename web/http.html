@@ -1114,7 +1114,7 @@ dispatched as capacity becomes available (RFC 9113 section 5.1.2)</li>
 over TLS 1.2 with INADEQUATE_SECURITY (RFC 9113 section 9.2.2)</li>
 <li><b>GOAWAY debug data</b> &ndash; all GOAWAY frames include a UTF-8 debug
 message describing the reason (RFC 9113 section 6.8)</li>
-<li><b>Authentication</b> &ndash; Basic and Digest (MD5/SHA-256) with
+<li><b>Authentication</b> &ndash; Basic and Digest (SHA-256 only, RFC 7616) with
 userhash support; Bearer and OAuth (RFC 7616, RFC 7617)</li>
 <li><b>Proxy authentication</b> &ndash; 407 Proxy-Authenticate challenges
 handled with Proxy-Authorization (RFC 9110 section 11.7.1)</li>

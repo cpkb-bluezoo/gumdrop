@@ -36,7 +36,7 @@ package org.bluezoo.util;
  * <h4>Usage Examples</h4>
  * <pre>{@code
  * // Convert MD5 hash to hex string
- * MessageDigest md = MessageDigest.getInstance("MD5");
+ * MessageDigest md = MessageDigest.getInstance("SHA-256");
  * md.update(data);
  * String hashHex = ByteArrays.toHexString(md.digest());
  * 

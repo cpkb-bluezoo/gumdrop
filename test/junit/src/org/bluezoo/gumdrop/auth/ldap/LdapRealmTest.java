@@ -402,6 +402,21 @@ public class LdapRealmTest {
         return cb.value();
     }
 
+    // ── Removed MD5 mechanisms ──
+
+    @Test
+    public void md5SaslMechanismsAreRejectedWhenConfigured() {
+        String[] md5 = {"DIGEST-MD5", "digest-md5", "CRAM-MD5"};
+        for (int i = 0; i < md5.length; i++) {
+            try {
+                new LdapRealm().saslMechanism(md5[i]);
+                fail(md5[i] + " must be rejected at configuration time");
+            } catch (IllegalArgumentException expected) {
+                // expected
+            }
+        }
+    }
+
     // ── STARTTLS ──
 
     @Test

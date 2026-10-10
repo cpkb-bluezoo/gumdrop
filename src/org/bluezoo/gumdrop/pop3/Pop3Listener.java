@@ -78,7 +78,6 @@ public class Pop3Listener extends TcpListener {
     protected MailboxFactory mailboxFactory;
     protected long loginDelayMs = 0;
     protected long transactionTimeoutMs = 600000; // 10 minutes default
-    protected boolean enableAPOP = true;
     protected boolean enableUTF8 = true;
     protected boolean enablePipelining = false;
 
@@ -352,28 +351,6 @@ public class Pop3Listener extends TcpListener {
      */
     public Pop3Listener transactionTimeoutMs(long transactionTimeoutMs) {
         this.transactionTimeoutMs = transactionTimeoutMs;
-        return this;
-    }
-
-    /**
-     * Returns whether APOP authentication is enabled.
-     *
-     * @return true if APOP is enabled
-     */
-    public boolean isEnableAPOP() {
-        return enableAPOP;
-    }
-
-    /**
-     * Sets whether APOP authentication is enabled.
-     * APOP provides challenge-response authentication without
-     * sending passwords in cleartext.
-     *
-     * @param enableAPOP true to enable APOP
-     * @return this
-     */
-    public Pop3Listener enableAPOP(boolean enableAPOP) {
-        this.enableAPOP = enableAPOP;
         return this;
     }
 

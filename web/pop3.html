@@ -68,7 +68,7 @@ POP3 sessions progress through three states:
 
 <ul>
 <li><b>AUTHORIZATION</b> - initial state; client must authenticate using
-USER/PASS, APOP, or AUTH with a SASL mechanism</li>
+USER/PASS or AUTH with a SASL mechanism</li>
 <li><b>TRANSACTION</b> - authenticated; client can retrieve messages, mark
 deletions, and query mailbox status</li>
 <li><b>UPDATE</b> - after QUIT; server commits deletions and releases the
@@ -91,7 +91,6 @@ mailbox lock</li>
 <h4>Optional Commands (RFC 1939)</h4>
 
 <ul>
-<li><b>APOP</b> - challenge-response authentication (MD5-based)</li>
 <li><b>TOP</b> - retrieves headers and first N lines of body</li>
 <li><b>UIDL</b> - returns unique identifiers for messages</li>
 </ul>
@@ -113,8 +112,7 @@ mailbox lock</li>
 The CAPA command allows clients to discover server capabilities. The server
 responds with a list of supported extensions. What it lists depends on the
 configuration: <code>SASL</code> names the mechanisms the realm supports (those
-that require TLS only once the connection is secure), <code>APOP</code> appears
-when APOP is enabled, <code>STLS</code> only on a cleartext connection with TLS
+that require TLS only once the connection is secure), <code>STLS</code> only on a cleartext connection with TLS
 configured, and <code>PIPELINING</code> only when enabled.
 </p>
 
@@ -124,8 +122,7 @@ S: +OK Capability list follows
 S: USER
 S: UIDL
 S: TOP
-S: SASL PLAIN LOGIN CRAM-MD5 SCRAM-SHA-256
-S: APOP
+S: SASL PLAIN LOGIN SCRAM-SHA-256
 S: STLS
 S: UTF8
 S: RESP-CODES
@@ -246,20 +243,6 @@ C: PASS secret
 S: +OK Mailbox locked and ready
 </pre>
 
-<h4>APOP (RFC 1939)</h4>
-
-<p>
-Challenge-response authentication using MD5. The server includes a unique
-timestamp in its greeting; the client responds with MD5(timestamp + password).
-The password is never transmitted.
-</p>
-
-<pre>
-S: +OK POP3 server ready &lt;1896.697170952@example.com&gt;
-C: APOP alice c4c9334bac560ecc979e58001b3e22fb
-S: +OK Mailbox locked and ready
-</pre>
-
 <h4>SASL Mechanisms</h4>
 
 <p>
@@ -270,8 +253,6 @@ The AUTH command supports multiple SASL mechanisms:
 <tr><th>Mechanism</th><th>RFC</th><th>Description</th></tr>
 <tr><td>PLAIN</td><td>RFC 4616</td><td>Simple username/password; requires TLS</td></tr>
 <tr><td>LOGIN</td><td>-</td><td>Legacy base64 username/password; requires TLS</td></tr>
-<tr><td>CRAM-MD5</td><td>RFC 2195</td><td>HMAC-MD5 challenge-response</td></tr>
-<tr><td>DIGEST-MD5</td><td>RFC 2831</td><td>HTTP Digest-style authentication</td></tr>
 <tr><td>SCRAM-SHA-256</td><td>RFC 7677</td><td>Salted challenge-response; recommended</td></tr>
 <tr><td>OAUTHBEARER</td><td>RFC 7628</td><td>OAuth 2.0 bearer tokens</td></tr>
 <tr><td>GSSAPI</td><td>RFC 4752</td><td>Kerberos/enterprise SSO</td></tr>
@@ -298,7 +279,7 @@ S: +OK Authentication successful
 <h3 id="handlers">Handlers</h3>
 
 <p>
-The protocol work (CAPA, NOOP, STLS, the USER/PASS, APOP and AUTH exchanges)
+The protocol work (CAPA, NOOP, STLS, the USER/PASS and AUTH exchanges)
 is handled for you. Your code decides policy through a staged handler, in the
 same style as the <a href="smtp.html#handler">SMTP</a> and
 <a href="imap.html#handlers">IMAP</a> servers. A server is assembled with
@@ -310,7 +291,6 @@ Pop3Server server = Pop3Server.compose()
         .listener(new Pop3Listener().port(110))
         .sessionProvider(Pop3ServerSessionProviders.mailbox(mailboxFactory))
         .realm(realm)
-        .enableAPOP(true)
         .server();
 
 Gumdrop gumdrop = Gumdrop.boot();
@@ -330,8 +310,8 @@ provider that returns your own handler.
 
 <ul>
 <li><code>ClientConnected</code> - <code>connected(ConnectedState, Endpoint)</code>
-accepts the connection with a greeting (<code>acceptConnection</code>, or
-<code>acceptConnectionWithApop</code> to offer APOP) or rejects it;
+accepts the connection with a greeting (<code>acceptConnection</code>) or
+rejects it;
 <code>disconnected()</code> is called when it closes</li>
 <li><code>AuthorizationHandler</code> -
 <code>authenticate(AuthenticateState, Principal, MailboxFactory)</code> is called
@@ -433,7 +413,6 @@ settings and may override the shared ones.
 <li><code>listener(Pop3Listener)</code> - add a listener; at least one is required</li>
 <li><code>sessionProvider(Pop3ServerSessionProvider)</code> - the handler factory</li>
 <li><code>realm(Realm)</code> - realm for authentication</li>
-<li><code>enableAPOP(boolean)</code> - enable APOP authentication (default: true)</li>
 <li><code>enableUTF8(boolean)</code> - enable UTF-8 support (default: true)</li>
 <li><code>enablePipelining(boolean)</code> - enable command pipelining (default: false)</li>
 <li><code>loginDelayMs(long)</code> - minimum delay between authentication
@@ -459,7 +438,7 @@ brute-force attacks</li>
 <li><code>expireDays(int)</code> - message retention policy advertised in CAPA:
 0 or more for days, <code>Integer.MAX_VALUE</code> for NEVER, -1 to suppress
 (default: -1); set on the listener only</li>
-<li>The composer's <code>enableAPOP</code>, <code>enableUTF8</code>,
+<li>The composer's <code>enableUTF8</code>,
 <code>enablePipelining</code>, <code>loginDelayMs</code> and
 <code>transactionTimeoutMs</code>, as per-listener overrides</li>
 </ul>
@@ -480,7 +459,6 @@ Pop3Server server = Pop3Server.compose()
         .listener(new Pop3Listener().port(995).secure(true).tls(tls))
         .sessionProvider(Pop3ServerSessionProviders.mailbox(mbox))
         .realm(realm)
-        .enableAPOP(true)
         .loginDelayMs(3000)
         .server();
 
@@ -506,9 +484,13 @@ STLS remains available for compatibility with older clients.
 
 <h4>Credential Protection</h4>
 
+<p>
+POP3 authentication is USER/PASS or SASL (PLAIN, LOGIN, SCRAM-SHA-256,
+OAUTHBEARER, EXTERNAL and GSSAPI), to be used over TLS. The MD5-based
+mechanisms (APOP, CRAM-MD5 and DIGEST-MD5) are not supported.
+</p>
+
 <ul>
-<li><b>APOP</b> - password never transmitted; MD5(timestamp + password)</li>
-<li><b>CRAM-MD5</b> - HMAC-MD5 challenge-response</li>
 <li><b>SCRAM-SHA-256</b> - mutual authentication with derived keys</li>
 </ul>
 

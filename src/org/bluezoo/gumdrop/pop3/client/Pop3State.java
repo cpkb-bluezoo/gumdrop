@@ -58,9 +58,6 @@ enum Pop3State {
     /** PASS command sent, waiting for response. */
     PASS_SENT,
 
-    /** APOP command sent, waiting for response. */
-    APOP_SENT,
-
     /** STLS command sent, waiting for response. */
     STLS_SENT,
 

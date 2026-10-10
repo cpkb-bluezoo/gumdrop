@@ -43,14 +43,13 @@ import static org.junit.Assert.*;
 /**
  * Re-runs the {@link IMAPSessionCoverageTest} scenarios against a realm that
  * advertises every SASL mechanism, then drives the AUTHENTICATE state
- * machine for CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, OAUTHBEARER, EXTERNAL,
+ * machine for SCRAM-SHA-256, OAUTHBEARER, EXTERNAL,
  * GSSAPI and LOGIN through their success and failure branches.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class IMAPSessionSaslTest extends IMAPSessionCoverageTest {
 
-    private static final String CRAM_DIGEST = "00112233445566778899aabbccddeeff";
     private static final int SCRAM_ITERATIONS = 4096;
     private static final byte[] SCRAM_SALT = "0123456789abcdef".getBytes(
             StandardCharsets.US_ASCII);
@@ -67,17 +66,6 @@ public class IMAPSessionSaslTest extends IMAPSessionCoverageTest {
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return ALL;
-        }
-
-        @Override
-        public String getCramMD5Response(String username, String challenge) {
-            if ("editor".equals(username)) {
-                return CRAM_DIGEST;
-            }
-            if ("nobody".equals(username)) {
-                return null;
-            }
-            throw new UnsupportedOperationException("no cram for " + username);
         }
 
         @Override
@@ -177,48 +165,32 @@ public class IMAPSessionSaslTest extends IMAPSessionCoverageTest {
     }
 
     @Test(timeout = 30000)
-    public void testCramMd5() throws Exception {
+    public void testMd5MechanismsRejected() throws Exception {
+        // Removed mechanisms are unknown names now, with or without a
+        // initial response, and over TLS or not.
+        no("AUTHENTICATE CRAM-MD5");
+        no("AUTHENTICATE DIGEST-MD5");
+        no("AUTHENTICATE DIGEST-MD5 " + b64("x"));
+        endpoint.setSecure(true);
         String tag = startAuth("CRAM-MD5");
-        challenge();
-        assertTrue(respond(tag, b64("editor deadbeef")).contains(" NO"));
-        tag = startAuth("CRAM-MD5");
-        challenge();
-        assertTrue(respond(tag, b64("nobody " + CRAM_DIGEST)).contains(" NO"));
-        tag = startAuth("CRAM-MD5");
-        challenge();
-        assertTrue(respond(tag, b64("unsupported " + CRAM_DIGEST)).contains(" NO"));
-        tag = startAuth("CRAM-MD5");
-        challenge();
-        assertTrue(respond(tag, b64("nospace")).contains(" NO"));
-        tag = startAuth("CRAM-MD5");
-        challenge();
-        assertTrue(respond(tag, "!!!").contains(" NO"));
+        String line = finish(tag);
+        assertTrue(line, line.contains(" NO"));
+        assertTrue(line, line.contains("Unsupported authentication mechanism"));
+        tag = startAuth("DIGEST-MD5");
+        line = finish(tag);
+        assertTrue(line, line.contains(" NO"));
     }
 
     @Test(timeout = 30000)
-    public void testCramMd5Success() throws Exception {
-        String tag = startAuth("CRAM-MD5");
-        String ch = challenge();
-        assertTrue(ch, ch.startsWith("<"));
-        assertTrue(respond(tag, b64("editor " + CRAM_DIGEST)).contains(" OK"));
-    }
-
-    @Test(timeout = 30000)
-    public void testDigestMd5() throws Exception {
-        String tag = startAuth("DIGEST-MD5 " + b64("x"));
-        assertTrue(finish(tag).contains(" NO"));
-        tag = startAuth("DIGEST-MD5");
-        String ch = challenge();
-        assertTrue(ch, ch.contains("nonce="));
-        assertTrue(respond(tag, b64("realm=\"x\"")).contains(" NO"));
-        tag = startAuth("DIGEST-MD5");
-        challenge();
-        assertTrue(respond(tag, b64("username=\"editor\",realm=\"x\","
-                + "nonce=\"n\",cnonce=\"c\",nc=00000001,qop=auth,"
-                + "digest-uri=\"imap/x\",response=00")).contains(" NO"));
-        tag = startAuth("DIGEST-MD5");
-        challenge();
-        assertTrue(respond(tag, "!!!").contains(" NO"));
+    public void testCapabilityNeverListsMd5Mechanisms() throws Exception {
+        endpoint.setSecure(true);
+        endpoint.clearResponses();
+        send("cap1 CAPABILITY\r\n");
+        endpoint.awaitLineStartingWith("cap1 ");
+        String all = endpoint.getResponses().toString();
+        assertTrue(all, all.contains("AUTH="));
+        assertFalse(all, all.contains("CRAM-MD5"));
+        assertFalse(all, all.contains("DIGEST-MD5"));
     }
 
     @Test(timeout = 30000)

@@ -42,7 +42,7 @@ import static org.junit.Assert.*;
 
 /**
  * Drives the SASL authentication exchanges of {@link SmtpProtocolHandler}
- * (PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, OAUTHBEARER) against
+ * (PLAIN, LOGIN, SCRAM-SHA-256, OAUTHBEARER) against
  * a stub realm over a secure stub endpoint.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -226,36 +226,28 @@ public class SmtpAuthFlowTest {
     }
 
     @Test
-    public void testCramMd5Success() {
+    public void testMd5MechanismsRejected() {
         ehlo();
+        expect("AUTH CRAM-MD5", "504");
+        expect("AUTH DIGEST-MD5", "504");
+        expect("AUTH CRAM-MD5 " + b64("x"), "504");
+    }
+
+    @Test
+    public void testEhloNeverAdvertisesMd5Mechanisms() {
         endpoint.sentData.clear();
-        send("AUTH CRAM-MD5");
-        String line = last();
-        assertTrue(line, line.startsWith("334 "));
-        String challenge = new String(Base64.getDecoder().decode(line.substring(4)),
-                StandardCharsets.US_ASCII);
-        String digest = SaslUtils.computeCramMD5Response(PASSWORD, challenge);
-        expect(b64(USER + " " + digest), "235");
-    }
-
-    @Test
-    public void testCramMd5Failures() {
-        ehlo();
-        expect("AUTH CRAM-MD5", "334");
-        expect(b64(USER + " 0123456789abcdef0123456789abcdef"), "535");
-        expect("AUTH CRAM-MD5", "334");
-        expect(b64("nospace"), "535");
-    }
-
-    @Test
-    public void testDigestMd5Failures() {
-        ehlo();
-        expect("AUTH DIGEST-MD5", "334");
-        expect(b64("realm=\"x\""), "535");
-        expect("AUTH DIGEST-MD5", "334");
-        expect(b64("username=\"" + USER + "\",realm=\"x\",nonce=\"zz\",nc=00000001,"
-                + "cnonce=\"c\",digest-uri=\"smtp/x\",response=00000000000000000000000000000000,"
-                + "qop=auth"), "535");
+        send("EHLO client.example.com");
+        List<String> responses = endpoint.getResponses();
+        boolean sawAuth = false;
+        for (int i = 0; i < responses.size(); i++) {
+            String line = responses.get(i);
+            if (line.contains("AUTH ")) {
+                sawAuth = true;
+            }
+            assertFalse(line, line.contains("CRAM-MD5"));
+            assertFalse(line, line.contains("DIGEST-MD5"));
+        }
+        assertTrue(responses.toString(), sawAuth);
     }
 
     @Test
@@ -403,7 +395,7 @@ public class SmtpAuthFlowTest {
     private static final class StubRealm implements SynchronousRealm {
         private final Set<SaslMechanism> supported = Collections.unmodifiableSet(
                 EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN,
-                        SaslMechanism.CRAM_MD5, SaslMechanism.SCRAM_SHA_256,
+                        SaslMechanism.SCRAM_SHA_256,
                         SaslMechanism.OAUTHBEARER));
 
 
@@ -417,26 +409,15 @@ public class SmtpAuthFlowTest {
             return USER.equals(username) && PASSWORD.equals(password);
         }
 
+
         @Override
         public String getDigestHA1(String username, String realmName) {
-            if (USER.equals(username)) {
-                return SaslUtils.computeDigestHA1(username, realmName, PASSWORD);
-            }
             return null;
         }
-
 
         @Override
         public boolean isUserInRole(String username, String role) {
             return false;
-        }
-
-        @Override
-        public String getCramMD5Response(String username, String challenge) {
-            if (USER.equals(username)) {
-                return SaslUtils.computeCramMD5Response(PASSWORD, challenge);
-            }
-            return null;
         }
 
         @Override

@@ -78,7 +78,6 @@ public class POP3HandlerStatesTest {
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
         listener.realm(new POP3ProtocolHandlerTest.StubRealm());
         listener.mailboxFactory(factory);
-        listener.enableAPOP(false);
         tx = new Scripted();
         greeter = new Greeter();
         greeter.tx = tx;
@@ -120,13 +119,6 @@ public class POP3HandlerStatesTest {
     }
 
     // ── Connection and authorisation states ──
-
-    @Test
-    public void testApopGreetingFromHandler() {
-        greeter.action = "apop";
-        handler.connected(endpoint);
-        assertTrue(last(), last().startsWith("+OK Hello <ts@host>"));
-    }
 
     @Test
     public void testRejectedConnectionVariantsCloseEndpoint() {
@@ -381,9 +373,7 @@ public class POP3HandlerStatesTest {
 
         @Override
         public void connected(ConnectedState state, Endpoint endpoint) {
-            if ("apop".equals(action)) {
-                state.acceptConnectionWithApop("Hello", "<ts@host>", this);
-            } else if ("reject".equals(action)) {
+            if ("reject".equals(action)) {
                 state.rejectConnection();
             } else {
                 state.acceptConnection("Hello", this);

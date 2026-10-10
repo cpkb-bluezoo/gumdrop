@@ -25,12 +25,14 @@ import java.util.Locale;
 
 /**
  * TSIG algorithm names on the wire (RFC 2845, RFC 4635, RFC 8945).
+ *
+ * <p>Only HMAC-SHA256 is supported. HMAC-MD5 and HMAC-SHA1 are deliberately
+ * not: RFC 8945 makes HMAC-SHA256 the mandatory algorithm and obsoletes
+ * HMAC-MD5.
   * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class TsigAlgorithm {
 
-    public static final String WIRE_HMAC_MD5 = "hmac-md5.sig-alg.reg.int.";
-    public static final String WIRE_HMAC_SHA1 = "hmac-sha1.";
     public static final String WIRE_HMAC_SHA256 = "hmac-sha256.";
 
     private TsigAlgorithm() {
@@ -44,14 +46,6 @@ public final class TsigAlgorithm {
             throw new NullPointerException("algorithmId");
         }
         String id = algorithmId.trim().toLowerCase(Locale.ROOT);
-        if (id.equals(TsigKey.HMAC_MD5) || id.equals("hmac-md5.sig-alg.reg.int")
-                || id.equals(WIRE_HMAC_MD5)) {
-            return WIRE_HMAC_MD5;
-        }
-        if (id.equals(TsigKey.HMAC_SHA1) || id.equals("hmac-sha1")
-                || id.equals(WIRE_HMAC_SHA1)) {
-            return WIRE_HMAC_SHA1;
-        }
         if (id.equals(TsigKey.HMAC_SHA256) || id.equals("hmac-sha256")
                 || id.equals(WIRE_HMAC_SHA256)) {
             return WIRE_HMAC_SHA256;
@@ -64,16 +58,15 @@ public final class TsigAlgorithm {
 
     /**
      * JCA MAC algorithm name for HMAC.
+     *
+     * @throws IllegalArgumentException if the algorithm is not HMAC-SHA256
      */
     public static String toJcaName(String algorithmId) {
         String wire = toWireName(algorithmId);
         if (WIRE_HMAC_SHA256.equalsIgnoreCase(wire)) {
             return "HmacSHA256";
         }
-        if (WIRE_HMAC_SHA1.equalsIgnoreCase(wire)) {
-            return "HmacSHA1";
-        }
-        return "HmacMD5";
+        throw new IllegalArgumentException("Unsupported TSIG algorithm: " + algorithmId);
     }
 
     /**

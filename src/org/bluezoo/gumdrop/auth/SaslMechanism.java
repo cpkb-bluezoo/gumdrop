@@ -28,8 +28,6 @@ package org.bluezoo.gumdrop.auth;
  * <ul>
  *   <li><b>PLAIN</b> - Simple but requires TLS for security</li>
  *   <li><b>LOGIN</b> - Legacy mechanism, requires TLS</li>
- *   <li><b>CRAM-MD5</b> - Challenge-response, doesn't send password</li>
- *   <li><b>DIGEST-MD5</b> - More secure challenge-response</li>
  *   <li><b>SCRAM-SHA-256</b> - Modern, most secure password-based</li>
  *   <li><b>OAUTHBEARER</b> - OAuth 2.0 token-based</li>
  *   <li><b>GSSAPI</b> - Kerberos-based enterprise SSO</li>
@@ -46,12 +44,6 @@ public enum SaslMechanism {
     
     /** Legacy LOGIN mechanism (non-standard but widely used) */
     LOGIN("LOGIN", false, true),
-    
-    /** Challenge-Response Authentication Mechanism using MD5 (RFC 2195) */
-    CRAM_MD5("CRAM-MD5", true, false),
-    
-    /** Digest Access Authentication using MD5 (RFC 2831) */
-    DIGEST_MD5("DIGEST-MD5", true, false),
     
     /** Salted Challenge Response Authentication Mechanism (RFC 5802, RFC 7677) */
     SCRAM_SHA_256("SCRAM-SHA-256", true, false),
@@ -78,7 +70,7 @@ public enum SaslMechanism {
     /**
      * Returns the SASL mechanism name as used in protocol negotiation.
      * 
-     * @return the mechanism name (e.g., "CRAM-MD5")
+     * @return the mechanism name (e.g., "SCRAM-SHA-256")
      */
     public String getMechanismName() {
         return mechanismName;

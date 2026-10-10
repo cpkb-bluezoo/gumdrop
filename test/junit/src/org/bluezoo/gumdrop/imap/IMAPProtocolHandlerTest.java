@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.auth.SynchronousRealm;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -145,33 +144,6 @@ public class IMAPProtocolHandlerTest {
         sendCommand("a1 LOGOUT");
         assertTrue(lastResponse().startsWith("a1 OK"));
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Issue #309: CRAM-MD5/DIGEST-MD5 challenge construction must not
-    // block the SelectorLoop thread on a reverse-DNS lookup of the
-    // endpoint's local address.
-    // ═══════════════════════════════════════════════════════════════════
-
-    // A raw byte-address InetAddress (not looked up from a hostname
-    // string) has no cached name, so InetSocketAddress#getHostName() on
-    // it must perform a real reverse lookup -- exactly the case
-    // getHostString() is required to avoid. A distinct address per call
-    // is essential: the JVM negative-caches a failed reverse lookup, so
-    // repeating the *same* uncached address would only pay the lookup
-    // cost once and mask the bug for every call after the first --
-    // "series" keeps each test method's addresses disjoint from every
-    // other test's too, so an earlier test populating the cache can't
-    // mask a later one.
-    private static InetSocketAddress addressWithNoCachedHostname(int series, int index) throws Exception {
-        return new InetSocketAddress(
-                InetAddress.getByAddress(
-                        new byte[] { (byte) 10, (byte) series, (byte) (index >> 8), (byte) index }),
-                143);
-    }
-
-
-
-
 
     @Test
     public void testUnknownCommand() {

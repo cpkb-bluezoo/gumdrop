@@ -226,85 +226,6 @@ public class SaslUtilsScramExternalTest {
     }
 
     @Test
-    public void digestServerVerificationRejectsIncompleteParams() {
-        Map<String, String> p = new HashMap<String, String>();
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse(null, "n", p));
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse("00", null, p));
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse("00", "n", null));
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse("00", "n", p));
-        p.put("nonce", "other");
-        p.put("nc", "00000001");
-        p.put("cnonce", "c");
-        p.put("qop", "auth");
-        p.put("digest-uri", "imap/host");
-        p.put("response", "abc");
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse("00", "n", p));
-        p.put("nonce", "n");
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse("zz", "n", p));
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse("00", "n", p));
-    }
-
-    @Test
-    public void cramMd5ClientProducesVerifiableResponse() throws Exception {
-        SaslClientMechanism c = SaslUtils.createClient("CRAM-MD5", "tim", "tanstaaftanstaaf", "host");
-        assertEquals("CRAM-MD5", c.getMechanismName());
-        assertFalse(c.hasInitialResponse());
-        assertFalse(c.isComplete());
-        String challenge = "<1896.697170952@postoffice.example.net>";
-        byte[] resp = c.evaluateChallenge(challenge.getBytes(StandardCharsets.US_ASCII));
-        assertTrue(c.isComplete());
-        assertTrue(SaslUtils.verifyCramMD5(new String(resp, StandardCharsets.UTF_8), challenge, "tanstaaftanstaaf"));
-    }
-
-    @Test
-    public void cramMd5Rfc2195Vector() {
-        String digest = SaslUtils.computeCramMD5Response("tanstaaftanstaaf",
-                "<1896.697170952@postoffice.reston.mci.net>");
-        assertEquals("b913a602c7eda7a495b4e6e7334d3890", digest);
-    }
-
-    @Test
-    public void cramMd5EmptyAndNullPasswordAreLegal() throws Exception {
-        String challenge = "<1896.697170952@postoffice.example.net>";
-        // HMAC zero-pads keys to the block size, so an empty key is
-        // equivalent to a single zero byte key
-        Mac mac = Mac.getInstance("HmacMD5");
-        mac.init(new SecretKeySpec(new byte[] {0}, "HmacMD5"));
-        byte[] expected = mac.doFinal(challenge.getBytes(StandardCharsets.US_ASCII));
-        String hex = ByteArrays.toHexString(expected);
-        assertEquals(hex, SaslUtils.computeCramMD5Response("", challenge));
-        assertTrue(SaslUtils.verifyCramMD5("u " + hex, challenge, ""));
-
-        SaslClientMechanism c = SaslUtils.createClient("CRAM-MD5", "u", null, "host");
-        byte[] resp = c.evaluateChallenge(challenge.getBytes(StandardCharsets.US_ASCII));
-        assertEquals("u " + hex, new String(resp, StandardCharsets.UTF_8));
-    }
-
-    @Test
-    public void digestMd5ClientErrorPaths() throws Exception {
-        SaslClientMechanism c = SaslUtils.createClient("digest-md5", "u", "p", "host");
-        assertEquals("DIGEST-MD5", c.getMechanismName());
-        assertFalse(c.hasInitialResponse());
-        try {
-            c.evaluateChallenge("realm=\"r\"".getBytes(StandardCharsets.UTF_8));
-            fail("expected IOException for missing nonce");
-        } catch (IOException expected) {
-            // expected
-        }
-        SaslClientMechanism c2 = SaslUtils.createClient("DIGEST-MD5", "u", "p", "host");
-        byte[] first = c2.evaluateChallenge(
-                "realm=\"r\",nonce=\"abc\",qop=\"auth\"".getBytes(StandardCharsets.UTF_8));
-        assertTrue(new String(first, StandardCharsets.UTF_8).contains("digest-uri=\"ldap/host\""));
-        assertTrue(c2.isComplete());
-        try {
-            c2.evaluateChallenge("foo=bar".getBytes(StandardCharsets.UTF_8));
-            fail("expected IOException for missing rspauth");
-        } catch (IOException expected) {
-            // expected
-        }
-    }
-
-    @Test
     public void plainClientWithNullPassword() throws Exception {
         SaslClientMechanism c = SaslUtils.createClient("PLAIN", "u", null, "h");
         assertTrue(c.hasInitialResponse());
@@ -316,13 +237,6 @@ public class SaslUtilsScramExternalTest {
     @Test
     public void createClientGssapiNeedsHost() {
         assertNull(SaslUtils.createClient("GSSAPI", "u", "p", null, new javax.security.auth.Subject()));
-    }
-
-    @Test
-    public void cramMd5ChallengeFormat() {
-        String c = SaslUtils.generateCramMD5Challenge("mail.example.org");
-        assertTrue(c.startsWith("<"));
-        assertTrue(c.endsWith("@mail.example.org>"));
     }
 
     @Test

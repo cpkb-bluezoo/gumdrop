@@ -427,28 +427,6 @@ public class SmtpHandlerEdgeCasesTest {
         assertEquals(1, listener.metrics.failures.size());
     }
 
-    @Test
-    public void testCramMd5UnknownUserFails() {
-        listener.realm(new EdgeRealm());
-        endpoint.secure = true;
-        handler.connected(endpoint);
-        expect("EHLO c.example.com", "250");
-        expect("AUTH CRAM-MD5", "334");
-        expect(b64("nobody 0123456789abcdef0123456789abcdef"), "535");
-        assertEquals("CRAM-MD5", listener.metrics.failures.get(0));
-    }
-
-    @Test
-    public void testDigestMd5ResponseWithoutRealmParameterFails() {
-        listener.realm(new EdgeRealm());
-        endpoint.secure = true;
-        handler.connected(endpoint);
-        expect("EHLO c.example.com", "250");
-        expect("AUTH DIGEST-MD5", "334");
-        expect(b64("username=\"u\",nonce=\"abc\",nc=00000001,cnonce=\"x\",qop=auth,"
-                + "digest-uri=\"smtp/localhost\",response=00"), "535");
-    }
-
     // -- OAUTHBEARER --
 
     @Test
@@ -1060,7 +1038,6 @@ public class SmtpHandlerEdgeCasesTest {
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN,
-                    SaslMechanism.CRAM_MD5, SaslMechanism.DIGEST_MD5,
                     SaslMechanism.SCRAM_SHA_256, SaslMechanism.OAUTHBEARER,
                     SaslMechanism.EXTERNAL);
         }
@@ -1079,14 +1056,6 @@ public class SmtpHandlerEdgeCasesTest {
         @Override
         public boolean isUserInRole(String username, String role) {
             return adminUsers && "admin".equals(role);
-        }
-
-        @Override
-        public String getCramMD5Response(String username, String challenge) {
-            if ("u".equals(username)) {
-                return SaslUtils.computeCramMD5Response("p", challenge);
-            }
-            return null;
         }
 
         @Override

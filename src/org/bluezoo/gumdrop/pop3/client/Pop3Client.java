@@ -59,7 +59,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * client.setClientCredentials(clientCredentials); // Makes TLS available for STLS
  * client.connect(new RemoteGreeting() {
  *     public void handleGreeting(ClientAuthorizationState auth,
- *                                String message, String apopTimestamp) {
+ *                                String message) {
  *         auth.capa(new CapaReplyHandler() {
  *             public void handleCapabilities(ClientAuthorizationState auth,
  *                     boolean stls, List&lt;String&gt; saslMechanisms,

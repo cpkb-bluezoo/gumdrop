@@ -761,21 +761,21 @@ public final class MboxMailbox implements Mailbox {
         int msgNum = messages.size() + 1;
 
         // Stable UID at index time (mailbox open runs on StorageExecutor) so
-        // UIDL / IDLE / NOOP never MD5 the full message on the SelectorLoop.
+        // UIDL / IDLE / NOOP never hash the full message on the SelectorLoop.
         String uniqueId = computeContentUniqueId(rfc822Start, rfc822End, start);
 
         messages.add(new MboxMessageDescriptor(msgNum, rfc822Start, rfc822End, uniqueId));
     }
 
     /**
-     * MD5 of the raw RFC822 bytes between {@code start} and {@code end}, or
+     * SHA-256 of the raw RFC822 bytes between {@code start} and {@code end}, or
      * {@code String.valueOf(fallback)} if the digest is unavailable.
      */
     private String computeContentUniqueId(long start, long end, long fallback)
             throws IOException {
         byte[] content = readMessageContent(start, end);
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
             md.update(content);
             return ByteArrays.toHexString(md.digest());
         } catch (NoSuchAlgorithmException e) {

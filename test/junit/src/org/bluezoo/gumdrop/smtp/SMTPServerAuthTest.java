@@ -39,155 +39,6 @@ import static org.junit.Assert.*;
  */
 public class SMTPServerAuthTest {
 
-    // -- CRAM-MD5 (RFC 2195) --
-
-    @Test
-    public void testCramMD5ChallengeFormat() {
-        String challenge = SaslUtils.generateCramMD5Challenge("mail.example.com");
-        assertNotNull(challenge);
-        assertTrue(challenge.startsWith("<"));
-        assertTrue(challenge.endsWith(">"));
-        assertTrue(challenge.contains("@mail.example.com"));
-    }
-
-    @Test
-    public void testCramMD5ResponseVerification() {
-        String challenge = "<12345.678@mail.example.com>";
-        String password = "secret";
-        String expected = SaslUtils.computeCramMD5Response(password, challenge);
-        assertNotNull(expected);
-        assertFalse(expected.isEmpty());
-        String response = "testuser " + expected;
-        assertTrue(SaslUtils.verifyCramMD5(response, challenge, password));
-    }
-
-    @Test
-    public void testCramMD5WrongPassword() {
-        String challenge = "<12345.678@mail.example.com>";
-        String correctDigest = SaslUtils.computeCramMD5Response("secret", challenge);
-        String response = "testuser " + correctDigest;
-        assertFalse(SaslUtils.verifyCramMD5(response, challenge, "wrongpassword"));
-    }
-
-    @Test
-    public void testCramMD5MalformedResponse() {
-        assertFalse(SaslUtils.verifyCramMD5("nospaceinresponse", "<c@h>", "pass"));
-    }
-
-    // -- DIGEST-MD5 (RFC 2831) --
-
-    @Test
-    public void testDigestMD5ChallengeFormat() {
-        String challenge = SaslUtils.generateDigestMD5Challenge("example.com", "abc123");
-        assertNotNull(challenge);
-        assertTrue(challenge.contains("realm=\"example.com\""));
-        assertTrue(challenge.contains("nonce=\"abc123\""));
-        assertTrue(challenge.contains("qop=\"auth\""));
-        assertTrue(challenge.contains("algorithm=md5-sess"));
-    }
-
-    @Test
-    public void testDigestParamsParsingSimple() {
-        String input = "username=\"alice\",realm=\"example.com\",nonce=\"abc123\"";
-        Map<String, String> params = SaslUtils.parseDigestParams(input);
-        assertEquals("alice", params.get("username"));
-        assertEquals("example.com", params.get("realm"));
-        assertEquals("abc123", params.get("nonce"));
-    }
-
-    @Test
-    public void testDigestParamsParsingWithEscapes() {
-        String input = "username=\"ali\\\"ce\"";
-        Map<String, String> params = SaslUtils.parseDigestParams(input);
-        assertEquals("ali\"ce", params.get("username"));
-    }
-
-    @Test
-    public void testDigestHA1Computation() {
-        String ha1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
-        assertNotNull(ha1);
-        assertEquals(32, ha1.length()); // MD5 hex = 32 chars
-    }
-
-    @Test
-    public void testDigestMD5ClientResponseVerification() {
-        String username = "alice";
-        String realm = "example.com";
-        String password = "secret";
-        String serverNonce = "abc123";
-        String ha1 = SaslUtils.computeDigestHA1(username, realm, password);
-        String cnonce = "clientnonce1234";
-        String nc = "00000001";
-        String qop = "auth";
-        String digestUri = "ldap/example.com";
-
-        // RFC 2831 §2.1.2.1 — A1 for md5-sess concatenates the raw H(...)
-        // digest bytes (not its hex-string form) with ":nonce:cnonce".
-        byte[] h = ByteArrays.toByteArray(ha1);
-        byte[] suffix = (":" + serverNonce + ":" + cnonce).getBytes(
-                java.nio.charset.StandardCharsets.UTF_8);
-        byte[] a1 = new byte[h.length + suffix.length];
-        System.arraycopy(h, 0, a1, 0, h.length);
-        System.arraycopy(suffix, 0, a1, h.length, suffix.length);
-        String sessionHA1 = SaslUtils.md5Hex(a1);
-        String ha2 = SaslUtils.md5Hex(
-                ("AUTHENTICATE:" + digestUri).getBytes(
-                        java.nio.charset.StandardCharsets.UTF_8));
-        String responseHash = SaslUtils.md5Hex(
-                (sessionHA1 + ":" + serverNonce + ":" + nc + ":" + cnonce
-                        + ":" + qop + ":" + ha2).getBytes(
-                        java.nio.charset.StandardCharsets.UTF_8));
-
-        Map<String, String> params = new HashMap<String, String>();
-        params.put("username", username);
-        params.put("realm", realm);
-        params.put("nonce", serverNonce);
-        params.put("nc", nc);
-        params.put("cnonce", cnonce);
-        params.put("qop", qop);
-        params.put("digest-uri", digestUri);
-        params.put("response", responseHash);
-
-        String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
-                ha1, serverNonce, params);
-        assertNotNull(rspAuth);
-        assertEquals(32, rspAuth.length());
-    }
-
-    @Test
-    public void testDigestMD5WrongResponseRejected() {
-        String ha1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
-        String serverNonce = "abc123";
-
-        Map<String, String> params = new HashMap<String, String>();
-        params.put("username", "alice");
-        params.put("nonce", serverNonce);
-        params.put("nc", "00000001");
-        params.put("cnonce", "clientnonce1234");
-        params.put("qop", "auth");
-        params.put("digest-uri", "ldap/example.com");
-        params.put("response", "00000000000000000000000000000000");
-
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse(
-                ha1, serverNonce, params));
-    }
-
-    @Test
-    public void testDigestMD5WrongNonceRejected() {
-        String ha1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
-
-        Map<String, String> params = new HashMap<String, String>();
-        params.put("nonce", "wrongnonce");
-        params.put("nc", "00000001");
-        params.put("cnonce", "clientnonce1234");
-        params.put("qop", "auth");
-        params.put("digest-uri", "ldap/example.com");
-        params.put("response", "00000000000000000000000000000000");
-
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse(
-                ha1, "abc123", params));
-    }
-
     // -- SCRAM-SHA-256 (RFC 5802, RFC 7677) --
 
     @Test
@@ -338,15 +189,6 @@ public class SMTPServerAuthTest {
     // -- HMAC functions --
 
     @Test
-    public void testHmacMD5() {
-        byte[] key = "key".getBytes();
-        byte[] data = "The quick brown fox".getBytes();
-        byte[] hmac = SaslUtils.hmacMD5(key, data);
-        assertNotNull(hmac);
-        assertEquals(16, hmac.length); // MD5 = 16 bytes
-    }
-
-    @Test
     public void testHmacSHA256() {
         byte[] key = "key".getBytes();
         byte[] data = "data".getBytes();
@@ -398,15 +240,6 @@ public class SMTPServerAuthTest {
         byte[] hash = SaslUtils.sha256("test".getBytes());
         assertNotNull(hash);
         assertEquals(32, hash.length);
-    }
-
-    // -- MD5 hash --
-
-    @Test
-    public void testMd5Hex() {
-        String hex = SaslUtils.md5Hex("test".getBytes());
-        assertNotNull(hex);
-        assertEquals(32, hex.length());
     }
 
 }

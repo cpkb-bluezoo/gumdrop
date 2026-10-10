@@ -119,7 +119,7 @@ public class POP3ServerLexerTest {
     public void testArgsWithEmbeddedDoubleSpacePreservedVerbatim() {
         RecordingHandler handler = new RecordingHandler();
         Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
-        lexer.feed(bytesOf("APOP someuser  extraspace\r\n"));
+        lexer.feed(bytesOf("USER someuser  extraspace\r\n"));
         // Only the FIRST space is the KEYWORD/args separator (consumed as
         // the SP token); every subsequent byte, including the second
         // space, is part of the TEXT-mode args verbatim.

@@ -144,7 +144,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     Path root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
-    byte[] digest; // MD5 digest of web.xml
+    byte[] digest; // SHA-256 digest of web.xml
 
     // ── Resource lookup caches (issue #137) ──
     //
@@ -464,11 +464,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     HitStatisticsImpl hitStatistics = new HitStatisticsImpl();
 
-    /** MD5 of the official manager.war, generated at build time. */
+    /** SHA-256 of the official manager.war, generated at build time. */
     private final byte[] managerDigest = loadManagerWarDigest();
 
     private static byte[] loadManagerWarDigest() {
-        try (InputStream in = Context.class.getResourceAsStream("/META-INF/gumdrop-manager-war.md5")) {
+        try (InputStream in = Context.class.getResourceAsStream("/META-INF/gumdrop-manager-war.sha256")) {
             if (in == null) {
                 return new byte[0];
             }
@@ -506,18 +506,18 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 && rootName.toString().equals("manager.war")) {
             // compute checksum of the file and compare to correct version
             try (InputStream in = Files.newInputStream(root)) {
-                MessageDigest md5 = MessageDigest.getInstance("MD5");
-                DigestInputStream md5in = new DigestInputStream(in, md5);
+                MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+                DigestInputStream sha256in = new DigestInputStream(in, sha256);
                 byte[] buf = new byte[Math.max(4096, in.available())];
-                for (int len = md5in.read(buf); len != -1; len = md5in.read(buf)) {
+                for (int len = sha256in.read(buf); len != -1; len = sha256in.read(buf)) {
                 }
-                byte[] computedDigest = md5.digest();
+                byte[] computedDigest = sha256.digest();
                 if (managerDigest.length > 0 && ByteArrays.equals(computedDigest, managerDigest)) {
                     manager = true;
                 }
             } catch (NoSuchAlgorithmException e) {
                 // fatal
-                RuntimeException e2 = new RuntimeException("No MD5 support in JRE");
+                RuntimeException e2 = new RuntimeException("No SHA-256 support in JRE");
                 e2.initCause(e);
                 throw e2;
             } catch (IOException e) {

@@ -78,7 +78,6 @@ public class Pop3ServerComposeTest {
         assertNull(s.getMailboxFactory());
         assertEquals(0L, s.getLoginDelayMs());
         assertEquals(600000L, s.getTransactionTimeoutMs());
-        assertTrue(s.isEnableAPOP());
         assertTrue(s.isEnableUTF8());
         assertFalse(s.isEnablePipelining());
         assertEquals("POP3 server ready", s.getGreeting());
@@ -91,13 +90,11 @@ public class Pop3ServerComposeTest {
         Pop3Server s = new Pop3Server();
         s.loginDelayMs(5L);
         s.transactionTimeoutMs(7L);
-        s.enableAPOP(false);
         s.enableUTF8(false);
         s.enablePipelining(true);
         s.realm(null);
         assertEquals(5L, s.getLoginDelayMs());
         assertEquals(7L, s.getTransactionTimeoutMs());
-        assertFalse(s.isEnableAPOP());
         assertFalse(s.isEnableUTF8());
         assertTrue(s.isEnablePipelining());
     }
@@ -162,14 +159,12 @@ public class Pop3ServerComposeTest {
                 .realm(null)
                 .loginDelayMs(10L)
                 .transactionTimeoutMs(20L)
-                .enableAPOP(false)
                 .enableUTF8(false)
                 .enablePipelining(true)
                 .server();
         assertEquals(1, s.getListeners().size());
         assertEquals(10L, s.getLoginDelayMs());
         assertEquals(20L, s.getTransactionTimeoutMs());
-        assertFalse(s.isEnableAPOP());
         assertFalse(s.isEnableUTF8());
         assertTrue(s.isEnablePipelining());
         assertNotNull(s.openSession(new Pop3Listener()));

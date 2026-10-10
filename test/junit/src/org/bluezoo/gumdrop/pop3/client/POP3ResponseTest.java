@@ -59,7 +59,7 @@ public class POP3ResponseTest {
     }
 
     @Test
-    public void testParseOkWithApopTimestamp() {
+    public void testParseOkWithAngleBracketText() {
         Pop3Response r = Pop3Response.parse(
                 "+OK POP3 server ready <1896.697170952@dbc.mtview.ca.us>");
         assertNotNull(r);

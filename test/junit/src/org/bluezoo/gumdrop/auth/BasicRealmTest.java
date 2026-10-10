@@ -102,6 +102,25 @@ public class BasicRealmTest {
     }
 
     @Test
+    public void testGetDigestHA1IsSha256OfUserRealmPassword() throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] expected = md.digest("alice:testrealm:secret123"
+                .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : expected) {
+            hex.append(String.format("%02x", b));
+        }
+        assertEquals(hex.toString(), realm.getDigestHA1("alice", "testrealm"));
+        assertEquals("SHA-256 hex is 64 characters", 64,
+                realm.getDigestHA1("alice", "testrealm").length());
+    }
+
+    @Test
+    public void testSupportsDigestHA1() {
+        assertTrue(realm.supportsDigestHA1());
+    }
+
+    @Test
     public void testGetDigestHA1UnknownUser() {
         assertNull(realm.getDigestHA1("unknown", "testrealm"));
     }
@@ -121,44 +140,10 @@ public class BasicRealmTest {
     }
 
     @Test
-    public void testGetCramMD5Response() {
-        String challenge = "PDE4OTYuNjk3MTcwOTUyQHBvc3RvZmZpY2UuZXhhbXBsZS5uZXQ+";
-        String response = realm.getCramMD5Response("alice", challenge);
-        assertNotNull(response);
-    }
-
-    @Test
-    public void testGetCramMD5ResponseUnknownUser() {
-        assertNull(realm.getCramMD5Response("unknown", "challenge"));
-    }
-
-    @Test
-    public void testGetApopResponse() {
-        String timestamp = "<1896.697170952@example.com>";
-        String response = realm.getApopResponse("alice", timestamp);
-        assertNotNull(response);
-        assertTrue(response.matches("[0-9a-f]+"));
-    }
-
-    @Test
-    public void testGetApopResponseConsistency() {
-        String timestamp = "<1896.697170952@example.com>";
-        String r1 = realm.getApopResponse("alice", timestamp);
-        String r2 = realm.getApopResponse("alice", timestamp);
-        assertEquals(r1, r2);
-    }
-
-    @Test
-    public void testGetApopResponseUnknownUser() {
-        assertNull(realm.getApopResponse("unknown", "<timestamp>"));
-    }
-
-    @Test
     public void testSupportedSASLMechanisms() {
         assertNotNull(realm.getSupportedSASLMechanisms());
         assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.PLAIN));
-        assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.CRAM_MD5));
-        assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.DIGEST_MD5));
+        assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.SCRAM_SHA_256));
     }
 
     @Test

@@ -1723,7 +1723,7 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
 
             if (status == HttpStatus.UNAUTHORIZED
                     && username != null && password != null && !authRetryPending) {
-                String wwwAuth = HeaderFields.getValue(responseHeaders, "www-authenticate");
+                String wwwAuth = selectChallenge(responseHeaders, "www-authenticate");
                 if (wwwAuth != null && canAnswerChallenge(wwwAuth)) {
                     pendingAuthChallenge = wwwAuth;
                     pendingProxyAuth = false;
@@ -1736,7 +1736,7 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
             // RFC 9110 section 11.7.1: 407 Proxy Authentication Required
             if (status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED
                     && username != null && password != null && !authRetryPending) {
-                String proxyAuth = HeaderFields.getValue(responseHeaders, "proxy-authenticate");
+                String proxyAuth = selectChallenge(responseHeaders, "proxy-authenticate");
                 if (proxyAuth != null && canAnswerChallenge(proxyAuth)) {
                     pendingAuthChallenge = proxyAuth;
                     pendingProxyAuth = true;
@@ -1927,6 +1927,41 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
         return false;
     }
 
+    /**
+     * Picks the challenge to answer when a server sends several (RFC 9110
+     * section 11.6.1 lets it offer one per scheme or algorithm): a Digest
+     * challenge with an algorithm this client accepts, else Basic, else the
+     * first. A Digest challenge for MD5 is never selected.
+     */
+    private String selectChallenge(List<Header> headers, String name) {
+        List<String> values = HeaderFields.getValues(headers, name);
+        if (values.isEmpty()) {
+            return null;
+        }
+        String basic = null;
+        for (String value : values) {
+            String scheme = parseAuthScheme(value);
+            if ("digest".equalsIgnoreCase(scheme) && isAcceptedDigestAlgorithm(
+                    parseDirective(value, "algorithm"))) {
+                return value;
+            }
+            if (basic == null && "basic".equalsIgnoreCase(scheme)) {
+                basic = value;
+            }
+        }
+        return basic != null ? basic : values.get(0);
+    }
+
+    /**
+     * RFC 7616 algorithms this client will answer. MD5 and MD5-sess are
+     * refused as insecure, and so is an absent algorithm, which the RFC
+     * defines to mean MD5.
+     */
+    private static boolean isAcceptedDigestAlgorithm(String algorithm) {
+        return "SHA-256".equalsIgnoreCase(algorithm)
+                || "SHA-256-sess".equalsIgnoreCase(algorithm);
+    }
+
     private String computeAuthorization(String challenge, String method, String path) {
         String scheme = parseAuthScheme(challenge);
         if ("basic".equalsIgnoreCase(scheme)) {
@@ -1950,9 +1985,9 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
         }
         String challenge;
         if (status == HttpStatus.UNAUTHORIZED) {
-            challenge = HeaderFields.getValue(headers, "www-authenticate");
+            challenge = selectChallenge(headers, "www-authenticate");
         } else if (status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED) {
-            challenge = HeaderFields.getValue(headers, "proxy-authenticate");
+            challenge = selectChallenge(headers, "proxy-authenticate");
         } else {
             return null;
         }
@@ -1997,7 +2032,7 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
     }
 
     // RFC 7616: HTTP Digest Access Authentication
-    // Supports MD5, MD5-sess, SHA-256, and SHA-256-sess algorithms
+    // Supports SHA-256 and SHA-256-sess only; MD5 challenges are refused
     private String computeDigestAuth(String wwwAuthenticate, String method, String uri) {
         String realm = parseDirective(wwwAuthenticate, "realm");
         String nonce = parseDirective(wwwAuthenticate, "nonce");
@@ -2012,12 +2047,18 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
             return null;
         }
 
-        if (algorithm == null) {
-            algorithm = "MD5";
+        // RFC 7616 treats an absent algorithm as MD5. MD5 is insecure and
+        // is never answered, whether named or implied.
+        if (!isAcceptedDigestAlgorithm(algorithm)) {
+            events().warn("warn.unsupported_digest_algorithm")
+                    .attr("algorithm", algorithm == null ? "MD5" : algorithm).emit();
+            return null;
         }
 
-        // RFC 7616 section 3.4: map algorithm name to Java digest
-        // e.g. "SHA-256-sess" → "SHA-256", "MD5" → "MD5"
+        // Canonical spelling, so the "-sess" test below is case-safe
+        algorithm = "SHA-256-sess".equalsIgnoreCase(algorithm) ? "SHA-256-sess" : "SHA-256";
+
+        // RFC 7616 section 3.4: "SHA-256-sess" → "SHA-256"
         String digestName = algorithm.replace("-sess", "");
 
         try {
@@ -2096,10 +2137,8 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
                 auth.append("\"");
             }
             // RFC 7616 section 3.4: algorithm MUST be present when not MD5
-            if (!"MD5".equals(algorithm)) {
-                auth.append(", algorithm=");
-                auth.append(algorithm);
-            }
+            auth.append(", algorithm=");
+            auth.append(algorithm);
             if (userhash) {
                 auth.append(", userhash=true");
             }

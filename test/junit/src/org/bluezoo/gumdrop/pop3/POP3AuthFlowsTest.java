@@ -34,7 +34,6 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
-import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 
@@ -42,7 +41,7 @@ import static org.junit.Assert.*;
 
 /**
  * Drives the less common POP3 authentication flows of
- * {@link Pop3ProtocolHandler}: APOP, CRAM-MD5, DIGEST-MD5, OAUTHBEARER,
+ * {@link Pop3ProtocolHandler}: OAUTHBEARER,
  * SCRAM and EXTERNAL failure paths, login delay and mailbox-open failure.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -61,7 +60,6 @@ public class POP3AuthFlowsTest {
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
         listener.realm(realm);
         listener.mailboxFactory(factory);
-        listener.enableAPOP(false);
         endpoint = new TimerEndpoint();
     }
 
@@ -83,49 +81,6 @@ public class POP3AuthFlowsTest {
 
     private static String b64(String text) {
         return Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.US_ASCII));
-    }
-
-    private String apopTimestamp() {
-        String greeting = endpoint.getResponses().get(0);
-        int open = greeting.indexOf('<');
-        int close = greeting.indexOf('>');
-        return greeting.substring(open, close + 1);
-    }
-
-    // ── APOP ──
-
-    @Test
-    public void testApopSuccess() {
-        listener.enableAPOP(true);
-        connect();
-        String ts = apopTimestamp();
-        String digest = SaslUtils.md5Hex((ts + "testpass").getBytes(StandardCharsets.US_ASCII));
-        send("APOP testuser " + digest);
-        assertTrue(last(), last().startsWith("+OK"));
-    }
-
-    @Test
-    public void testApopWrongDigestAndUnsupportedRealm() {
-        listener.enableAPOP(true);
-        connect();
-        send("APOP testuser 00000000000000000000000000000000");
-        assertTrue(last().startsWith("-ERR"));
-        send("APOP nobody 00000000000000000000000000000000");
-        assertTrue(last().startsWith("-ERR"));
-
-        realm.apop = false;
-        send("APOP testuser abc");
-        assertTrue(last().startsWith("-ERR"));
-    }
-
-    @Test
-    public void testApopWithoutRealmClosesConnection() {
-        listener.enableAPOP(true);
-        listener.realm(null);
-        connect();
-        send("APOP testuser abc");
-        assertTrue(last().startsWith("-ERR"));
-        assertFalse(endpoint.isOpen());
     }
 
     // ── USER / PASS edge cases ──
@@ -187,7 +142,7 @@ public class POP3AuthFlowsTest {
     public void testAuthListHidesTlsOnlyMechanismsOnPlaintext() {
         realm.supportedMechanisms.add(SaslMechanism.PLAIN);
         realm.supportedMechanisms.add(SaslMechanism.EXTERNAL);
-        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.SCRAM_SHA_256);
         connect();
         send("AUTH");
         StringBuilder all = new StringBuilder();
@@ -195,82 +150,8 @@ public class POP3AuthFlowsTest {
             all.append(line).append('\n');
         }
         String text = all.toString();
-        assertTrue(text.contains("CRAM-MD5"));
+        assertTrue(text.contains("SCRAM-SHA-256"));
         assertFalse(text.contains("EXTERNAL"));
-    }
-
-    // ── CRAM-MD5 ──
-
-    @Test
-    public void testCramMd5Success() {
-        connect();
-        send("AUTH CRAM-MD5");
-        String challengeLine = last();
-        assertTrue(challengeLine.startsWith("+ "));
-        String challenge = SaslUtils.decodeBase64ToString(challengeLine.substring(2));
-        String digest = SaslUtils.computeCramMD5Response("testpass", challenge);
-        send(b64("testuser " + digest));
-        assertTrue(last(), last().startsWith("+OK"));
-    }
-
-    @Test
-    public void testCramMd5FailureModes() {
-        connect();
-        send("AUTH CRAM-MD5");
-        send(b64("testuser deadbeef"));
-        assertTrue(last().startsWith("-ERR"));
-
-        send("AUTH CRAM-MD5");
-        send(b64("nospacehere"));
-        assertTrue(last().startsWith("-ERR"));
-
-        send("AUTH CRAM-MD5");
-        send("!!!not-base64");
-        assertTrue(last().startsWith("-ERR"));
-
-        realm.cram = false;
-        send("AUTH CRAM-MD5");
-        send(b64("testuser deadbeef"));
-        assertTrue(last().startsWith("-ERR"));
-    }
-
-    @Test
-    public void testCramMd5WithoutRealm() {
-        listener.realm(null);
-        connect();
-        send("AUTH CRAM-MD5");
-        assertTrue(last().startsWith("-ERR"));
-    }
-
-    // ── DIGEST-MD5 ──
-
-    @Test
-    public void testDigestMd5Failures() {
-        connect();
-        send("AUTH DIGEST-MD5 abc");
-        assertTrue(last().startsWith("-ERR"));
-
-        send("AUTH DIGEST-MD5");
-        assertTrue(last().startsWith("+ "));
-        send("!!!not-base64");
-        assertTrue(last().startsWith("-ERR"));
-
-        send("AUTH DIGEST-MD5");
-        send(b64("realm=\"x\",nonce=\"y\""));
-        assertTrue(last().startsWith("-ERR"));
-
-        send("AUTH DIGEST-MD5");
-        send(b64("username=\"testuser\",realm=\"localhost\",nonce=\"zzz\",cnonce=\"c\","
-                + "nc=00000001,qop=auth,digest-uri=\"pop/localhost\",response=00,maxbuf=4096"));
-        assertTrue(last().startsWith("-ERR"));
-    }
-
-    @Test
-    public void testDigestMd5WithoutRealm() {
-        listener.realm(null);
-        connect();
-        send("AUTH DIGEST-MD5");
-        assertTrue(last().startsWith("-ERR"));
     }
 
     // ── OAUTHBEARER ──
@@ -295,6 +176,14 @@ public class POP3AuthFlowsTest {
         assertTrue(last().startsWith("-ERR"));
         send("AUTH OAUTHBEARER !!!");
         assertTrue(last().startsWith("-ERR"));
+    }
+
+    @Test
+    public void testApopIsAnUnknownCommand() {
+        // APOP was removed: it must be refused, and must not be mistaken for AUTH
+        connect();
+        send("APOP alice 00000000000000000000000000000000");
+        assertTrue(last(), last().startsWith("-ERR"));
     }
 
     @Test
@@ -421,32 +310,8 @@ public class POP3AuthFlowsTest {
     }
 
     static class CapableRealm extends POP3ProtocolHandlerTest.StubRealm {
-        boolean apop = true;
-        boolean cram = true;
         boolean scram = true;
         boolean bearerReturnsNull;
-
-        @Override
-        public String getApopResponse(String username, String timestamp) {
-            if (!apop) {
-                throw new UnsupportedOperationException("no apop");
-            }
-            if (!"testuser".equals(username)) {
-                return null;
-            }
-            return SaslUtils.md5Hex((timestamp + "testpass").getBytes(StandardCharsets.US_ASCII));
-        }
-
-        @Override
-        public String getCramMD5Response(String username, String challenge) {
-            if (!cram) {
-                throw new UnsupportedOperationException("no cram");
-            }
-            if (!"testuser".equals(username)) {
-                return null;
-            }
-            return SaslUtils.computeCramMD5Response("testpass", challenge);
-        }
 
         @Override
         public Realm.ScramCredentials getScramCredentials(String username) {

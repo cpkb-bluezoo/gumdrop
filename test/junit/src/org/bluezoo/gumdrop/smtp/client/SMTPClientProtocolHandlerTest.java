@@ -91,7 +91,7 @@ public class SMTPClientProtocolHandlerTest {
                 "mail.example.com",
                 "STARTTLS",
                 "SIZE 52428800",
-                "AUTH PLAIN LOGIN CRAM-MD5",
+                "AUTH PLAIN LOGIN SCRAM-SHA-256",
                 "PIPELINING",
                 "CHUNKING");
         assertTrue(capabilities.contains("starttls"));

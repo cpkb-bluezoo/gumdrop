@@ -88,19 +88,15 @@ public class BasicRealmHashAndXmlTest {
     }
 
     @Test
-    public void sha1Hash() throws Exception {
+    public void sha1SchemesAreNotSupported() throws Exception {
+        // {SHA} and {SSHA} were removed: a correct SHA-1 hash no longer authenticates
         byte[] pw = "hunter2".getBytes(StandardCharsets.UTF_8);
-        String stored = "{SHA}" + Base64.getEncoder().encodeToString(digest("SHA-1", pw, null));
-        BasicRealm realm = realmWith("u", stored);
-        assertTrue(realm.passwordMatch("u", "hunter2"));
-        assertFalse(realm.passwordMatch("u", "hunter3"));
-        assertFalse(realm.passwordMatch("u", ""));
-    }
-
-    @Test
-    public void sha1HashWrongLength() {
-        BasicRealm realm = realmWith("u", "{SHA}" + Base64.getEncoder().encodeToString(new byte[5]));
-        assertFalse(realm.passwordMatch("u", "x"));
+        byte[] salt = new byte[] {1, 2, 3, 4};
+        String sha = "{SHA}" + Base64.getEncoder().encodeToString(digest("SHA-1", pw, null));
+        String ssha = "{SSHA}" + Base64.getEncoder().encodeToString(
+                concat(digest("SHA-1", pw, salt), salt));
+        assertFalse(realmWith("u", sha).passwordMatch("u", "hunter2"));
+        assertFalse(realmWith("u", ssha).passwordMatch("u", "hunter2"));
     }
 
     @Test
@@ -112,19 +108,6 @@ public class BasicRealmHashAndXmlTest {
         assertFalse(realm.passwordMatch("u", "nope"));
         BasicRealm bad = realmWith("u", "{SHA256}" + Base64.getEncoder().encodeToString(new byte[3]));
         assertFalse(bad.passwordMatch("u", "x"));
-    }
-
-    @Test
-    public void saltedSha1Hash() throws Exception {
-        byte[] pw = "hunter2".getBytes(StandardCharsets.UTF_8);
-        byte[] salt = new byte[] {1, 2, 3, 4};
-        byte[] d = digest("SHA-1", pw, salt);
-        String stored = "{SSHA}" + Base64.getEncoder().encodeToString(concat(d, salt));
-        BasicRealm realm = realmWith("u", stored);
-        assertTrue(realm.passwordMatch("u", "hunter2"));
-        assertFalse(realm.passwordMatch("u", "other"));
-        BasicRealm shortRealm = realmWith("u", "{SSHA}" + Base64.getEncoder().encodeToString(new byte[20]));
-        assertFalse(shortRealm.passwordMatch("u", "x"));
     }
 
     @Test
@@ -142,7 +125,7 @@ public class BasicRealmHashAndXmlTest {
 
     @Test
     public void invalidBase64InHashIsRejected() {
-        String[] schemes = new String[] {"{SHA}", "{SHA256}", "{SSHA}", "{SSHA256}"};
+        String[] schemes = new String[] {"{SHA256}", "{SSHA256}"};
         for (int i = 0; i < schemes.length; i++) {
             BasicRealm realm = realmWith("u", schemes[i] + "!!!not base64!!!");
             assertFalse(schemes[i], realm.passwordMatch("u", "x"));
@@ -183,10 +166,8 @@ public class BasicRealmHashAndXmlTest {
 
     @Test
     public void hashedPasswordsHideSecretsFromPlaintextMechanisms() {
-        BasicRealm realm = realmWith("u", "{SHA}AAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        BasicRealm realm = realmWith("u", "{SHA256}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
         assertNull(realm.getDigestHA1("u", "r"));
-        assertNull(realm.getCramMD5Response("u", "<c>"));
-        assertNull(realm.getApopResponse("u", "<t>"));
         assertNull(realm.getScramCredentials("u"));
     }
 

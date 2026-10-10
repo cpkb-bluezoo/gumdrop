@@ -57,7 +57,7 @@ public interface SynchronousRealm extends Realm {
     boolean passwordMatch(String username, String password);
 
     /**
-     * Computes H(A1) = MD5(username:realm:password).
+     * Computes H(A1) = SHA-256(username:realm:password) for HTTP Digest.
      *
      * @param username the username
      * @param realmName the realm name used in the digest computation
@@ -82,30 +82,6 @@ public interface SynchronousRealm extends Realm {
      */
     default boolean userExists(String username) {
         return false;
-    }
-
-    /**
-     * Computes the expected CRAM-MD5 response.
-     *
-     * @param username the username
-     * @param challenge the server's challenge
-     * @return the expected digest as lowercase hex, or null if unknown
-     * @throws UnsupportedOperationException if not supported (the default)
-     */
-    default String getCramMD5Response(String username, String challenge) {
-        throw new UnsupportedOperationException("CRAM-MD5 not supported by this realm");
-    }
-
-    /**
-     * Computes the expected APOP response.
-     *
-     * @param username the username
-     * @param timestamp the server's APOP timestamp
-     * @return the expected digest as lowercase hex, or null if unknown
-     * @throws UnsupportedOperationException if not supported (the default)
-     */
-    default String getApopResponse(String username, String timestamp) {
-        throw new UnsupportedOperationException("APOP not supported by this realm");
     }
 
     /**
@@ -228,28 +204,6 @@ public interface SynchronousRealm extends Realm {
             @Override
             public Boolean call() {
                 return Boolean.valueOf(userExists(username));
-            }
-        });
-    }
-
-    @Override
-    default void getCramMD5Response(final String username,
-            final String challenge, RealmCallback<String> callback) {
-        complete(callback, new Callable<String>() {
-            @Override
-            public String call() {
-                return getCramMD5Response(username, challenge);
-            }
-        });
-    }
-
-    @Override
-    default void getApopResponse(final String username,
-            final String timestamp, RealmCallback<String> callback) {
-        complete(callback, new Callable<String>() {
-            @Override
-            public String call() {
-                return getApopResponse(username, timestamp);
             }
         });
     }

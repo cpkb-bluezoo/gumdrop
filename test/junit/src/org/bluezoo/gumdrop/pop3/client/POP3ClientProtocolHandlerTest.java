@@ -44,7 +44,6 @@ import org.bluezoo.gumdrop.pop3.client.ClientAuthorizationState;
 import org.bluezoo.gumdrop.pop3.client.ClientPasswordState;
 import org.bluezoo.gumdrop.pop3.client.ClientPostStls;
 import org.bluezoo.gumdrop.pop3.client.ClientTransactionState;
-import org.bluezoo.gumdrop.pop3.client.ApopReplyHandler;
 import org.bluezoo.gumdrop.pop3.client.AuthAbortHandler;
 import org.bluezoo.gumdrop.pop3.client.AuthReplyHandler;
 import org.bluezoo.gumdrop.pop3.client.CapaReplyHandler;
@@ -115,26 +114,7 @@ public class POP3ClientProtocolHandlerTest {
 
         assertTrue(greetingHandler.greetingReceived);
         assertEquals("POP3 server ready", greetingHandler.greetingMessage);
-        assertNull(greetingHandler.apopTimestamp);
         assertNotNull(greetingHandler.authState);
-    }
-
-    @Test
-    public void testGreetingWithApopTimestamp() {
-        receiveResponse(
-                "+OK POP3 server ready <1896.697170952@dbc.mtview.ca.us>");
-
-        assertTrue(greetingHandler.greetingReceived);
-        assertEquals("<1896.697170952@dbc.mtview.ca.us>",
-                greetingHandler.apopTimestamp);
-    }
-
-    @Test
-    public void testGreetingWithoutApopTimestamp() {
-        receiveResponse("+OK Hello there");
-
-        assertTrue(greetingHandler.greetingReceived);
-        assertNull(greetingHandler.apopTimestamp);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -378,40 +358,6 @@ public class POP3ClientProtocolHandlerTest {
 
         assertTrue(passHandler.authFailed);
         assertEquals("invalid password", passHandler.authFailedMessage);
-    }
-
-    // ── APOP tests ──
-
-    @Test
-    public void testApopSuccess() {
-        receiveResponse(
-                "+OK POP3 ready <1896.697170952@dbc.mtview.ca.us>");
-
-        RecordingApopHandler apopHandler = new RecordingApopHandler();
-        greetingHandler.authState.apop("mrose",
-                "c4c9334bac560ecc979e58001b3e22fb", apopHandler);
-        assertTrue(lastSentCommand().startsWith("APOP mrose "));
-
-        receiveResponse("+OK maildrop has 2 messages");
-
-        assertTrue(apopHandler.authenticated);
-        assertNotNull(apopHandler.transactionState);
-    }
-
-    @Test
-    public void testApopFailed() {
-        receiveResponse(
-                "+OK POP3 ready <1896.697170952@dbc.mtview.ca.us>");
-
-        RecordingApopHandler apopHandler = new RecordingApopHandler();
-        greetingHandler.authState.apop("mrose", "wrongdigest",
-                apopHandler);
-
-        receiveResponse("-ERR permission denied");
-
-        assertTrue(apopHandler.authFailed);
-        assertEquals("permission denied",
-                apopHandler.authFailedMessage);
     }
 
     // ── AUTH (SASL) tests ──
@@ -1090,7 +1036,6 @@ public class POP3ClientProtocolHandlerTest {
     static class RecordingGreetingHandler implements RemoteGreeting {
         boolean greetingReceived;
         String greetingMessage;
-        String apopTimestamp;
         ClientAuthorizationState authState;
         ClientTransactionState transactionState;
 
@@ -1102,10 +1047,9 @@ public class POP3ClientProtocolHandlerTest {
 
         @Override
         public void handleGreeting(ClientAuthorizationState auth,
-                                   String message, String apopTimestamp) {
+                                   String message) {
             greetingReceived = true;
             greetingMessage = message;
-            this.apopTimestamp = apopTimestamp;
             this.authState = auth;
         }
 
@@ -1188,31 +1132,6 @@ public class POP3ClientProtocolHandlerTest {
 
     static class RecordingPassHandler
             implements PassReplyHandler {
-        boolean authenticated;
-        ClientTransactionState transactionState;
-        boolean authFailed;
-        String authFailedMessage;
-
-        @Override
-        public void handleAuthenticated(
-                ClientTransactionState transaction) {
-            authenticated = true;
-            transactionState = transaction;
-        }
-
-        @Override
-        public void handleAuthFailed(ClientAuthorizationState auth,
-                                     String message) {
-            authFailed = true;
-            authFailedMessage = message;
-        }
-
-        @Override
-        public void handleServiceClosing(String message) {}
-    }
-
-    static class RecordingApopHandler
-            implements ApopReplyHandler {
         boolean authenticated;
         ClientTransactionState transactionState;
         boolean authFailed;

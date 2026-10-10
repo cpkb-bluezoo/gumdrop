@@ -22,13 +22,10 @@
 package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
-import java.security.MessageDigest;
-
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SaslUtils;
-import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.testsupport.DigestTestSupport;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -47,7 +44,7 @@ import static org.junit.Assert.assertTrue;
 public class HttpAuthenticationProviderDigestEdgeTest {
 
     private static final String REALM = "edge-realm";
-    private static final String HA1 = SaslUtils.computeDigestHA1("alice", REALM, "secret");
+    private static final String HA1 = DigestTestSupport.ha1("alice", REALM, "secret");
 
     private static final class Provider extends InlineHttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
@@ -80,26 +77,8 @@ public class HttpAuthenticationProviderDigestEdgeTest {
         return challenge.substring(start, end);
     }
 
-    private static String response(String nonce, String nc, String cnonce, String method, String uri)
-            throws Exception {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        md.update(method.getBytes());
-        md.update((byte) ':');
-        md.update(uri.getBytes());
-        String ha2 = ByteArrays.toHexString(md.digest());
-        md.reset();
-        md.update(HA1.getBytes());
-        md.update((byte) ':');
-        md.update(nonce.getBytes());
-        md.update((byte) ':');
-        md.update(nc.getBytes());
-        md.update((byte) ':');
-        md.update(cnonce.getBytes());
-        md.update((byte) ':');
-        md.update("auth".getBytes());
-        md.update((byte) ':');
-        md.update(ha2.getBytes());
-        return ByteArrays.toHexString(md.digest());
+    private static String response(String nonce, String nc, String cnonce, String method, String uri) {
+        return DigestTestSupport.response(HA1, nonce, nc, cnonce, method, uri);
     }
 
     private static HttpAuthenticationProvider.AuthenticationResult run(Provider p, String header) {
@@ -113,7 +92,7 @@ public class HttpAuthenticationProviderDigestEdgeTest {
         String resp = response(nonce, "00000001", "c1", "GET", "/r");
         String[] full = {
             "username=\"alice\"", "realm=\"" + REALM + "\"", "nonce=\"" + nonce + "\"",
-            "response=\"" + resp + "\"", "cnonce=\"c1\"", "nc=00000001", "qop=auth", "uri=\"/r\""};
+            "response=\"" + resp + "\"", "cnonce=\"c1\"", "nc=00000001", "qop=auth", "algorithm=SHA-256", "uri=\"/r\""};
         for (int skip = 0; skip < 6; skip++) {
             StringBuilder header = new StringBuilder("Digest ");
             boolean first = true;
@@ -138,7 +117,7 @@ public class HttpAuthenticationProviderDigestEdgeTest {
         String nonce = nonceOf(p);
         String resp = response(nonce, "00000001", "c1", "GET", "/r");
         String header = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"" + nonce
-                + "\", uri=\"/other\", response=\"" + resp + "\", qop=auth, nc=00000001, cnonce=\"c1\"";
+                + "\", uri=\"/other\", response=\"" + resp + "\", qop=auth, nc=00000001, cnonce=\"c1\", algorithm=SHA-256";
         assertFalse(run(p, header).success);
     }
 
@@ -148,15 +127,15 @@ public class HttpAuthenticationProviderDigestEdgeTest {
         String nonce = nonceOf(p);
         String resp = response(nonce, "00000002", "c1", "GET", "/r");
         String skipped = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"" + nonce
-                + "\", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=00000002, cnonce=\"c1\"";
+                + "\", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=00000002, cnonce=\"c1\", algorithm=SHA-256";
         assertFalse(run(p, skipped).success);
 
         String notHex = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"" + nonce
-                + "\", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=zz, cnonce=\"c1\"";
+                + "\", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=zz, cnonce=\"c1\", algorithm=SHA-256";
         assertFalse(run(p, notHex).success);
 
         String unknown = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"never-issued\""
-                + ", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=00000001, cnonce=\"c1\"";
+                + ", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=00000001, cnonce=\"c1\", algorithm=SHA-256";
         assertFalse(run(p, unknown).success);
     }
 
@@ -165,17 +144,17 @@ public class HttpAuthenticationProviderDigestEdgeTest {
         Provider p = new Provider();
         String nonce = nonceOf(p);
         String resp = response(nonce, "00000001", "c1", "GET", "/r");
-        String md5 = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"" + nonce
+        String good = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"" + nonce
                 + "\", uri=\"/r\", response=\"" + resp + "\", qop=auth, nc=00000001, cnonce=\"c1\""
-                + ", algorithm=MD5";
-        HttpAuthenticationProvider.AuthenticationResult ok = run(p, md5);
+                + ", algorithm=SHA-256";
+        HttpAuthenticationProvider.AuthenticationResult ok = run(p, good);
         assertTrue(ok.errorMessage, ok.success);
 
         String nonce2 = nonceOf(p);
         String resp2 = response(nonce2, "00000001", "c2", "GET", "/r");
         String sess = "Digest username=\"alice\", realm=\"" + REALM + "\", nonce=\"" + nonce2
                 + "\", uri=\"/r\", response=\"" + resp2 + "\", qop=auth, nc=00000001, cnonce=\"c2\""
-                + ", algorithm=MD5-sess";
+                + ", algorithm=SHA-256-sess";
         assertFalse(run(p, sess).success);
 
         String nonce3 = nonceOf(p);

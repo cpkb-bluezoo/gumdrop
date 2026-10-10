@@ -37,7 +37,7 @@
  * MarkDeletedState}, {@link ResetState}, {@link TopState}, {@link
  * UidlState}, {@link UpdateState}.
  *
- * <p>USER/PASS, APOP, and SASL authentication mechanics, and CAPA/STLS/
+ * <p>USER/PASS and SASL authentication mechanics, and CAPA/STLS/
  * NOOP/QUIT, are handled entirely by {@code Pop3ProtocolHandler} using
  * the configured {@link org.bluezoo.gumdrop.auth.Realm}; the application
  * only sees the verified {@code Principal} at {@link

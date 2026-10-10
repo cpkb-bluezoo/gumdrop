@@ -200,29 +200,6 @@ public class AuthEdgeCasesTest {
     }
 
     @Test
-    public void digestParametersEndingInBackslashKeepIt() {
-        Map<String, String> params = SaslUtils.parseDigestParams("user=\"a\\");
-        assertEquals("a\\", params.get("user"));
-        Map<String, String> escaped = SaslUtils.parseDigestParams("user=\"a\\\"b\",nc=1");
-        assertEquals("a\"b", escaped.get("user"));
-        assertEquals("1", escaped.get("nc"));
-    }
-
-    @Test
-    public void digestVerificationRejectsEachMissingParameter() {
-        String[] names = {"nonce", "nc", "cnonce", "qop", "digest-uri", "response"};
-        for (int skip = 0; skip < names.length; skip++) {
-            Map<String, String> p = new HashMap<String, String>();
-            for (int i = 0; i < names.length; i++) {
-                if (i != skip) {
-                    p.put(names[i], "n");
-                }
-            }
-            assertNull(names[skip], SaslUtils.verifyDigestMD5ClientResponse("00", "n", p));
-        }
-    }
-
-    @Test
     public void oauthBearerWithoutTrailingSeparatorsStillYieldsToken() {
         Map<String, String> parsed = SaslUtils.parseOAuthBearerCredentials(
                 "n,a=user@example.com,\u0001auth=Bearer tok");

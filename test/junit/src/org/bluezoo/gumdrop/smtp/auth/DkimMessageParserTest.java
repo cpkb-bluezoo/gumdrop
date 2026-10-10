@@ -243,11 +243,10 @@ public class DkimMessageParserTest {
     }
 
     @Test
-    public void sha1AlgorithmIsSupported() throws Exception {
+    public void sha1AlgorithmIsNotSupported() throws Exception {
+        // RFC 8301: rsa-sha1 is not acceptable, so no SHA-1 body hash is computed.
         feed(sig("rsa-sha1", "simple/simple", "") + "From: a@example.com\r\n\r\nabc\r\n");
-        byte[] expected = MessageDigest.getInstance("SHA-1")
-                .digest("abc\r\n".getBytes(StandardCharsets.ISO_8859_1));
-        assertArrayEquals(expected, parser.getBodyHash());
+        assertNull(parser.getBodyHash());
     }
 
     @Test

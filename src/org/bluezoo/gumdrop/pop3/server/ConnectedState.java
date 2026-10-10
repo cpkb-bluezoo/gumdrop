@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.pop3.server;
  * allows the handler to either accept or reject the connection.
  * 
  * <p>Accepting the connection sends a +OK greeting to the client and
- * transitions to the AUTHORIZATION state where USER/PASS, APOP, or AUTH
+ * transitions to the AUTHORIZATION state where USER/PASS or AUTH
  * commands are expected (RFC 1939 Section 3).
  * Rejecting the connection sends a -ERR error and closes the connection.
  * 
@@ -55,20 +55,6 @@ public interface ConnectedState {
      * @param handler receives authentication events after Realm verification
      */
     void acceptConnection(String greeting, AuthorizationHandler handler);
-
-    /**
-     * Accepts the connection with APOP capability and sends a greeting banner.
-     * 
-     * <p>Sends a +OK response with an APOP timestamp included in the greeting,
-     * allowing clients to authenticate using APOP (RFC 1939 Section 7).
-     * 
-     * <p>The timestamp should be in the format: {@code <process-id.clock@hostname>}
-     * 
-     * @param greeting the greeting text (without the +OK prefix or timestamp)
-     * @param timestamp the APOP timestamp (will be appended to the greeting)
-     * @param handler receives authentication events after Realm verification
-     */
-    void acceptConnectionWithApop(String greeting, String timestamp, AuthorizationHandler handler);
 
     /**
      * Rejects the connection with a default message.

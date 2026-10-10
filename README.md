@@ -181,7 +181,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - HTTP Datagrams and the Capsule Protocol (RFC 9297)
     - authentication framework supporting:
         - Basic
-        - HTTP Digest (MD5, SHA-256)
+        - HTTP Digest (SHA-256, RFC 7616)
         - Bearer
         - OAuth (token introspection + local JWT validation)
         - mTLS
@@ -315,7 +315,6 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - POP3S (implicit TLS on port 995)
     - STARTTLS support (RFC 2595)
     - full SASL authentication (see SASL section below)
-    - APOP authentication for legacy clients
     - supported extensions (RFC 2449):
         - UIDL - unique message identifiers
         - TOP - retrieve message headers
@@ -477,11 +476,9 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
           protocols
         - does not expose passwords by default
         - extensible for LDAP, identity providers, databases
-    - all major authentication mechanisms supported
+    - modern authentication mechanisms supported (the MD5-based CRAM-MD5, DIGEST-MD5 and APOP are intentionally not supported)
         - PLAIN (requires TLS)
         - LOGIN (requires TLS)
-        - CRAM-MD5
-        - DIGEST-MD5
         - SCRAM-SHA-256 (recommended!)
         - OAUTHBEARER (requires TLS)
         - GSSAPI/Kerberos (RFC 4752) — keytab-based, event-loop safe
@@ -489,7 +486,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
 - LDAP client and LdapRealm
     - fully asynchronous LDAPv3 client (RFC 4511)
     - simple bind (RFC 4513 §5.1) and SASL bind (RFC 4513 §5.2)
-        - PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — all non-blocking
+        - PLAIN, EXTERNAL - all non-blocking
         - GSSAPI/Kerberos — worker-thread offloaded for KDC contact
     - LDAPS (implicit TLS) and STARTTLS
     - search, modify, add, delete, compare, modifyDN, extended operations

@@ -93,7 +93,6 @@ public class POP3ExternalAndWireTest {
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
         listener.realm(realm);
         listener.mailboxFactory(new POP3ProtocolHandlerTest.StubMailboxFactory());
-        listener.enableAPOP(false);
         endpoint = new CertEndpoint();
         endpoint.secure = true;
         TestCertificates.Identity id = TestCertificates.ec256();

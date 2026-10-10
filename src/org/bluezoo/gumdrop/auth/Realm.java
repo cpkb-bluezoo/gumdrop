@@ -112,10 +112,6 @@ public interface Realm {
      * <ul>
      *   <li>{@link SaslMechanism#PLAIN}, {@link SaslMechanism#LOGIN} -
      *       require {@link #passwordMatch}</li>
-     *   <li>{@link SaslMechanism#CRAM_MD5} -
-     *       requires {@link #getCramMD5Response}</li>
-     *   <li>{@link SaslMechanism#DIGEST_MD5} -
-     *       requires {@link #getDigestHA1}</li>
      *   <li>{@link SaslMechanism#SCRAM_SHA_256} -
      *       requires {@link #getScramCredentials}</li>
      *   <li>{@link SaslMechanism#EXTERNAL} -
@@ -141,8 +137,8 @@ public interface Realm {
                        RealmCallback<Boolean> callback);
 
     /**
-     * RFC 2617 / RFC 2831 — computes the H(A1) hash for HTTP Digest / DIGEST-MD5.
-     * H(A1) = MD5(username:realm:password)
+     * RFC 7616 — computes the H(A1) hash for HTTP Digest authentication.
+     * H(A1) = SHA-256(username:realm:password)
      *
      * <p>This allows realm implementations to either store plaintext
      * passwords and compute H(A1) on demand, or pre-compute and store H(A1)
@@ -152,9 +148,22 @@ public interface Realm {
      * @param realmName the realm name used in the digest computation
      * @param callback receives the H(A1) hash as a lowercase hex string, or
      *        null if the user does not exist or the realm cannot supply it
+     * @see #supportsDigestHA1()
      */
     void getDigestHA1(String username, String realmName,
                       RealmCallback<String> callback);
+
+    /**
+     * Returns whether this realm can supply the SHA-256 H(A1) hash that
+     * HTTP Digest authentication needs (see {@link #getDigestHA1}). A realm
+     * that holds only salted password hashes, or delegates verification to
+     * another system, cannot, and the default is {@code false}.
+     *
+     * @return true if {@link #getDigestHA1} can return a hash for known users
+     */
+    default boolean supportsDigestHA1() {
+        return false;
+    }
 
     /**
      * Indicates whether the specified user has the given role.
@@ -181,44 +190,6 @@ public interface Realm {
      */
     default void userExists(String username, RealmCallback<Boolean> callback) {
         callback.completed(Boolean.FALSE);
-    }
-
-    /**
-     * RFC 2195 — computes the expected CRAM-MD5 response for a user.
-     * CRAM-MD5 uses HMAC-MD5(password, challenge) where password is the key.
-     *
-     * <p>Implementing this method allows realm implementations to support
-     * CRAM-MD5 authentication without exposing the plaintext password.
-     *
-     * @param username the username
-     * @param challenge the server's challenge string
-     * @param callback receives the expected HMAC-MD5 digest as lowercase
-     *        hex, or null if the user does not exist. The default
-     *        implementation fails with {@link UnsupportedOperationException}.
-     */
-    default void getCramMD5Response(String username, String challenge,
-                                    RealmCallback<String> callback) {
-        callback.failed(new UnsupportedOperationException(
-                "CRAM-MD5 not supported by this realm"));
-    }
-
-    /**
-     * RFC 1939 — computes the expected APOP response for a user.
-     * APOP uses MD5(timestamp + password).
-     *
-     * <p>Implementing this method allows realm implementations to support
-     * APOP authentication without exposing the plaintext password.
-     *
-     * @param username the username
-     * @param timestamp the server's APOP timestamp (e.g., "&lt;1234.5678@hostname&gt;")
-     * @param callback receives the expected MD5 digest as lowercase hex, or
-     *        null if the user does not exist. The default implementation
-     *        fails with {@link UnsupportedOperationException}.
-     */
-    default void getApopResponse(String username, String timestamp,
-                                 RealmCallback<String> callback) {
-        callback.failed(new UnsupportedOperationException(
-                "APOP not supported by this realm"));
     }
 
     /**
@@ -272,10 +243,13 @@ public interface Realm {
          * @param password the plaintext password
          * @param salt the salt (raw bytes)
          * @param iterations the PBKDF2 iteration count (minimum 4096 recommended)
-         * @param algorithm "SHA-256" or "SHA-1"
+         * @param algorithm must be "SHA-256"; SCRAM-SHA-1 is not supported
          * @return the derived SCRAM credentials
          */
         public static ScramCredentials derive(String password, byte[] salt, int iterations, String algorithm) {
+            if (!"SHA-256".equals(algorithm)) {
+                throw new IllegalArgumentException("Unsupported SCRAM hash: " + algorithm);
+            }
             try {
                 // Derive SaltedPassword using PBKDF2
                 SecretKeyFactory factory = 

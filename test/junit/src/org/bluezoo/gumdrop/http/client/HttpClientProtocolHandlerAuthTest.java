@@ -24,11 +24,10 @@ package org.bluezoo.gumdrop.http.client;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
-import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.testsupport.DigestTestSupport;
 
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Before;
@@ -92,7 +91,7 @@ public class HttpClientProtocolHandlerAuthTest {
         handler.get("/resource", rh).endMessage();
 
         feed("HTTP/1.1 401 Unauthorized\r\n"
-                + "WWW-Authenticate: Digest realm=\"example\", nonce=\"deadbeef\", qop=\"auth\"\r\n"
+                + "WWW-Authenticate: Digest realm=\"example\", nonce=\"deadbeef\", qop=\"auth\", algorithm=SHA-256\r\n"
                 + "Content-Length: 0\r\n\r\n");
 
         String wire = new String(endpoint.getAllBytes(), StandardCharsets.US_ASCII);
@@ -105,30 +104,129 @@ public class HttpClientProtocolHandlerAuthTest {
     }
 
     @Test
-    public void computeDigestAuthMd5WithoutQopMatchesReference() throws Exception {
+    public void computeDigestAuthMd5IsNeverAnswered() throws Exception {
         handler.credentials("alice", "secret");
-        String challenge = "Digest realm=\"example\", nonce=\"abc\", algorithm=MD5";
-        String auth = invokeDigestAuth(challenge, "GET", "/path");
-        assertNotNull(auth);
-        assertTrue(auth.startsWith("Digest "));
-
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        String ha1 = hex(md, "alice:example:secret");
-        String ha2 = hex(md, "GET:/path");
-        String expectedResponse = hex(md, ha1 + ":abc:" + ha2);
-
-        assertTrue(auth.contains("response=\"" + expectedResponse + "\""));
-        assertFalse(auth.contains("algorithm="));
+        assertNull(invokeDigestAuth(
+                "Digest realm=\"example\", nonce=\"abc\", algorithm=MD5", "GET", "/path"));
+        assertNull(invokeDigestAuth(
+                "Digest realm=\"example\", nonce=\"abc\", qop=\"auth\", algorithm=MD5-sess",
+                "GET", "/path"));
     }
 
     @Test
-    public void computeDigestAuthSha256IncludesAlgorithm() throws Exception {
-        handler.credentials("u", "p");
-        String challenge = "Digest realm=\"r\", nonce=\"n\", algorithm=SHA-256, qop=\"auth\"";
-        String auth = invokeDigestAuth(challenge, "POST", "/x");
+    public void computeDigestAuthWithoutAlgorithmIsNotAnswered() throws Exception {
+        handler.credentials("alice", "secret");
+        assertNull(invokeDigestAuth(
+                "Digest realm=\"example\", nonce=\"abc\", qop=\"auth\"", "GET", "/path"));
+        assertNull(invokeDigestAuth(
+                "Digest realm=\"example\", nonce=\"abc\", algorithm=BOGUS", "GET", "/path"));
+    }
+
+    @Test
+    public void computeDigestAuthSha256MatchesIndependentComputation() throws Exception {
+        handler.credentials("alice", "secret");
+        String challenge = "Digest realm=\"example\", nonce=\"abc\", qop=\"auth\", algorithm=SHA-256";
+        String auth = invokeDigestAuth(challenge, "GET", "/path");
         assertNotNull(auth);
-        assertTrue(auth.contains("algorithm=SHA-256"));
-        assertTrue(auth.contains("qop=auth"));
+        assertTrue(auth, auth.contains("algorithm=SHA-256"));
+        assertTrue(auth, auth.contains("qop=auth"));
+        assertFalse(auth, auth.contains("MD5"));
+        assertVerifies(auth, "alice", "secret", "example", "abc", "GET", "/path");
+    }
+
+    @Test
+    public void computeDigestAuthSha256WithoutQopMatchesReference() throws Exception {
+        handler.credentials("alice", "secret");
+        String auth = invokeDigestAuth(
+                "Digest realm=\"example\", nonce=\"abc\", algorithm=sha-256", "GET", "/path");
+        assertNotNull(auth);
+        assertTrue(auth, auth.contains("algorithm=SHA-256"));
+        String ha1 = DigestTestSupport.ha1("alice", "example", "secret");
+        String ha2 = DigestTestSupport.hex("SHA-256", "GET:/path");
+        String expected = DigestTestSupport.hex("SHA-256", ha1 + ":abc:" + ha2);
+        assertTrue(auth, auth.contains("response=\"" + expected + "\""));
+    }
+
+    @Test
+    public void computeDigestAuthSha256SessUsesSessionKey() throws Exception {
+        handler.credentials("alice", "secret");
+        String auth = invokeDigestAuth(
+                "Digest realm=\"example\", nonce=\"abc\", qop=\"auth\", algorithm=SHA-256-sess",
+                "GET", "/path");
+        assertNotNull(auth);
+        assertTrue(auth, auth.contains("algorithm=SHA-256-sess"));
+        String cnonce = param(auth, "cnonce");
+        String ha1 = DigestTestSupport.hex("SHA-256",
+                DigestTestSupport.ha1("alice", "example", "secret") + ":abc:" + cnonce);
+        String expected = DigestTestSupport.response("SHA-256", ha1, "abc",
+                "00000001", cnonce, "auth", "GET", "/path");
+        assertEquals(expected, param(auth, "response"));
+    }
+
+    @Test
+    public void digestChallengeWithMd5IsNotRetried() {
+        handler.credentials("alice", "secret");
+        RecordingHandler rh = new RecordingHandler();
+        handler.get("/resource", rh).endMessage();
+        feed("HTTP/1.1 401 Unauthorized\r\n"
+                + "WWW-Authenticate: Digest realm=\"example\", nonce=\"n\", qop=\"auth\", algorithm=MD5\r\n"
+                + "Content-Length: 0\r\n\r\n");
+        String wire = new String(endpoint.getAllBytes(), StandardCharsets.US_ASCII);
+        assertFalse(wire, wire.contains("Authorization:"));
+    }
+
+    @Test
+    public void digestChallengeWithoutAlgorithmIsNotRetried() {
+        handler.credentials("alice", "secret");
+        RecordingHandler rh = new RecordingHandler();
+        handler.get("/resource", rh).endMessage();
+        feed("HTTP/1.1 401 Unauthorized\r\n"
+                + "WWW-Authenticate: Digest realm=\"example\", nonce=\"n\", qop=\"auth\"\r\n"
+                + "Content-Length: 0\r\n\r\n");
+        String wire = new String(endpoint.getAllBytes(), StandardCharsets.US_ASCII);
+        assertFalse(wire, wire.contains("Authorization:"));
+    }
+
+    @Test
+    public void sha256ChallengeIsPreferredOverMd5ChallengeInSeparateHeaders() {
+        handler.credentials("alice", "secret");
+        RecordingHandler rh = new RecordingHandler();
+        handler.get("/resource", rh).endMessage();
+        feed("HTTP/1.1 401 Unauthorized\r\n"
+                + "WWW-Authenticate: Digest realm=\"example\", nonce=\"nmd5\", qop=\"auth\", algorithm=MD5\r\n"
+                + "WWW-Authenticate: Digest realm=\"example\", nonce=\"nsha\", qop=\"auth\", algorithm=SHA-256\r\n"
+                + "Content-Length: 0\r\n\r\n");
+        String wire = new String(endpoint.getAllBytes(), StandardCharsets.US_ASCII);
+        int at = wire.indexOf("Authorization: Digest ");
+        assertTrue(wire, at > 0);
+        String auth = wire.substring(at, wire.indexOf("\r\n", at));
+        assertEquals("nsha", param(auth, "nonce"));
+        assertTrue(auth, auth.contains("algorithm=SHA-256"));
+        assertVerifies(auth, "alice", "secret", "example", "nsha", "GET", "/resource");
+    }
+
+    /** Recomputes the SHA-256 qop=auth response from the header's own nc/cnonce. */
+    private static void assertVerifies(String auth, String user, String pw, String realm,
+            String nonce, String method, String uri) {
+        String expected = DigestTestSupport.response("SHA-256",
+                DigestTestSupport.ha1(user, realm, pw), nonce, param(auth, "nc"),
+                param(auth, "cnonce"), "auth", method, uri);
+        assertEquals(expected, param(auth, "response"));
+    }
+
+    /** Extracts name=value or name="value" from an Authorization header. */
+    private static String param(String auth, String name) {
+        int i = auth.indexOf(", " + name + "=");
+        if (i < 0) {
+            i = auth.indexOf(" " + name + "=");
+        }
+        assertTrue(name + " in " + auth, i >= 0);
+        int start = auth.indexOf('=', i) + 1;
+        if (auth.charAt(start) == '"') {
+            return auth.substring(start + 1, auth.indexOf('"', start + 1));
+        }
+        int end = auth.indexOf(',', start);
+        return end < 0 ? auth.substring(start) : auth.substring(start, end);
     }
 
     @Test
@@ -158,11 +256,6 @@ public class HttpClientProtocolHandlerAuthTest {
                 "parseDirective", String.class, String.class);
         m.setAccessible(true);
         return (String) m.invoke(handler, header, name);
-    }
-
-    private static String hex(MessageDigest md, String input) {
-        md.reset();
-        return ByteArrays.toHexString(md.digest(input.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static final class RecordingHandler extends CollectingResponseHandler {

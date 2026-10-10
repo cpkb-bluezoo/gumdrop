@@ -124,7 +124,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  * <p>Supported SMTP extensions:
  * <ul>
  *   <li>STARTTLS (RFC 3207)</li>
- *   <li>AUTH (RFC 4954) &mdash; PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, OAUTHBEARER, EXTERNAL</li>
+ *   <li>AUTH (RFC 4954) &mdash; PLAIN, LOGIN, SCRAM-SHA-256, OAUTHBEARER, EXTERNAL</li>
  *   <li>SIZE (RFC 1870)</li>
  *   <li>8BITMIME (RFC 6152)</li>
  *   <li>SMTPUTF8 (RFC 6531)</li>
@@ -179,7 +179,7 @@ public final class SmtpProtocolHandler
 
     enum AuthState {
         NONE, PLAIN_RESPONSE, LOGIN_USERNAME, LOGIN_PASSWORD,
-        CRAM_MD5_RESPONSE, DIGEST_MD5_RESPONSE, SCRAM_INITIAL, SCRAM_FINAL,
+        SCRAM_INITIAL, SCRAM_FINAL,
         OAUTH_RESPONSE, GSSAPI_EXCHANGE, EXTERNAL_CERT
     }
 
@@ -1477,9 +1477,9 @@ public final class SmtpProtocolHandler
 
     /**
      * RFC 4954 — AUTH command.
-     * Supported mechanisms: PLAIN (RFC 4616), LOGIN, CRAM-MD5 (RFC 2195),
-     * DIGEST-MD5 (RFC 2831), SCRAM-SHA-256 (RFC 5802/7677),
-     * OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422).
+     * Supported mechanisms: PLAIN (RFC 4616), LOGIN,
+     * SCRAM-SHA-256 (RFC 5802/7677), OAUTHBEARER (RFC 7628),
+     * EXTERNAL (RFC 4422).
      */
     private void auth(String args) {
         if (getRealm() == null) {
@@ -1532,10 +1532,6 @@ public final class SmtpProtocolHandler
             handleAuthLogin(initialResponse);
         } else if ("EXTERNAL".equals(mechanism)) {
             handleAuthExternal(initialResponse);
-        } else if ("CRAM-MD5".equals(mechanism)) {
-            handleAuthCramMD5(initialResponse);           // RFC 2195
-        } else if ("DIGEST-MD5".equals(mechanism)) {
-            handleAuthDigestMD5(initialResponse);         // RFC 2831
         } else if ("SCRAM-SHA-256".equals(mechanism)) {
             handleAuthScramSHA256(initialResponse);       // RFC 5802, RFC 7677
         } else if ("OAUTHBEARER".equals(mechanism)) {
@@ -1667,48 +1663,6 @@ public final class SmtpProtocolHandler
             rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_login_error").thrown(e).emit();
-        }
-    }
-
-    /**
-     * RFC 2195 — CRAM-MD5 mechanism.
-     * Server sends a challenge; client responds with "username digest".
-     */
-    private void handleAuthCramMD5(String initialResponse) {
-        try {
-            String hostname = localName();
-            authChallenge = SaslUtils.generateCramMD5Challenge(hostname);
-            String encoded = Base64.getEncoder()
-                    .encodeToString(authChallenge.getBytes(US_ASCII));
-            reply(334, encoded);
-            authState = AuthState.CRAM_MD5_RESPONSE;
-            authMechanism = "CRAM-MD5";
-        } catch (Exception e) {
-            reply(454, "4.7.0 Temporary authentication failure");
-            resetAuthState();
-            events().warn("warn.auth_cram_md5_error").thrown(e).emit();
-        }
-    }
-
-    /**
-     * RFC 2831 — DIGEST-MD5 mechanism.
-     * Server sends a challenge with realm/nonce/qop; client computes response.
-     * Deprecated by RFC 6331 but retained for backward compatibility.
-     */
-    private void handleAuthDigestMD5(String initialResponse) {
-        try {
-            authNonce = SaslUtils.generateNonce(16);
-            String realmName = localName();
-            authChallenge = SaslUtils.generateDigestMD5Challenge(realmName, authNonce);
-            String encoded = Base64.getEncoder()
-                    .encodeToString(authChallenge.getBytes(UTF_8));
-            reply(334, encoded);
-            authState = AuthState.DIGEST_MD5_RESPONSE;
-            authMechanism = "DIGEST-MD5";
-        } catch (Exception e) {
-            reply(454, "4.7.0 Temporary authentication failure");
-            resetAuthState();
-            events().warn("warn.auth_digest_md5_error").thrown(e).emit();
         }
     }
 
@@ -2118,12 +2072,6 @@ public final class SmtpProtocolHandler
                     });
                     break;
                 }
-                case CRAM_MD5_RESPONSE:
-                    handleCramMD5Response(data);
-                    break;
-                case DIGEST_MD5_RESPONSE:
-                    handleDigestMD5Response(data);
-                    break;
                 case SCRAM_INITIAL:
                     processScramClientFirst(data);
                     break;
@@ -2150,83 +2098,6 @@ public final class SmtpProtocolHandler
             resetAuthState();
             events().warn("warn.auth_data_handling_error").thrown(e).emit();
         }
-    }
-
-    /** RFC 2195 §2 — verify CRAM-MD5 response ("username digest"). */
-    private void handleCramMD5Response(String encodedData) {
-        String response = new String(Base64.getDecoder().decode(encodedData), US_ASCII);
-        int spaceIdx = response.lastIndexOf(' ');
-        if (spaceIdx <= 0) {
-            rejectCredentials();
-            resetAuthState();
-            return;
-        }
-        final String username = response.substring(0, spaceIdx);
-        final String clientDigest = response.substring(spaceIdx + 1).toLowerCase(Locale.ENGLISH);
-        getRealm().getCramMD5Response(username, authChallenge,
-                awaiting(new StorageExecutor.Callback<String>() {
-            @Override
-            public void completed(String expectedResponse) {
-                if (expectedResponse != null
-                        && MessageDigest.isEqual(
-                                clientDigest.getBytes(US_ASCII),
-                                expectedResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
-                    notifyAuthenticationSuccess(username, "CRAM-MD5");
-                } else {
-                    notifyAuthenticationFailure(username, "CRAM-MD5");
-                }
-                resetAuthState();
-            }
-
-            @Override
-            public void failed(Throwable cause) {
-                notifyAuthenticationFailure(username, "CRAM-MD5");
-                resetAuthState();
-            }
-        }));
-    }
-
-    /** RFC 2831 §2.1.2 — verify DIGEST-MD5 response. */
-    private void handleDigestMD5Response(String encodedData) {
-        String response = new String(Base64.getDecoder().decode(encodedData), UTF_8);
-        Map<String, String> params = SaslUtils.parseDigestParams(response);
-        String username = params.get("username");
-
-        if (username == null) {
-            rejectCredentials();
-            resetAuthState();
-            return;
-        }
-        String realmName = params.get("realm");
-        if (realmName == null) {
-            realmName = localName();
-        }
-        final Map<String, String> digestParams = params;
-        final String digestUser = username;
-        getRealm().getDigestHA1(username, realmName,
-                awaiting(new StorageExecutor.Callback<String>() {
-            @Override
-            public void completed(String ha1) {
-                String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
-                        ha1, authNonce, digestParams);
-
-                if (rspAuth != null) {
-                    String rspEncoded = Base64.getEncoder()
-                            .encodeToString(("rspauth=" + rspAuth).getBytes(US_ASCII));
-                    reply(334, rspEncoded);
-                    notifyAuthenticationSuccess(digestUser, "DIGEST-MD5");
-                } else {
-                    notifyAuthenticationFailure(digestUser, "DIGEST-MD5");
-                }
-                resetAuthState();
-            }
-
-            @Override
-            public void failed(Throwable cause) {
-                notifyAuthenticationFailure(digestUser, "DIGEST-MD5");
-                resetAuthState();
-            }
-        }));
     }
 
     /** RFC 7628 §3.2.2 — handle OAUTHBEARER continuation (either initial or error ack). */

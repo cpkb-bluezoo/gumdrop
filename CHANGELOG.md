@@ -275,6 +275,27 @@ user-visible themes since 2.2.x.
 
 ### Changed
 
+- **HTTP Digest authentication uses SHA-256** (breaking): the server offers
+  `algorithm=SHA-256` only (RFC 7616) and rejects MD5, `-sess` variants, a
+  missing `algorithm` (which the RFC defines as MD5) and a missing `qop`.
+  `Realm.getDigestHA1` now returns `SHA-256(username:realm:password)`; a custom
+  realm that stored MD5 hashes must store SHA-256 ones. Whether a realm can do
+  Digest is now declared by the new `Realm.supportsDigestHA1()` (default
+  `false`; `BasicRealm` returns `true`) instead of by the removed
+  `SaslMechanism.DIGEST_MD5`. The `HttpClient` refuses to answer an MD5
+  challenge (named, or implied by a missing `algorithm`), answers only
+  `SHA-256` and `SHA-256-sess`, and picks the SHA-256 challenge when a server
+  offers several. Browsers that only speak MD5 Digest can no longer use Digest;
+  Basic over TLS, or a Bearer token, are the alternatives.
+
+- **Other MD5 uses are now SHA-256**: WebDAV ETags, the integrity check that
+  decides whether `manager.war` is the genuine manager webapp (the build now
+  writes `META-INF/gumdrop-manager-war.sha256`), and `web.xml` change
+  detection. Servlet session ids no longer hash their random bytes. Mbox
+  unique ids, which are the POP3 UIDL and IMAP unique id, are now 64 hex
+  characters: **existing mbox mailboxes get different UIDLs after the upgrade,
+  so POP3 clients that leave mail on the server will fetch it again once**.
+
 - **IMAP advertises `IMAP4rev1` as well as `IMAP4rev2`**: clients such as Python's
   `imaplib` that look only for `IMAP4rev1` refused to connect to a server that
   advertised `IMAP4rev2` alone.
@@ -439,6 +460,17 @@ user-visible themes since 2.2.x.
   a `keepContentLength` flag.
 
 ### Fixed
+
+- **Security advisories fixed since 2.2.0** (affected versions up to 2.2.0):
+  - GHSA-4vx4-8xxq-gvwj: the protobuf varint parser mistook a field value of
+    `-1` for "need more data" and stalled gRPC and telemetry parsing for good.
+  - GHSA-j73j-4776-j4j8: a message with more than one `From` header could get a
+    DMARC pass for the domain of the last one while a mail client showed
+    another. A second `From` now voids the DMARC verdict.
+  - GHSA-w9c7-pj22-vfw7: a DKIM signature whose `h=` did not cover `From`
+    produced a DKIM pass that DMARC then relied on, allowing same-domain
+    sender spoofing. Such a signature is now a `PERMERROR`.
+  - GHSA-9p92-hc4p-35rp is resolved by removing DIGEST-MD5 (see **Removed**).
 
 - **SMTP EHLO and HELO named the server by its socket address**: the first line
   read like `/[0:0:0:0:0:0:0:1]:2525 Hello client`, and the same string was used in
@@ -770,6 +802,37 @@ user-visible themes since 2.2.x.
 - **`health` package** (`HealthServer` and the k8s liveness/readiness HTTP
   endpoint it exposed): polling a service over HTTP for readiness is the
   wrong pattern for cloud operations, and no replacement is planned.
+- **MD5- and SHA-1-based authentication** (breaking, intentional): these
+  mechanisms allow offline dictionary attacks on a captured exchange, make the
+  server hold the password or a password-equivalent, and have no channel
+  binding, so they are removed rather than deprecated. Clients and devices that
+  can speak nothing else will stop working; use SCRAM-SHA-256, or PLAIN or
+  OAUTHBEARER over TLS.
+  - SASL **CRAM-MD5** and **DIGEST-MD5** are gone from the SMTP, IMAP and POP3
+    servers and from `SaslUtils.createClient` (which now returns `null` for
+    them). `SaslMechanism.CRAM_MD5` and `DIGEST_MD5` and the `SaslUtils` MD5
+    helpers are removed. `LdapRealm.saslMechanism` rejects both names with an
+    `IllegalArgumentException` when configured. This resolves
+    GHSA-9p92-hc4p-35rp (the DIGEST-MD5 client never required the server's
+    `rspauth`) by removing the vulnerable client.
+  - POP3 **APOP** is gone, on the server (`Pop3Listener.enableAPOP`,
+    `Pop3Server.enableAPOP`, `ConnectedState.acceptConnectionWithApop`) and
+    the client (`ClientAuthorizationState.apop`, `ApopReplyHandler`).
+    `RemoteGreeting.handleGreeting` loses its `apopTimestamp` parameter.
+  - `Realm.getCramMD5Response` and `Realm.getApopResponse` (and the
+    `SynchronousRealm` forms) are removed.
+  - **TSIG** accepts only `hmac-sha256`: `hmac-md5` and `hmac-sha1` keys are
+    rejected when a `TsigKey` is created, and `TsigKey.HMAC_MD5` and
+    `HMAC_SHA1` are removed.
+  - **DKIM** `rsa-sha1` signatures fail verification without a key lookup
+    (RFC 8301) and `DkimSigner.algorithm` refuses to sign with it.
+  - **`BasicRealm`** no longer accepts the SHA-1 password hash formats `{SHA}`
+    and `{SSHA}`. A user stored with one cannot authenticate until the password
+    is re-stored as `{PBKDF2}` (recommended), `{SHA256}` or `{SSHA256}`.
+    `Realm.ScramCredentials.derive` accepts only `SHA-256`.
+  - Not removed, because a protocol requires them and they do not authenticate
+    anyone: SHA-1 in the WebSocket handshake accept key (RFC 6455), the NSEC3
+    hash in DNSSEC, and Redis `EVALSHA` script ids.
 
 ## [2.2.0] - 2026-08-20
 

@@ -111,7 +111,6 @@ public class POP3ServerIntegrationTest {
         mboxServer = new Pop3Listener();
         mboxServer.port(MBOX_PORT);
         mboxServer.addresses(java.net.InetAddress.getByName("::1"));
-        mboxServer.enableAPOP(false);
         mboxServer.realm(realm);
         mboxServer.mailboxFactory(new MboxMailboxFactory(mboxRoot));
         
@@ -119,7 +118,6 @@ public class POP3ServerIntegrationTest {
         maildirServer = new Pop3Listener();
         maildirServer.port(MAILDIR_PORT);
         maildirServer.addresses(java.net.InetAddress.getByName("::1"));
-        maildirServer.enableAPOP(false);
         maildirServer.realm(realm);
         maildirServer.mailboxFactory(new MaildirMailboxFactory(maildirRoot));
         

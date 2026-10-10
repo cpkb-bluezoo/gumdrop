@@ -171,8 +171,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  *   <li>MOVE — RFC 6851</li>
  *   <li>QUOTA — RFC 9208</li>
  *   <li>SASL — RFC 4422, RFC 4959 (initial response), mechanisms:
- *       PLAIN (RFC 4616), LOGIN, CRAM-MD5 (RFC 2195),
- *       DIGEST-MD5 (RFC 2831), SCRAM (RFC 5802),
+ *       PLAIN (RFC 4616), LOGIN, SCRAM (RFC 5802),
  *       OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422 Appendix A)</li>
  * </ul>
  *
@@ -220,8 +219,6 @@ public final class ImapProtocolHandler
         PLAIN_RESPONSE,
         LOGIN_USERNAME,
         LOGIN_PASSWORD,
-        CRAM_MD5_RESPONSE,
-        DIGEST_MD5_RESPONSE,
         SCRAM_INITIAL,
         SCRAM_FINAL,
         OAUTH_RESPONSE,
@@ -1725,12 +1722,6 @@ public final class ImapProtocolHandler
             case LOGIN:
                 handleAuthLOGIN(initialResponse);
                 break;
-            case CRAM_MD5:
-                handleAuthCRAMMD5(initialResponse);
-                break;
-            case DIGEST_MD5:
-                handleAuthDIGESTMD5(initialResponse);
-                break;
             case SCRAM_SHA_256:
                 handleAuthSCRAM(initialResponse);
                 break;
@@ -1774,58 +1765,6 @@ public final class ImapProtocolHandler
         } else {
             authState = AuthState.LOGIN_USERNAME;
             sendContinuation(SaslUtils.encodeBase64("Username:"));
-        }
-    }
-
-    // RFC 2195 — SASL CRAM-MD5 mechanism
-    private void handleAuthCRAMMD5(String initialResponse) throws IOException {
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendTaggedNo(pendingAuthTag,
-                    L10N.getString("imap.err.auth_not_configured"));
-            resetAuthState();
-            return;
-        }
-
-        try {
-            InetSocketAddress addr = (InetSocketAddress) endpoint
-                    .getLocalAddress();
-            authChallenge = SaslUtils.generateCramMD5Challenge(
-                    addr.getHostString());
-            authState = AuthState.CRAM_MD5_RESPONSE;
-            sendContinuation(SaslUtils.encodeBase64(authChallenge));
-        } catch (Exception e) {
-            events().error("warn.failed_generate_cram_md5").thrown(e).emit();
-            authFailed();
-        }
-    }
-
-    // RFC 2831 — SASL DIGEST-MD5 mechanism (historic, RFC 6331)
-    private void handleAuthDIGESTMD5(String initialResponse) throws IOException {
-        if (initialResponse != null && !initialResponse.isEmpty()) {
-            sendTaggedNo(pendingAuthTag,
-                    L10N.getString("imap.err.digestmd5_no_initial"));
-            return;
-        }
-
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendTaggedNo(pendingAuthTag,
-                    L10N.getString("imap.err.auth_not_configured"));
-            return;
-        }
-
-        try {
-            InetSocketAddress addr = (InetSocketAddress) endpoint
-                    .getLocalAddress();
-            authNonce = SaslUtils.generateNonce(16);
-            String challenge = SaslUtils.generateDigestMD5Challenge(
-                    addr.getHostString(), authNonce);
-            authState = AuthState.DIGEST_MD5_RESPONSE;
-            sendContinuation(SaslUtils.encodeBase64(challenge));
-        } catch (Exception e) {
-            events().error("warn.failed_generate_digest_md5").thrown(e).emit();
-            authFailed();
         }
     }
 
@@ -2030,12 +1969,6 @@ public final class ImapProtocolHandler
             case LOGIN_PASSWORD:
                 processLoginPassword(line);
                 break;
-            case CRAM_MD5_RESPONSE:
-                processCramMD5Response(line);
-                break;
-            case DIGEST_MD5_RESPONSE:
-                processDigestMD5Response(line);
-                break;
             case SCRAM_INITIAL:
                 processScramClientFirst(line);
                 break;
@@ -2134,110 +2067,6 @@ public final class ImapProtocolHandler
                 }
             });
         } catch (IllegalArgumentException e) {
-            authFailed();
-        }
-    }
-
-    private void processCramMD5Response(String line) throws IOException {
-        try {
-            String response = SaslUtils.decodeBase64ToString(line);
-            int spaceIndex = response.lastIndexOf(' ');
-            if (spaceIndex <= 0) {
-                authFailed();
-                return;
-            }
-
-            String username = response.substring(0, spaceIndex);
-            String digest = response.substring(spaceIndex + 1);
-
-            final String cramUser = username;
-            final String cramDigest = digest;
-            getRealm().getCramMD5Response(username, authChallenge,
-                    awaiting(new StorageExecutor.Callback<String>() {
-                @Override
-                public void completed(String expected) {
-                    try {
-                        if (expected != null && ByteArrays.equalsConstantTime(
-                                ByteArrays.toByteArray(expected),
-                                ByteArrays.toByteArray(cramDigest.toLowerCase()))) {
-                            openMailStoreThenAuthOk(cramUser, "CRAM-MD5");
-                        } else {
-                            authFailed();
-                        }
-                    } catch (IOException e) {
-                        events().warn("warn.failed_complete_cram_md5").thrown(e).emit();
-                        authFailedQuietly();
-                    }
-                }
-
-                @Override
-                public void failed(Throwable cause) {
-                    // includes UnsupportedOperationException: not offered
-                    authFailedQuietly();
-                }
-            }));
-        } catch (Exception e) {
-            authFailed();
-        }
-    }
-
-    private void processDigestMD5Response(String line) throws IOException {
-        try {
-            String response = SaslUtils.decodeBase64ToString(line);
-            Map<String, String> params = SaslUtils.parseDigestParams(response);
-
-            String username = params.get("username");
-            if (username == null) {
-                authFailed();
-                return;
-            }
-
-            Realm realm = getRealm();
-            String realmName = params.get("realm");
-            if (realmName == null) {
-                InetSocketAddress addr = (InetSocketAddress) endpoint
-                        .getLocalAddress();
-                realmName = addr.getHostString();
-            }
-            final Map<String, String> digestParams = params;
-            final String digestUser = username;
-            realm.getDigestHA1(username, realmName,
-                    awaiting(new StorageExecutor.Callback<String>() {
-                @Override
-                public void completed(String ha1) {
-                    try {
-                        String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
-                                ha1, authNonce, digestParams);
-                        if (rspAuth == null) {
-                            authFailed();
-                            return;
-                        }
-                        final String digestRspAuth = rspAuth;
-                        openMailStoreAsync(digestUser, "DIGEST-MD5", pendingAuthTag,
-                                new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    sendContinuation(SaslUtils.encodeBase64(
-                                            "rspauth=" + digestRspAuth));
-                                    authSucceeded();
-                                } catch (IOException e) {
-                                    events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
-                                }
-                            }
-                        });
-                    } catch (IOException e) {
-                        events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
-                        authFailedQuietly();
-                    }
-                }
-
-                @Override
-                public void failed(Throwable cause) {
-                    authFailedQuietly();
-                }
-            }));
-        } catch (Exception e) {
             authFailed();
         }
     }

@@ -876,7 +876,7 @@ practices.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | HTTP Basic Authentication | RFC 7617 | Compliant | `computeBasicAuth()` |
-| HTTP Digest Authentication (MD5, MD5-sess) | RFC 7616 | Compliant | `computeDigestAuth()` |
+| HTTP Digest Authentication (SHA-256, SHA-256-sess) | RFC 7616 | Compliant | `computeDigestAuth()`; MD5 challenges (named or implied by an absent algorithm) are refused |
 | Digest SHA-256/SHA-256-sess | RFC 7616 s3.4 | Compliant | `MessageDigest` maps algorithm name; `userhash` parameter supported |
 | 407 Proxy-Authenticate | RFC 9110 s11.7.1 | Compliant | `Proxy-Authorization` sent for 407 responses |
 
@@ -1173,8 +1173,6 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | LOGINDISABLED capability | 6.2.3 | Compliant | Advertised when `!secure && !allowPlaintextLogin` |
 | SASL PLAIN | RFC 4616 | Compliant | `handleAuthPLAIN()` |
 | SASL LOGIN | draft-murchison | Compliant | `handleAuthLOGIN()` |
-| SASL CRAM-MD5 | RFC 2195 | Compliant | `handleAuthCRAMMD5()` |
-| SASL DIGEST-MD5 | RFC 2831 | Compliant | `handleAuthDIGESTMD5()` (historic per RFC 6331) |
 | SASL SCRAM-SHA-* | RFC 5802 | Compliant | `handleAuthSCRAM()` |
 | SASL OAUTHBEARER | RFC 7628 | Compliant | `handleAuthOAUTHBEARER()` |
 | SASL GSSAPI | RFC 4752 | Compliant | `handleAuthGSSAPI()` — §3.1 token exchange, §3.1 security layer (no-layer only), §3.2 service name, §3.3 mutual auth |
@@ -1332,7 +1330,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
 | Three-state model (AUTHORIZATION, TRANSACTION, UPDATE) | 1939 §3 | Compliant | `Pop3State` enum, `handleCommand()` dispatch |
-| Server greeting (+OK with optional APOP timestamp) | 1939 §4 | Compliant | `sendGreeting()`, APOP timestamp generation |
+| Server greeting (+OK) | 1939 §4 | Compliant | `sendGreeting()` |
 | 512-octet maximum command length | 1939 §4 | Compliant | `MAX_LINE_LENGTH = 512` enforced by LineParser |
 | Auto-logout inactivity timer (≥10 min recommended) | 1939 §3 | Compliant | `transactionTimeoutMs` (default 10 min) |
 | +OK / -ERR status indicators | 1939 §3 | Compliant | `sendOK()` / `sendERR()` |
@@ -1345,7 +1343,6 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 |---|---|---|---|
 | USER command | 1939 §7 | Compliant | `handleUSER()` — stores username |
 | PASS command (requires prior USER) | 1939 §7 | Compliant | `handlePASS()` — enforces USER→PASS sequence |
-| APOP (MD5 challenge-response) | 1939 §7 | Compliant | `handleAPOP()` — configurable via `enableAPOP` |
 | AUTH (SASL authentication) | 5034 §4 | Compliant | `handleAUTH()` — dispatches to mechanism handlers |
 | AUTH initial response in same command | 5034 §4 | Compliant | Parsed from space-separated argument |
 | AUTH cancellation with "*" | 5034 §4 | Compliant | `handleAuthContinuation()` checks for "*" |
@@ -1358,8 +1355,6 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 |---|---|---|---|
 | PLAIN | 4616 | Compliant | `handleAuthPLAIN()` |
 | LOGIN | draft-murchison-sasl-login | Compliant | `handleAuthLOGIN()` |
-| CRAM-MD5 | 2195 | Compliant | `handleAuthCRAMMD5()` |
-| DIGEST-MD5 | 2831 | Compliant | `handleAuthDIGESTMD5()` |
 | SCRAM-SHA-256 | 5802/7677 | Compliant | `handleAuthSCRAM()` |
 | OAUTHBEARER | 7628 | Compliant | `handleAuthOAUTHBEARER()` |
 | GSSAPI | 4752 | Compliant | `handleAuthGSSAPI()` — §3.1 token exchange + security layer, §3.2 service name |
@@ -1422,7 +1417,6 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
 | Parse server greeting (+OK / -ERR) | 1939 §4 | Compliant | `dispatchGreeting()` |
-| Extract APOP timestamp from greeting | 1939 §7 | Compliant | `parseApopTimestamp()` |
 | Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Client.secure(true)` |
 | STLS upgrade (STARTTLS) | 2595 §4 | Compliant | `stls()` → `endpoint.startTLS()` |
 
@@ -1431,7 +1425,6 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
 | USER / PASS | 1939 §7 | Compliant | `user()` / `pass()` |
-| APOP | 1939 §7 | Compliant | `apop()` |
 | AUTH (SASL) | 5034 §4 | Compliant | `auth()` with initial response support |
 | SASL continuation (+ challenge) | 5034 §4 | Compliant | `respond()` / `abort()` |
 | CAPA (capability discovery) | 2449 §5 | Compliant | `capa()` — parses multi-line response |
@@ -1750,8 +1743,6 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | AUTH (PLAIN) | RFC 4954 / RFC 4616 | **Compliant** | Base64 initial-response |
 | AUTH (LOGIN) | draft-murchison-sasl-login | **Compliant** | Multi-round username/password |
 | AUTH (EXTERNAL) | RFC 4422 | **Compliant** | TLS client certificate |
-| AUTH (CRAM-MD5) | RFC 2195 | **Compliant** | Challenge-response HMAC-MD5, realm delegation |
-| AUTH (DIGEST-MD5) | RFC 2831 | **Compliant** | Challenge-response with rspauth, deprecated by RFC 6331 |
 | AUTH (SCRAM-SHA-256) | RFC 5802 / RFC 7677 | **Compliant** | Multi-round: client-first → server-first → client-final → server-final |
 | AUTH (OAUTHBEARER) | RFC 7628 | **Compliant** | Bearer token validation via Realm, JSON error challenge |
 | AUTH (GSSAPI) | RFC 4752 | **Compliant** | §3.1 token exchange + security layer negotiation, §3.2 service name, §3.3 mutual auth |
@@ -1912,7 +1903,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | DELETE (files) | RFC 9110 §9.3.5 | **Compliant** | Single file deletion |
 | DELETE (collections) | RFC 4918 §9.6.1 | **Compliant** | Recursive depth-first delete with 207 Multi-Status on partial failure |
 | If-Modified-Since | RFC 9110 §13.1.3 | **Compliant** | 304 Not Modified |
-| ETag generation | RFC 9110 §8.8.3 | **Compliant** | MD5-based weak ETag |
+| ETag generation | RFC 9110 §8.8.3 | **Compliant** | Weak ETag derived from SHA-256 |
 | Content-Type detection | RFC 9110 §8.3 | **Compliant** | Extension-based mapping |
 
 ### WebDAV Methods (RFC 4918)
@@ -1953,7 +1944,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | displayname | §15.2 | **Compliant** | File name |
 | getcontentlength | §15.3 | **Compliant** | File size (non-directories) |
 | getcontenttype | §15.5 | **Compliant** | Extension-based MIME type |
-| getetag | §15.6 | **Compliant** | MD5-based ETag |
+| getetag | §15.6 | **Compliant** | ETag derived from SHA-256 |
 | getlastmodified | §15.7 | **Compliant** | HTTP-date format |
 | lockdiscovery | §15.8 | **Compliant** | Active locks enumeration |
 | resourcetype | §15.9 | **Compliant** | collection or empty |
@@ -2129,15 +2120,12 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| SASL mechanism enumeration | RFC 4422 | **Compliant** | `SaslMechanism` enum; `Realm.getSupportedSASLMechanisms()` |
+| SASL mechanism enumeration | RFC 4422 | **Compliant** | `SaslMechanism` enum; `Realm.getSupportedSASLMechanisms()`. CRAM-MD5 and DIGEST-MD5 (historic per RFC 6331) are intentionally unsupported |
 | PLAIN mechanism | RFC 4616 §2 | **Compliant** | `SaslUtils.parsePlainCredentials()` — authzid NUL authcid NUL password |
 | LOGIN mechanism | draft-murchison-sasl-login | **Compliant** | `SaslMechanism.LOGIN` declared; server handlers support it |
-| CRAM-MD5 mechanism | RFC 2195 §2 | **Compliant** | `SaslUtils.generateCramMD5Challenge()`, `computeCramMD5Response()`, `verifyCramMD5()` |
-| DIGEST-MD5 mechanism | RFC 2831 §2.1 | **Compliant** | `SaslUtils.generateDigestMD5Challenge()`, `parseDigestParams()`, `computeDigestHA1()` |
 | SCRAM-SHA-256 mechanism | RFC 5802 §5 / RFC 7677 | **Compliant** | `SaslUtils.generateScramServerFirst()`; `Realm.getScramCredentials()` with PBKDF2 derivation |
 | OAUTHBEARER mechanism | RFC 7628 §3.1 | **Compliant** | `SaslUtils.parseOAuthBearerCredentials()` — GS2 header + Bearer token |
 | EXTERNAL mechanism | RFC 4422 Appendix A | **Compliant** | `SaslUtils.authenticateExternal()` — certificate extraction + authzid handling |
-| APOP mechanism | RFC 1939 | **Compliant** | `Realm.getApopResponse()` |
 | Proxy authorisation (authzid) | RFC 4422 §4.2 | **Compliant** | `Realm.authorizeAs()` |
 
 ### Cryptographic Primitives
@@ -2145,19 +2133,17 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
 | Base64 encoding/decoding | RFC 4648 §4 | **Compliant** | `SaslUtils.encodeBase64()` / `decodeBase64()` |
-| HMAC-MD5 | RFC 2104 | **Compliant** | `SaslUtils.hmacMD5()` |
 | HMAC-SHA256 | RFC 2104 | **Compliant** | `SaslUtils.hmacSHA256()` |
-| MD5 hash | RFC 1321 | **Compliant** | `SaslUtils.md5()` / `md5Hex()` |
 | SHA-256 hash | FIPS 180-4 | **Compliant** | `SaslUtils.sha256()` |
 
 ### Realm Implementations
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| BasicRealm — XML-based credential store | — | **Compliant** | Supports PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, EXTERNAL |
+| BasicRealm — XML-based credential store | — | **Compliant** | Supports PLAIN, LOGIN, SCRAM-SHA-256, EXTERNAL; HTTP Digest (SHA-256) via `getDigestHA1()`; password hash formats {PBKDF2}, {SHA256}, {SSHA256} ({SHA} and {SSHA} are not supported) |
 | LdapRealm — LDAP simple bind | RFC 4513 §5.1.1 | **Compliant** | `LdapRealm.passwordMatch()` performs search-then-bind |
 | LdapRealm — LDAP search filter | RFC 4515 | **Compliant** | `LdapRealm.userFilter()` with placeholder substitution |
-| LdapRealm — SASL bind | RFC 4513 §5.2 | **Compliant** | `saslMechanism()` enables SASL for service and user binds via `SaslUtils.createClient()` (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL, GSSAPI) |
+| LdapRealm — SASL bind | RFC 4513 §5.2 | **Compliant** | `saslMechanism()` enables SASL for service and user binds via `SaslUtils.createClient()` (PLAIN, EXTERNAL, GSSAPI; CRAM-MD5 and DIGEST-MD5 are rejected) |
 
 ---
 

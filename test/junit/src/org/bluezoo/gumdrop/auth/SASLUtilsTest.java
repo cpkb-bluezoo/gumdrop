@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.auth;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Map;
 
@@ -89,30 +88,6 @@ public class SASLUtilsTest {
         assertNotEquals(n1, n2);
     }
 
-    // ========== MD5 ==========
-
-    @Test
-    public void testMd5() {
-        byte[] hash = SaslUtils.md5("".getBytes(StandardCharsets.UTF_8));
-        assertNotNull(hash);
-        assertEquals(16, hash.length);
-    }
-
-    @Test
-    public void testMd5KnownValue() {
-        // MD5("abc") = 900150983cd24fb0d6963f7d28e17f72
-        String hex = SaslUtils.md5Hex("abc".getBytes(StandardCharsets.UTF_8));
-        assertEquals("900150983cd24fb0d6963f7d28e17f72", hex);
-    }
-
-    @Test
-    public void testMd5Hex() {
-        String hex = SaslUtils.md5Hex("test".getBytes(StandardCharsets.UTF_8));
-        assertNotNull(hex);
-        assertEquals(32, hex.length());
-        assertTrue(hex.matches("[0-9a-f]+"));
-    }
-
     // ========== SHA-256 ==========
 
     @Test
@@ -136,15 +111,6 @@ public class SASLUtilsTest {
     // ========== HMAC ==========
 
     @Test
-    public void testHmacMD5() {
-        byte[] key = "secret".getBytes(StandardCharsets.UTF_8);
-        byte[] data = "message".getBytes(StandardCharsets.UTF_8);
-        byte[] hmac = SaslUtils.hmacMD5(key, data);
-        assertNotNull(hmac);
-        assertEquals(16, hmac.length);
-    }
-
-    @Test
     public void testHmacSHA256() {
         byte[] key = "secret".getBytes(StandardCharsets.UTF_8);
         byte[] data = "message".getBytes(StandardCharsets.UTF_8);
@@ -153,218 +119,7 @@ public class SASLUtilsTest {
         assertEquals(32, hmac.length);
     }
 
-    @Test
-    public void testHmacMD5Deterministic() {
-        byte[] key = "key".getBytes(StandardCharsets.UTF_8);
-        byte[] data = "data".getBytes(StandardCharsets.UTF_8);
-        byte[] h1 = SaslUtils.hmacMD5(key, data);
-        byte[] h2 = SaslUtils.hmacMD5(key, data);
-        assertArrayEquals(h1, h2);
-    }
-
-    // ========== CRAM-MD5 ==========
-
-    @Test
-    public void testComputeCramMD5Response() {
-        String response = SaslUtils.computeCramMD5Response("password", "<challenge@host>");
-        assertNotNull(response);
-        assertEquals(32, response.length());
-        assertTrue(response.matches("[0-9a-f]+"));
-    }
-
-    @Test
-    public void testComputeCramMD5ResponseDeterministic() {
-        String r1 = SaslUtils.computeCramMD5Response("pass", "<1234@host>");
-        String r2 = SaslUtils.computeCramMD5Response("pass", "<1234@host>");
-        assertEquals(r1, r2);
-    }
-
-    @Test
-    public void testVerifyCramMD5() {
-        String challenge = "<test@example.com>";
-        String password = "mypassword";
-        String digest = SaslUtils.computeCramMD5Response(password, challenge);
-        String response = "user " + digest;
-        assertTrue(SaslUtils.verifyCramMD5(response, challenge, password));
-    }
-
-    @Test
-    public void testVerifyCramMD5WrongPassword() {
-        String challenge = "<test@example.com>";
-        String digest = SaslUtils.computeCramMD5Response("correctpassword", challenge);
-        String response = "user " + digest;
-        assertFalse(SaslUtils.verifyCramMD5(response, challenge, "wrongpassword"));
-    }
-
-    @Test
-    public void testVerifyCramMD5InvalidFormat() {
-        assertFalse(SaslUtils.verifyCramMD5("nospacehere", "<challenge>", "pass"));
-    }
-
-    // ========== DIGEST-MD5 ==========
-
-    @Test
-    public void testParseDigestParams() {
-        String response = "realm=\"example.com\",nonce=\"abc123\",qop=\"auth\",charset=utf-8";
-        Map<String, String> params = SaslUtils.parseDigestParams(response);
-
-        assertEquals("example.com", params.get("realm"));
-        assertEquals("abc123", params.get("nonce"));
-        assertEquals("auth", params.get("qop"));
-        assertEquals("utf-8", params.get("charset"));
-    }
-
-    @Test
-    public void testParseDigestParamsUnquoted() {
-        String response = "nc=00000001,qop=auth";
-        Map<String, String> params = SaslUtils.parseDigestParams(response);
-        assertEquals("00000001", params.get("nc"));
-        assertEquals("auth", params.get("qop"));
-    }
-
-    @Test
-    public void testParseDigestParamsEscapedQuote() {
-        String response = "realm=\"test\\\"realm\"";
-        Map<String, String> params = SaslUtils.parseDigestParams(response);
-        assertEquals("test\"realm", params.get("realm"));
-    }
-
-    @Test
-    public void testParseDigestParamsEmpty() {
-        Map<String, String> params = SaslUtils.parseDigestParams("");
-        assertTrue(params.isEmpty());
-    }
-
-    @Test
-    public void testComputeDigestHA1() {
-        String ha1 = SaslUtils.computeDigestHA1("user", "realm", "pass");
-        assertNotNull(ha1);
-        assertEquals(32, ha1.length());
-        assertTrue(ha1.matches("[0-9a-f]+"));
-    }
-
-    @Test
-    public void testComputeDigestHA1Deterministic() {
-        String h1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
-        String h2 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
-        assertEquals(h1, h2);
-    }
-
-    // ========== DIGEST-MD5 client rspauth verification (GHSA-9p92-hc4p-35rp) ==========
-
-    @Test
-    public void testDigestMD5ClientAcceptsValidRspauth() throws Exception {
-        String realm = "example.com";
-        String nonce = "server-nonce-1234";
-        String username = "alice";
-        String password = "secret";
-        String host = "ldap.example.com";
-
-        SaslClientMechanism client = SaslUtils.createClient(
-                "DIGEST-MD5", username, password, host);
-        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
-        byte[] response1 = client.evaluateChallenge(
-                challenge1.getBytes(StandardCharsets.UTF_8));
-
-        Map<String, String> params = SaslUtils.parseDigestParams(
-                new String(response1, StandardCharsets.UTF_8));
-        String serverHa1 = SaslUtils.computeDigestHA1(username, realm, password);
-        String rspauth = SaslUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
-        assertNotNull("server-side verification of the client's own response must succeed", rspauth);
-
-        // Must not throw: this is the server's genuine proof of shared-secret knowledge.
-        byte[] response2 = client.evaluateChallenge(
-                ("rspauth=" + rspauth).getBytes(StandardCharsets.UTF_8));
-        assertNotNull(response2);
-        assertTrue(client.isComplete());
-    }
-
-    @Test
-    public void testDigestMD5ClientRejectsForgedRspauth() throws Exception {
-        String realm = "example.com";
-        String nonce = "server-nonce-5678";
-        String username = "alice";
-        String password = "secret";
-        String host = "ldap.example.com";
-
-        SaslClientMechanism client = SaslUtils.createClient(
-                "DIGEST-MD5", username, password, host);
-        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
-        client.evaluateChallenge(challenge1.getBytes(StandardCharsets.UTF_8));
-
-        // A spoofed/on-path server (or a MITM replaying an unrelated
-        // response digest) that doesn't know the shared secret cannot
-        // produce the real rspauth. The client must detect this rather
-        // than silently accepting the exchange as authenticated.
-        try {
-            client.evaluateChallenge(
-                    "rspauth=00000000000000000000000000000000".getBytes(StandardCharsets.UTF_8));
-            fail("expected an IOException for a forged rspauth");
-        } catch (java.io.IOException expected) {
-            // expected
-        }
-    }
-
-    // ========== DIGEST-MD5 server-side response verification (issue #253) ==========
-
-    @Test
-    public void testServerVerificationInteroperatesWithRealClient() throws Exception {
-        String realm = "example.com";
-        String nonce = "server-nonce-9999";
-        String username = "alice";
-        String password = "secret";
-        String host = "ldap.example.com";
-
-        SaslClientMechanism client = SaslUtils.createClient(
-                "DIGEST-MD5", username, password, host);
-        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
-        byte[] response1 = client.evaluateChallenge(
-                challenge1.getBytes(StandardCharsets.UTF_8));
-        Map<String, String> params = SaslUtils.parseDigestParams(
-                new String(response1, StandardCharsets.UTF_8));
-
-        String serverHa1 = SaslUtils.computeDigestHA1(username, realm, password);
-        String rspauth = SaslUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
-
-        assertNotNull("the server must accept a genuine client response "
-                + "computed with the correct credentials", rspauth);
-
-        // The client, in turn, must accept the server's genuine rspauth.
-        byte[] response2 = client.evaluateChallenge(
-                ("rspauth=" + rspauth).getBytes(StandardCharsets.UTF_8));
-        assertNotNull(response2);
-        assertTrue(client.isComplete());
-    }
-
-    @Test
-    public void testServerVerificationRejectsWrongPassword() throws Exception {
-        String realm = "example.com";
-        String nonce = "server-nonce-0001";
-        String username = "alice";
-        String host = "ldap.example.com";
-
-        SaslClientMechanism client = SaslUtils.createClient(
-                "DIGEST-MD5", username, "correct-password", host);
-        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
-        byte[] response1 = client.evaluateChallenge(
-                challenge1.getBytes(StandardCharsets.UTF_8));
-        Map<String, String> params = SaslUtils.parseDigestParams(
-                new String(response1, StandardCharsets.UTF_8));
-
-        String wrongHa1 = SaslUtils.computeDigestHA1(username, realm, "wrong-password");
-        assertNull(SaslUtils.verifyDigestMD5ClientResponse(wrongHa1, nonce, params));
-    }
-
     // ========== Challenge generation ==========
-
-    @Test
-    public void testGenerateDigestMD5Challenge() {
-        String challenge = SaslUtils.generateDigestMD5Challenge("example.com", "abc123");
-        assertTrue(challenge.contains("realm=\"example.com\""));
-        assertTrue(challenge.contains("nonce=\"abc123\""));
-        assertTrue(challenge.contains("qop=\"auth\""));
-        assertTrue(challenge.contains("algorithm=md5-sess"));
-    }
 
     @Test
     public void testGenerateScramServerFirst() {
@@ -445,11 +200,11 @@ public class SASLUtilsTest {
     }
 
     @Test
-    public void testCreateClientCramMD5() {
-        SaslClientMechanism mech = SaslUtils.createClient("CRAM-MD5", "user", "pass", "host");
-        assertNotNull(mech);
-        assertEquals("CRAM-MD5", mech.getMechanismName());
-        assertFalse(mech.hasInitialResponse());
+    public void testCreateClientMd5MechanismsAreNotSupported() {
+        // CRAM-MD5 and DIGEST-MD5 were removed deliberately
+        assertNull(SaslUtils.createClient("CRAM-MD5", "u", "p", "host"));
+        assertNull(SaslUtils.createClient("DIGEST-MD5", "u", "p", "host"));
+        assertNull(SaslUtils.createClient("digest-md5", "u", "p", "host"));
     }
 
     @Test
@@ -473,7 +228,7 @@ public class SASLUtilsTest {
     @Test
     public void testCreateClientCaseInsensitive() {
         assertNotNull(SaslUtils.createClient("plain", "user", "pass", "host"));
-        assertNotNull(SaslUtils.createClient("cram-md5", "user", "pass", "host"));
+        assertNotNull(SaslUtils.createClient("external", "user", "pass", "host"));
     }
 
     @Test

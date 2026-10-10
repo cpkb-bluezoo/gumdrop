@@ -50,8 +50,11 @@ import org.bluezoo.gumdrop.auth.Realm.CertificateAuthenticationResult;
  * Utility methods for SASL authentication mechanisms.
  * Provides cryptographic helpers shared across POP3, IMAP, and SMTP.
  *
- * <p>DIGEST-MD5 (RFC 2831) is deprecated by RFC 6331 and SHOULD NOT be
- * used in new deployments; it is retained here for backward compatibility.
+ * <p>The MD5-based mechanisms (CRAM-MD5, DIGEST-MD5) are deliberately not
+ * supported. They allow an offline dictionary attack on a captured exchange,
+ * need the server to hold the password or a password-equivalent, and have
+ * no channel binding; DIGEST-MD5 was moved to Historic by RFC 6331. Use
+ * SCRAM-SHA-256, or PLAIN or OAUTHBEARER over TLS.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
@@ -133,37 +136,6 @@ public final class SaslUtils {
     }
 
     /**
-     * RFC 2195 — generates a CRAM-MD5 challenge string.
-     * 
-     * @param hostname the server hostname
-     * @return the challenge string (ready for Base64 encoding)
-     */
-    public static String generateCramMD5Challenge(String hostname) {
-        long timestamp = System.currentTimeMillis();
-        int pid = getProcessId();
-        return "<" + timestamp + "." + pid + "@" + hostname + ">";
-    }
-
-    /**
-     * Gets the current process ID.
-     */
-    private static int getProcessId() {
-        return (int) ProcessHandle.current().pid();
-    }
-
-    /**
-     * RFC 2831 §2.1 — generates a DIGEST-MD5 challenge.
-     * 
-     * @param realm the authentication realm
-     * @param nonce the nonce value
-     * @return the challenge string (ready for Base64 encoding)
-     */
-    public static String generateDigestMD5Challenge(String realm, String nonce) {
-        return "realm=\"" + realm + "\",nonce=\"" + nonce + 
-               "\",qop=\"auth\",charset=utf-8,algorithm=md5-sess";
-    }
-
-    /**
      * RFC 5802 §5 / RFC 7677 — generates a SCRAM server-first-message.
      * 
      * @param nonce the combined client+server nonce
@@ -237,31 +209,6 @@ public final class SaslUtils {
     // ========================================================================
 
     /**
-     * RFC 1321 — computes MD5 hash.
-     * 
-     * @param data the data to hash
-     * @return MD5 digest
-     */
-    public static byte[] md5(byte[] data) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            return md.digest(data);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(L10N.getString("err.no_md5"), e);
-        }
-    }
-
-    /**
-     * RFC 1321 — computes MD5 hash as hex string.
-     * 
-     * @param data the data to hash
-     * @return hex-encoded MD5 digest
-     */
-    public static String md5Hex(byte[] data) {
-        return ByteArrays.toHexString(md5(data));
-    }
-
-    /**
      * FIPS 180-4 — computes SHA-256 hash.
      * 
      * @param data the data to hash
@@ -273,27 +220,6 @@ public final class SaslUtils {
             return md.digest(data);
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(L10N.getString("err.no_sha256"), e);
-        }
-    }
-
-    /**
-     * RFC 2104 — computes HMAC-MD5.
-     * 
-     * @param key the secret key
-     * @param data the data to authenticate
-     * @return HMAC-MD5 value
-     */
-    public static byte[] hmacMD5(byte[] key, byte[] data) {
-        try {
-            Mac mac = Mac.getInstance("HmacMD5");
-            // RFC 2104 zero-pads keys, so an empty key is equivalent to a
-            // single zero byte; SecretKeySpec itself rejects empty keys
-            byte[] k = key.length == 0 ? new byte[1] : key;
-            mac.init(new SecretKeySpec(k, "HmacMD5"));
-            return mac.doFinal(data);
-        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            String msg = MessageFormat.format(L10N.getString("err.sasl_algorithm_failed"), "HMAC-MD5");
-            throw new RuntimeException(msg, e);
         }
     }
 
@@ -314,166 +240,6 @@ public final class SaslUtils {
             String msg = MessageFormat.format(L10N.getString("err.sasl_algorithm_failed"), "HMAC-SHA256");
             throw new RuntimeException(msg, e);
         }
-    }
-
-    // ========================================================================
-    // CRAM-MD5 Support
-    // ========================================================================
-
-    /**
-     * RFC 2195 §2 — computes the expected CRAM-MD5 response.
-     * 
-     * @param password the user's password
-     * @param challenge the server's challenge
-     * @return the expected HMAC-MD5 digest as hex
-     */
-    public static String computeCramMD5Response(String password, String challenge) {
-        byte[] hmac = hmacMD5(password.getBytes(UTF_8), challenge.getBytes(US_ASCII));
-        return ByteArrays.toHexString(hmac);
-    }
-
-    /**
-     * RFC 2195 §2 — verifies a CRAM-MD5 response.
-     * 
-     * @param response the response in format "username digest"
-     * @param challenge the original challenge
-     * @param password the user's password
-     * @return true if the response is valid
-     */
-    public static boolean verifyCramMD5(String response, String challenge, String password) {
-        int spaceIndex = response.lastIndexOf(' ');
-        if (spaceIndex <= 0) {
-            return false;
-        }
-        String digest = response.substring(spaceIndex + 1).toLowerCase();
-        String expected = computeCramMD5Response(password, challenge);
-        return MessageDigest.isEqual(digest.getBytes(US_ASCII), expected.getBytes(US_ASCII));
-    }
-
-    // ========================================================================
-    // DIGEST-MD5 Support
-    // ========================================================================
-
-    /**
-     * RFC 2831 §2.1 — parses DIGEST-MD5 response parameters.
-     * 
-     * @param response the response string
-     * @return map of parameter names to values
-     */
-    public static Map<String, String> parseDigestParams(String response) {
-        Map<String, String> params = new HashMap<>();
-        StringBuilder key = new StringBuilder();
-        StringBuilder value = new StringBuilder();
-        boolean inQuote = false;
-        boolean inValue = false;
-        
-        for (int i = 0; i < response.length(); i++) {
-            char c = response.charAt(i);
-            if (inQuote) {
-                if (c == '"') {
-                    inQuote = false;
-                } else if (c == '\\' && i + 1 < response.length()) {
-                    value.append(response.charAt(++i));
-                } else {
-                    value.append(c);
-                }
-            } else if (c == '"') {
-                inQuote = true;
-            } else if (c == '=') {
-                inValue = true;
-            } else if (c == ',') {
-                params.put(key.toString().trim(), value.toString());
-                key.setLength(0);
-                value.setLength(0);
-                inValue = false;
-            } else if (inValue) {
-                value.append(c);
-            } else {
-                key.append(c);
-            }
-        }
-        
-        if (key.length() > 0) {
-            params.put(key.toString().trim(), value.toString());
-        }
-        
-        return params;
-    }
-
-    /**
-     * RFC 2831 §2.1.1 — computes DIGEST-MD5 HA1 value.
-     * 
-     * @param username the username
-     * @param realm the authentication realm
-     * @param password the password
-     * @return hex-encoded HA1
-     */
-    public static String computeDigestHA1(String username, String realm, String password) {
-        String a1 = username + ":" + realm + ":" + password;
-        return md5Hex(a1.getBytes(UTF_8));
-    }
-
-    /**
-     * RFC 2831 §2.1.2 — verifies a DIGEST-MD5 client response.
-     *
-     * @param ha1 H(username:realm:password) from the realm, as a lowercase
-     *      hex string (see {@link Realm#getDigestHA1})
-     * @param serverNonce the nonce sent in the server challenge
-     * @param params parsed client response parameters
-     * @return the rspauth hash on success, or {@code null} if verification fails
-     */
-    public static String verifyDigestMD5ClientResponse(String ha1,
-            String serverNonce, Map<String, String> params) {
-        if (ha1 == null || serverNonce == null || params == null) {
-            return null;
-        }
-        String clientNonce = params.get("nonce");
-        String nc = params.get("nc");
-        String cnonce = params.get("cnonce");
-        String qop = params.get("qop");
-        String digestUri = params.get("digest-uri");
-        String clientResponse = params.get("response");
-        if (clientNonce == null || nc == null || cnonce == null || qop == null
-                || digestUri == null || clientResponse == null) {
-            return null;
-        }
-        if (!serverNonce.equals(clientNonce)) {
-            return null;
-        }
-        // RFC 2831 §2.1.2.1 — A1 for md5-sess:
-        //   H(username:realm:password) : nonce : cnonce
-        // ha1 is H(username:realm:password) as a hex string; RFC 2831
-        // requires the raw binary digest here, not its hex-string form, so
-        // it must be decoded back to bytes before concatenating the
-        // nonce/cnonce suffix (matching how DigestMD5Client constructs it
-        // on the client side).
-        byte[] h;
-        try {
-            h = ByteArrays.toByteArray(ha1);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-        byte[] suffix = (":" + serverNonce + ":" + cnonce).getBytes(UTF_8);
-        byte[] a1 = new byte[h.length + suffix.length];
-        System.arraycopy(h, 0, a1, 0, h.length);
-        System.arraycopy(suffix, 0, a1, h.length, suffix.length);
-        String sessionHA1 = md5Hex(a1);
-        String a2 = "AUTHENTICATE:" + digestUri;
-        String ha2 = md5Hex(a2.getBytes(UTF_8));
-        String expectedInput = sessionHA1 + ":" + serverNonce + ":" + nc + ":"
-                + cnonce + ":" + qop + ":" + ha2;
-        String expected = md5Hex(expectedInput.getBytes(UTF_8));
-        if (!MessageDigest.isEqual(
-                expected.getBytes(US_ASCII),
-                clientResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
-            return null;
-        }
-        // RFC 2831 §2.1.3 — rspauth in response-value
-        String rspA2 = ":" + digestUri;
-        String rspHA2 = md5Hex(rspA2.getBytes(UTF_8));
-        String rspInput = sessionHA1 + ":" + serverNonce + ":" + nc + ":"
-                + cnonce + ":" + qop + ":" + rspHA2;
-        return md5Hex(rspInput.getBytes(UTF_8));
     }
 
     // ========================================================================
@@ -706,10 +472,10 @@ public final class SaslUtils {
      *
      * <p>For GSSAPI, use the overload that accepts a {@code Subject}.
      *
-     * @param mechanism the SASL mechanism name (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL)
+     * @param mechanism the SASL mechanism name (PLAIN, EXTERNAL)
      * @param username the authentication identity
      * @param password the password (may be null for EXTERNAL)
-     * @param host the server hostname (used by DIGEST-MD5 for digest-uri)
+     * @param host the server hostname
      * @return the mechanism, or null if the name is not recognised
      * @see #createClient(String, String, String, String, Subject)
      */
@@ -729,14 +495,13 @@ public final class SaslUtils {
      * {@code evaluateChallenge()} due to KDC contact; callers must
      * offload to a worker thread.
      *
-     * @param mechanism the SASL mechanism name (PLAIN, CRAM-MD5, DIGEST-MD5,
-     *        EXTERNAL, GSSAPI, OAUTHBEARER, XOAUTH2)
+     * @param mechanism the SASL mechanism name (PLAIN, EXTERNAL, GSSAPI,
+     *        OAUTHBEARER, XOAUTH2)
      * @param username the authentication identity (the account for
      *        OAUTHBEARER and XOAUTH2)
      * @param password the password (may be null for EXTERNAL/GSSAPI); the
      *        OAuth 2.0 access token for OAUTHBEARER and XOAUTH2
-     * @param host the server hostname (used by DIGEST-MD5 for digest-uri,
-     *        and by GSSAPI for the service principal)
+     * @param host the server hostname (used by GSSAPI for the service principal)
      * @param subject the JAAS Subject with Kerberos credentials (required
      *        for GSSAPI, ignored for other mechanisms)
      * @return the mechanism, or null if the name is not recognised
@@ -753,10 +518,6 @@ public final class SaslUtils {
         switch (mechanism.toUpperCase()) {
             case "PLAIN":
                 return new PlainClient(username, password);
-            case "CRAM-MD5":
-                return new CramMD5Client(username, password);
-            case "DIGEST-MD5":
-                return new DigestMD5Client(username, password, host);
             case "EXTERNAL":
                 return new ExternalClient();
             case "OAUTHBEARER":
@@ -851,158 +612,6 @@ public final class SaslUtils {
             // response[1 + user.length] = 0 (separator)
             System.arraycopy(pass, 0, response, 2 + user.length, pass.length);
             return response;
-        }
-
-        @Override
-        public boolean isComplete() { return complete; }
-    }
-
-    // RFC 2195 — CRAM-MD5: server sends challenge, client returns
-    // "username SP HMAC-MD5-hex" (single step after challenge)
-    private static final class CramMD5Client implements SaslClientMechanism {
-        private final String username;
-        private final String password;
-        private boolean complete;
-
-        CramMD5Client(String username, String password) {
-            this.username = username;
-            this.password = password != null ? password : "";
-        }
-
-        @Override
-        public String getMechanismName() { return "CRAM-MD5"; }
-
-        @Override
-        public boolean hasInitialResponse() { return false; }
-
-        @Override
-        public byte[] evaluateChallenge(byte[] challenge) {
-            complete = true;
-            String challengeStr = new String(challenge, UTF_8);
-            String digest = computeCramMD5Response(password, challengeStr);
-            return (username + " " + digest).getBytes(UTF_8);
-        }
-
-        @Override
-        public boolean isComplete() { return complete; }
-    }
-
-    // RFC 2831 — DIGEST-MD5: server sends challenge with realm/nonce,
-    // client computes md5-sess response digest.
-    private static final class DigestMD5Client implements SaslClientMechanism {
-        private final String username;
-        private final String password;
-        private final String host;
-        private boolean complete;
-        private int step;
-
-        // Retained from the first response so the server's rspauth
-        // (RFC 2831 §2.1.3) can be independently verified on the second step.
-        private String ha1;
-        private String nonce;
-        private String cnonce;
-        private String nc;
-        private String qop;
-        private String digestUri;
-
-        DigestMD5Client(String username, String password, String host) {
-            this.username = username;
-            this.password = password != null ? password : "";
-            this.host = host;
-        }
-
-        @Override
-        public String getMechanismName() { return "DIGEST-MD5"; }
-
-        @Override
-        public boolean hasInitialResponse() { return false; }
-
-        @Override
-        public byte[] evaluateChallenge(byte[] challenge) throws IOException {
-            if (step == 0) {
-                step = 1;
-                complete = true;
-                return computeDigestResponse(challenge);
-            }
-            // RFC 2831 §2.1.3 — verify the server's proof that it also
-            // knows the shared secret before treating the exchange as
-            // trustworthy; without this, a spoofed or on-path server is
-            // never detected.
-            verifyResponseAuth(challenge);
-            return new byte[0];
-        }
-
-        private byte[] computeDigestResponse(byte[] challenge)
-                throws IOException {
-            Map<String, String> params =
-                    parseDigestParams(new String(challenge, UTF_8));
-
-            String realm = params.getOrDefault("realm", "");
-            nonce = params.get("nonce");
-            qop = params.getOrDefault("qop", "auth");
-            if (nonce == null) {
-                throw new IOException("DIGEST-MD5: missing nonce");
-            }
-
-            cnonce = generateNonce(16);
-            nc = "00000001";
-            digestUri = "ldap/" + host;
-
-            // RFC 2831 §2.1.2.1 — A1 for md5-sess:
-            //   H(username:realm:password) : nonce : cnonce
-            byte[] h = md5((username + ":" + realm + ":" + password)
-                    .getBytes(UTF_8));
-            byte[] suffix = (":" + nonce + ":" + cnonce).getBytes(UTF_8);
-            byte[] a1 = new byte[h.length + suffix.length];
-            System.arraycopy(h, 0, a1, 0, h.length);
-            System.arraycopy(suffix, 0, a1, h.length, suffix.length);
-            ha1 = md5Hex(a1);
-
-            String ha2 = md5Hex(
-                    ("AUTHENTICATE:" + digestUri).getBytes(UTF_8));
-
-            String responseHash = md5Hex(
-                    (ha1 + ":" + nonce + ":" + nc + ":" + cnonce
-                            + ":" + qop + ":" + ha2).getBytes(UTF_8));
-
-            String response = "charset=utf-8"
-                    + ",username=\"" + username + "\""
-                    + ",realm=\"" + realm + "\""
-                    + ",nonce=\"" + nonce + "\""
-                    + ",nc=" + nc
-                    + ",cnonce=\"" + cnonce + "\""
-                    + ",digest-uri=\"" + digestUri + "\""
-                    + ",response=" + responseHash
-                    + ",qop=" + qop;
-
-            return response.getBytes(UTF_8);
-        }
-
-        /**
-         * RFC 2831 §2.1.3 — verifies the server's rspauth value, proving
-         * it also knows the shared secret. Unlike the request-digest's A2
-         * ({@code "AUTHENTICATE:" + digest-uri}), the response-digest's A2
-         * omits the {@code "AUTHENTICATE:"} prefix.
-         */
-        private void verifyResponseAuth(byte[] challenge) throws IOException {
-            Map<String, String> params =
-                    parseDigestParams(new String(challenge, UTF_8));
-            String rspauth = params.get("rspauth");
-            if (rspauth == null) {
-                throw new IOException(
-                        "DIGEST-MD5: missing rspauth in server final response");
-            }
-
-            String rspHa2 = md5Hex((":" + digestUri).getBytes(UTF_8));
-            String expected = md5Hex(
-                    (ha1 + ":" + nonce + ":" + nc + ":" + cnonce
-                            + ":" + qop + ":" + rspHa2).getBytes(UTF_8));
-
-            if (!ByteArrays.equalsConstantTime(
-                    expected.getBytes(UTF_8), rspauth.getBytes(UTF_8))) {
-                throw new IOException(
-                        "DIGEST-MD5: server rspauth verification failed");
-            }
         }
 
         @Override

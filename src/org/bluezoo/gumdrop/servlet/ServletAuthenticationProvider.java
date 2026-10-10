@@ -95,9 +95,7 @@ public class ServletAuthenticationProvider extends HttpAuthenticationProvider {
             return false;
         }
 
-        // HTTP Digest requires the same HA1 computation as SASL DIGEST-MD5
-        Set<SaslMechanism> supported = realm.getSupportedSASLMechanisms();
-        return supported.contains(SaslMechanism.DIGEST_MD5);
+        return realm.supportsDigestHA1();
     }
 
     @Override

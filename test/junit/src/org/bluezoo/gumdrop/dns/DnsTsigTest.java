@@ -57,14 +57,16 @@ public class DnsTsigTest {
     }
 
     @Test
-    public void testSignVerifyRoundTripMd5WireName() throws Exception {
-        TsigKey key = TsigKey.fromBase64("key.", TsigKey.HMAC_MD5, "c2VjcmV0");
-        DnsMessage query = DnsMessage.createQuery(42, "example.com.", DnsType.SOA);
-        DnsMessage signed = DnsTsig.sign(query, key,
-                System.currentTimeMillis() / 1000L, 300);
-        assertEquals(TsigAlgorithm.WIRE_HMAC_MD5,
-                DnsTsigTest.algorithmFromRdata(signed.getTsigRecord().getRData()));
-        assertTrue(DnsTsig.verify(signed, key, false));
+    public void testMd5AndSha1KeysAreRejected() {
+        String[] weak = {"hmac-md5", "hmac-md5.sig-alg.reg.int", "hmac-sha1", "HMAC-SHA1."};
+        for (int i = 0; i < weak.length; i++) {
+            try {
+                TsigKey.fromBase64("key.", weak[i], "c2VjcmV0");
+                fail(weak[i] + " must be rejected");
+            } catch (IllegalArgumentException expected) {
+                // expected
+            }
+        }
     }
 
     @Test

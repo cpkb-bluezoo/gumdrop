@@ -32,7 +32,6 @@ package org.bluezoo.gumdrop.pop3.client;
  * <ul>
  * <li>{@code capa()} - Query server capabilities (RFC 2449)</li>
  * <li>{@code user()} - Begin USER/PASS authentication (RFC 1939)</li>
- * <li>{@code apop()} - APOP authentication (RFC 1939)</li>
  * <li>{@code auth()} - SASL authentication (RFC 5034)</li>
  * <li>{@code stls()} - Upgrade to TLS (RFC 2595)</li>
  * <li>{@code quit()} - Close the connection</li>
@@ -63,20 +62,6 @@ public interface ClientAuthorizationState {
      * @param callback receives the server's response
      */
     void user(String username, UserReplyHandler callback);
-
-    /**
-     * Sends an APOP command for digest-based authentication.
-     *
-     * <p>APOP requires the server to have provided a timestamp in its
-     * greeting. The digest should be the MD5 hash of the timestamp
-     * concatenated with the shared secret.
-     *
-     * @param username the username to authenticate
-     * @param digest the MD5 hex digest of timestamp + password
-     * @param callback receives the server's response
-     */
-    void apop(String username, String digest,
-              ApopReplyHandler callback);
 
     /**
      * Initiates SASL authentication.

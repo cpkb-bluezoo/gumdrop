@@ -82,7 +82,6 @@ public class Pop3ClientEndToEndTest {
         Pop3Listener server = new Pop3Listener();
         server.port(PORT);
         server.addresses(java.net.InetAddress.getByName(HOST));
-        server.enableAPOP(false);
         server.realm(new TestRealm());
         server.mailboxFactory(new MboxMailboxFactory(mboxRoot));
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
@@ -252,7 +251,7 @@ public class Pop3ClientEndToEndTest {
 
         @Override
         public void handleGreeting(ClientAuthorizationState auth,
-                String message, String apopTimestamp) {
+                String message) {
             log.add("greeting");
             authorization(auth);
         }

@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.pop3;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CompletionHandler;
 import java.nio.file.Path;
@@ -33,7 +32,6 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.security.MessageDigest;
 import java.security.Principal;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
@@ -93,7 +91,6 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.util.JulWarnings;
-import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
@@ -122,8 +119,8 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  *   <li>CAPA — RFC 2449 (extension mechanism)</li>
  *   <li>STLS — RFC 2595 section 4 (STARTTLS for POP3)</li>
  *   <li>AUTH — RFC 5034 (SASL authentication), mechanisms:
- *       PLAIN (RFC 4616), LOGIN, CRAM-MD5 (RFC 2195),
- *       DIGEST-MD5 (RFC 2831), SCRAM (RFC 5802),
+ *       PLAIN (RFC 4616), LOGIN,
+ *       SCRAM (RFC 5802),
  *       OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422 Appendix A)</li>
  *   <li>UTF8 — RFC 6816 (UTF-8 support)</li>
  * </ul>
@@ -171,7 +168,7 @@ public final class Pop3ProtocolHandler
     // on instead of a string requiring a second dispatch-time lookup.
     enum Pop3Command {
         QUIT, CAPA, NOOP,
-        USER, PASS, APOP, AUTH, STLS, UTF8,
+        USER, PASS, AUTH, STLS, UTF8,
         STAT, LIST, RETR, DELE, RSET, TOP, UIDL,
         UNKNOWN
     }
@@ -181,8 +178,6 @@ public final class Pop3ProtocolHandler
         PLAIN_RESPONSE,
         LOGIN_USERNAME,
         LOGIN_PASSWORD,
-        CRAM_MD5_RESPONSE,
-        DIGEST_MD5_RESPONSE,
         SCRAM_INITIAL,
         SCRAM_FINAL,
         OAUTH_RESPONSE,
@@ -195,7 +190,6 @@ public final class Pop3ProtocolHandler
 
     private final Pop3Listener server;
     private final long connectionTimeMillis;
-    private final String apopTimestamp;
 
     private Realm realm;
 
@@ -259,12 +253,6 @@ public final class Pop3ProtocolHandler
         this.lastActivityTime = connectionTimeMillis;
         ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
         this.lexer = new Pop3ServerLexer(this, MAX_LINE_LENGTH);
-
-        if (server.isEnableAPOP()) {
-            this.apopTimestamp = generateAPOPTimestamp();
-        } else {
-            this.apopTimestamp = null;
-        }
     }
 
     // ── ProtocolHandler implementation ──
@@ -509,8 +497,6 @@ public final class Pop3ProtocolHandler
                     return Pop3Command.USER;
                 case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'S':
                     return Pop3Command.PASS;
-                case ('A' << 24) | ('P' << 16) | ('O' << 8) | 'P':
-                    return Pop3Command.APOP;
                 case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
                     return Pop3Command.AUTH;
                 case ('S' << 24) | ('T' << 16) | ('L' << 8) | 'S':
@@ -654,17 +640,10 @@ public final class Pop3ProtocolHandler
         }
     }
 
-    // RFC 1939 section 4 — server greeting with optional APOP timestamp
+    // RFC 1939 section 4 - server greeting
     private void sendGreeting() {
-        if (apopTimestamp != null) {
-            sendOK(MessageFormat.format(
-                    L10N.getString("pop3.greeting_apop"),
-                    apopTimestamp));
-        } else {
-            sendOK(L10N.getString("pop3.greeting"));
-        }
+        sendOK(L10N.getString("pop3.greeting"));
     }
-
     // ── Realm ──
 
     private Realm getRealm() {
@@ -680,19 +659,6 @@ public final class Pop3ProtocolHandler
             }
         }
         return realm;
-    }
-
-    // ── APOP timestamp (RFC 1939 section 7 — APOP command) ──
-
-    // RFC 1939 section 7 — APOP timestamp in angle brackets
-    private String generateAPOPTimestamp() {
-        long pid = getProcessId();
-        long timestamp = System.currentTimeMillis();
-        return "<" + pid + "." + timestamp + "@pop3>";
-    }
-
-    private static long getProcessId() {
-        return ProcessHandle.current().pid();
     }
 
     // ── Command dispatch (RFC 1939 section 3 — state-based) ──
@@ -725,9 +691,6 @@ public final class Pop3ProtocolHandler
                         break;
                     case PASS:
                         handlePASS(args);
-                        break;
-                    case APOP:
-                        handleAPOP(args);
                         break;
                     case AUTH:
                         handleAUTH(args);
@@ -876,94 +839,6 @@ public final class Pop3ProtocolHandler
         });
     }
 
-    // RFC 1939 section 7 — APOP command (MD5-based challenge-response)
-    private void handleAPOP(String args) throws IOException {
-        if (apopTimestamp == null) {
-            sendERR(L10N.getString("pop3.err.apop_not_supported"));
-            return;
-        }
-
-        int spaceIndex = args.indexOf(' ');
-        if (spaceIndex < 0) {
-            sendERR(L10N.getString("pop3.err.apop_requires_args"));
-            return;
-        }
-
-        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
-            sendERR(L10N.getString("pop3.err.auth_locked"));
-            return;
-        }
-
-        final String user = args.substring(0, spaceIndex);
-        final String clientDigest = args.substring(spaceIndex + 1);
-
-        enforceLoginDelay(new Runnable() {
-            @Override
-            public void run() {
-                {
-                    Realm realm = getRealm();
-                    if (realm == null) {
-                        sendERR(L10N.getString(
-                                "pop3.err.auth_not_configured"));
-                        closeEndpoint();
-                        return;
-                    }
-
-                    realm.getApopResponse(user, apopTimestamp,
-                            awaiting(new StorageExecutor.Callback<String>() {
-                        @Override
-                        public void completed(String expected) {
-                            try {
-                                if (expected != null
-                                        && ByteArrays.equalsConstantTime(
-                                                ByteArrays.toByteArray(expected),
-                                                ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
-                                    username = user;
-                                    openMailboxAsync(username, new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            state = Pop3State.TRANSACTION;
-                                            events().info("log.apop_auth_successful")
-                                                    .attr("username", user).emit();
-                                            recordAuthenticationSuccess("APOP");
-                                            sendOK(L10N.getString(
-                                                    "pop3.mailbox_opened"));
-                                        }
-                                    });
-                                    return;
-                                }
-
-                                failedAuthAttempts++;
-                                lastFailedAuthTime =
-                                        System.currentTimeMillis();
-                                events().warn("log.apop_auth_failed").attr("username", user).emit();
-                                recordAuthenticationFailure("APOP", user);
-                                sendERR(L10N.getString(
-                                        "pop3.err.auth_failed"));
-                            } catch (IOException e) {
-                                events().error("warn.error_during_apop_authentication").thrown(e).emit();
-                                closeEndpoint();
-                            }
-                        }
-
-                        @Override
-                        public void failed(Throwable cause) {
-                            if (cause instanceof UnsupportedOperationException) {
-                                events().warn("log.apop_not_supported").emit();
-                                sendERR(L10N.getString(
-                                        "pop3.err.apop_not_available"));
-                            } else {
-                                events().error("warn.error_during_apop_authentication").thrown(cause).emit();
-                                sendERR(L10N.getString(
-                                        "pop3.err.auth_failed"));
-                            }
-                        }
-                    }));
-                }
-            }
-        });
-    }
-
     // RFC 2595 section 4 — STLS command (STARTTLS for POP3)
     private void handleSTLS(String args) throws IOException {
         if (endpoint.isSecure()) {
@@ -1062,12 +937,6 @@ public final class Pop3ProtocolHandler
             case LOGIN:
                 handleAuthLOGIN(initialResponse);
                 break;
-            case CRAM_MD5:
-                handleAuthCRAMMD5(initialResponse);
-                break;
-            case DIGEST_MD5:
-                handleAuthDIGESTMD5(initialResponse);
-                break;
             case SCRAM_SHA_256:
                 handleAuthSCRAM(initialResponse);
                 break;
@@ -1116,59 +985,6 @@ public final class Pop3ProtocolHandler
             authState = AuthState.LOGIN_USERNAME;
             sendContinuation(Base64.getEncoder().encodeToString(
                     "Username:".getBytes(US_ASCII)));
-        }
-    }
-
-    // RFC 2195 — SASL CRAM-MD5 mechanism
-    private void handleAuthCRAMMD5(String initialResponse)
-            throws IOException {
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendERR(L10N.getString("pop3.err.auth_not_configured"));
-            return;
-        }
-
-        try {
-            InetSocketAddress addr =
-                    (InetSocketAddress) endpoint.getLocalAddress();
-            authChallenge = SaslUtils.generateCramMD5Challenge(
-                    addr.getHostString());
-            authState = AuthState.CRAM_MD5_RESPONSE;
-            sendContinuation(SaslUtils.encodeBase64(authChallenge));
-        } catch (Exception e) {
-            events().error("warn.failed_generate_cram_md5").thrown(e).emit();
-            sendERR(L10N.getString("pop3.err.internal_error"));
-            resetAuthState();
-        }
-    }
-
-    // RFC 2831 — SASL DIGEST-MD5 mechanism
-    private void handleAuthDIGESTMD5(String initialResponse)
-            throws IOException {
-        if (initialResponse != null && !initialResponse.isEmpty()) {
-            sendERR(L10N.getString(
-                    "pop3.err.digestmd5_no_initial"));
-            return;
-        }
-
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendERR(L10N.getString("pop3.err.auth_not_configured"));
-            return;
-        }
-
-        try {
-            authNonce = SaslUtils.generateNonce(16);
-            String hostname = ((InetSocketAddress)
-                    endpoint.getLocalAddress()).getHostString();
-            String challenge = SaslUtils.generateDigestMD5Challenge(
-                    hostname, authNonce);
-            authState = AuthState.DIGEST_MD5_RESPONSE;
-            sendContinuation(SaslUtils.encodeBase64(challenge));
-        } catch (Exception e) {
-            events().warn("warn.digest_md5_challenge_error").thrown(e).emit();
-            sendERR(L10N.getString("pop3.err.auth_failed"));
-            resetAuthState();
         }
     }
 
@@ -1402,12 +1218,6 @@ public final class Pop3ProtocolHandler
             case LOGIN_PASSWORD:
                 processLoginPassword(data);
                 break;
-            case CRAM_MD5_RESPONSE:
-                processCramMD5Response(data);
-                break;
-            case DIGEST_MD5_RESPONSE:
-                processDigestMD5Response(data);
-                break;
             case SCRAM_INITIAL:
                 processScramClientFirst(data);
                 break;
@@ -1490,77 +1300,6 @@ public final class Pop3ProtocolHandler
                             }
                         }
                     });
-        } catch (IllegalArgumentException e) {
-            sendERR(L10N.getString("pop3.err.invalid_base64"));
-            resetAuthState();
-        }
-    }
-
-    private void processCramMD5Response(String data)
-            throws IOException {
-        try {
-            String response = SaslUtils.decodeBase64ToString(data);
-            int spaceIndex = response.indexOf(' ');
-            if (spaceIndex < 0) {
-                sendERR(L10N.getString(
-                        "pop3.err.invalid_crammd5_format"));
-                resetAuthState();
-                return;
-            }
-            final String user = response.substring(0, spaceIndex);
-            final String clientDigest = response.substring(spaceIndex + 1);
-
-            Realm realm = getRealm();
-            if (realm == null) {
-                sendERR(L10N.getString(
-                        "pop3.err.auth_not_configured"));
-                resetAuthState();
-                return;
-            }
-
-            realm.getCramMD5Response(user, authChallenge,
-                    awaiting(new StorageExecutor.Callback<String>() {
-                @Override
-                public void completed(String expected) {
-                    try {
-                        if (expected != null
-                                && ByteArrays.equalsConstantTime(
-                                        ByteArrays.toByteArray(expected),
-                                        ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
-                            openMailboxAsync(user, new Runnable() {
-                                @Override
-                                public void run() {
-                                    username = user;
-                                    state = Pop3State.TRANSACTION;
-                                    recordAuthenticationSuccess("AUTH CRAM-MD5");
-                                    sendOK(L10N.getString("pop3.mailbox_opened"));
-                                }
-                            });
-                            return;
-                        }
-                        failedAuthAttempts++;
-                        lastFailedAuthTime = System.currentTimeMillis();
-                        recordAuthenticationFailure("AUTH CRAM-MD5", user);
-                        sendERR(L10N.getString("pop3.err.auth_failed"));
-                    } catch (IOException e) {
-                        events().warn("warn.failed_complete_cram_md5").thrown(e).emit();
-                        closeEndpoint();
-                    } finally {
-                        resetAuthState();
-                    }
-                }
-
-                @Override
-                public void failed(Throwable cause) {
-                    if (cause instanceof UnsupportedOperationException) {
-                        sendERRQuietly("pop3.err.crammd5_not_available");
-                    } else {
-                        events().warn("warn.auth_cram_md5_error").thrown(cause).emit();
-                        sendERRQuietly("pop3.err.auth_failed");
-                    }
-                    resetAuthState();
-                }
-            }));
         } catch (IllegalArgumentException e) {
             sendERR(L10N.getString("pop3.err.invalid_base64"));
             resetAuthState();
@@ -1653,76 +1392,6 @@ public final class Pop3ProtocolHandler
         } finally {
             resetAuthState();
         }
-    }
-
-    private void processDigestMD5Response(String data)
-            throws IOException {
-        try {
-            String digestResponse =
-                    SaslUtils.decodeBase64ToString(data);
-            final Map<String, String> params =
-                    SaslUtils.parseDigestParams(digestResponse);
-            final String digestUsername = params.get("username");
-
-            Realm realm = getRealm();
-            if (digestUsername == null || realm == null) {
-                digestFailed(digestUsername);
-                return;
-            }
-            String realmName = params.get("realm");
-            if (realmName == null) {
-                realmName = ((InetSocketAddress)
-                        endpoint.getLocalAddress()).getHostString();
-            }
-            realm.getDigestHA1(digestUsername, realmName,
-                    awaiting(new StorageExecutor.Callback<String>() {
-                @Override
-                public void completed(String ha1) {
-                    String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
-                            ha1, authNonce, params);
-                    if (rspAuth == null) {
-                        digestFailed(digestUsername);
-                        return;
-                    }
-                    try {
-                        openMailboxAsync(digestUsername, new Runnable() {
-                            @Override
-                            public void run() {
-                                username = digestUsername;
-                                state = Pop3State.TRANSACTION;
-                                recordAuthenticationSuccess(
-                                        "AUTH DIGEST-MD5");
-                                sendOK(L10N.getString(
-                                        "pop3.mailbox_opened"));
-                            }
-                        });
-                    } catch (IOException e) {
-                        events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
-                        closeEndpoint();
-                    } finally {
-                        resetAuthState();
-                    }
-                }
-
-                @Override
-                public void failed(Throwable cause) {
-                    events().warn("warn.auth_digest_md5_error").thrown(cause).emit();
-                    digestFailed(digestUsername);
-                }
-            }));
-        } catch (IllegalArgumentException e) {
-            sendERR(L10N.getString("pop3.err.invalid_base64"));
-            resetAuthState();
-        }
-    }
-
-    /** Completes AUTH DIGEST-MD5 as a failure. */
-    private void digestFailed(String digestUsername) {
-        failedAuthAttempts++;
-        lastFailedAuthTime = System.currentTimeMillis();
-        recordAuthenticationFailure("AUTH DIGEST-MD5", digestUsername);
-        sendERRQuietly("pop3.err.auth_failed");
-        resetAuthState();
     }
 
     private void processScramClientFirst(String data)
@@ -2011,14 +1680,6 @@ public final class Pop3ProtocolHandler
                                   AuthorizationHandler handler) {
         this.authorizationHandler = handler;
         sendOK(greeting);
-    }
-
-    @Override
-    public void acceptConnectionWithApop(String greeting,
-                                          String timestamp,
-                                          AuthorizationHandler handler) {
-        this.authorizationHandler = handler;
-        sendOK(greeting + " " + timestamp);
     }
 
     @Override
@@ -2609,9 +2270,6 @@ public final class Pop3ProtocolHandler
             }
         }
 
-        if (apopTimestamp != null) {
-            sendLine("APOP");
-        }
         if (!endpoint.isSecure()
                 && server.isSTARTTLSAvailable()) {
             sendLine("STLS");

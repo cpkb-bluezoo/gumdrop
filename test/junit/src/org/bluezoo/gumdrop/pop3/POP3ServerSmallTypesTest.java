@@ -91,8 +91,6 @@ public class POP3ServerSmallTypesTest {
         assertSame(listener, listener.addresses(loopback));
         listener.transactionTimeoutMs(1234L);
         assertEquals(1234L, listener.getTransactionTimeoutMs());
-        listener.enableAPOP(false);
-        assertFalse(listener.isEnableAPOP());
         listener.enableUTF8(false);
         assertFalse(listener.isEnableUTF8());
         assertNull(listener.getRealm());

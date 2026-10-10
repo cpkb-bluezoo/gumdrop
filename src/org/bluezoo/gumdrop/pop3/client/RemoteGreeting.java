@@ -32,16 +32,15 @@ import org.bluezoo.gumdrop.ClientHandler;
  * begin the session.
  *
  * <p>After receiving the greeting, the handler should typically issue CAPA
- * to discover server capabilities, then authenticate using USER/PASS, APOP,
- * or SASL AUTH. If the server included an APOP timestamp in the greeting,
- * it is provided separately for use with APOP authentication.
+ * to discover server capabilities, then authenticate using USER/PASS
+ * or SASL AUTH.
  *
  * <p><strong>Example usage:</strong>
  * <pre>{@code
  * public class MyPOP3Handler implements RemoteGreeting {
  *
  *     public void handleGreeting(ClientAuthorizationState auth,
- *                                String message, String apopTimestamp) {
+ *                                String message) {
  *         auth.capa(new MyCapaHandler());
  *     }
  *
@@ -68,11 +67,8 @@ public interface RemoteGreeting extends ClientHandler {
      *
      * @param auth operations available in the AUTHORIZATION state
      * @param message the greeting text after +OK
-     * @param apopTimestamp the APOP timestamp from the greeting, or null
-     *                      if the server did not include one
      */
-    void handleGreeting(ClientAuthorizationState auth, String message,
-                        String apopTimestamp);
+    void handleGreeting(ClientAuthorizationState auth, String message);
 
     /**
      * Called when the server is not accepting connections (-ERR).

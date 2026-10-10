@@ -51,15 +51,20 @@ public class ServletAuthenticationProviderTest {
     /** Realm with configurable digest support and token handling. */
     private static final class TestRealm implements SynchronousRealm {
         final Set<SaslMechanism> mechanisms;
+        boolean digestHA1;
 
         TestRealm(Set<SaslMechanism> mechanisms) {
             this.mechanisms = mechanisms;
         }
 
-
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return mechanisms;
+        }
+
+        @Override
+        public boolean supportsDigestHA1() {
+            return digestHA1;
         }
 
         @Override
@@ -170,7 +175,9 @@ public class ServletAuthenticationProviderTest {
         login("DIGEST", "main");
         context.addRealm("main", new TestRealm(Collections.<SaslMechanism>emptySet()));
         assertFalse(provider.supportsDigestAuth());
-        context.addRealm("main", new TestRealm(EnumSet.of(SaslMechanism.DIGEST_MD5)));
+        TestRealm digestRealm = new TestRealm(Collections.<SaslMechanism>emptySet());
+        digestRealm.digestHA1 = true;
+        context.addRealm("main", digestRealm);
         assertTrue(provider.supportsDigestAuth());
     }
 

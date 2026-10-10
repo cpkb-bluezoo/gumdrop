@@ -38,8 +38,8 @@ import org.bluezoo.gumdrop.auth.SaslMechanism;
  * <p>The authentication method is chosen automatically based on what
  * the realm supports:
  * <ul>
- *   <li>If the realm supports {@link SaslMechanism#DIGEST_MD5},
- *       HTTP Digest is used (strongest password-based).</li>
+ *   <li>If the realm can supply a Digest HA1 ({@link Realm#supportsDigestHA1()}),
+ *       HTTP Digest (SHA-256) is used (strongest password-based).</li>
  *   <li>If the realm supports {@link SaslMechanism#OAUTHBEARER},
  *       Bearer token authentication is used.</li>
  *   <li>Otherwise, HTTP Basic is used as the fallback.</li>
@@ -84,8 +84,7 @@ public class DefaultHttpAuthenticationProvider
                 .contains(SaslMechanism.OAUTHBEARER)) {
             return HttpAuthenticationMethods.BEARER_AUTH;
         }
-        if (realm.getSupportedSASLMechanisms()
-                .contains(SaslMechanism.DIGEST_MD5)) {
+        if (realm.supportsDigestHA1()) {
             return HttpAuthenticationMethods.DIGEST_AUTH;
         }
         return HttpAuthenticationMethods.BASIC_AUTH;
@@ -127,8 +126,7 @@ public class DefaultHttpAuthenticationProvider
 
     @Override
     protected boolean supportsDigestAuth() {
-        return realm.getSupportedSASLMechanisms()
-                .contains(SaslMechanism.DIGEST_MD5);
+        return realm.supportsDigestHA1();
     }
 
 }

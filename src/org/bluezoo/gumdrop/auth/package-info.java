@@ -26,7 +26,7 @@
  * <p>{@link org.bluezoo.gumdrop.auth.Realm} is the contract every
  * authentication backend implements: password verification, role/group
  * membership, the challenge-response computations SASL mechanisms need
- * (CRAM-MD5, SCRAM, Digest), and token validation (OAuth, JWT, Bearer).
+ * (SCRAM, the HTTP Digest HA1), and token validation (OAuth, JWT, Bearer).
  * {@link org.bluezoo.gumdrop.auth.Realm#getSupportedSASLMechanisms}
  * lets a server only advertise mechanisms the configured realm can
  * actually handle. {@link org.bluezoo.gumdrop.auth.BasicRealm} is a
@@ -49,13 +49,14 @@
  *   <tr><th>Mechanism</th><th>RFC</th><th>Realm method</th></tr>
  *   <tr><td>PLAIN</td><td>RFC 4616</td><td>{@code passwordMatch()}</td></tr>
  *   <tr><td>LOGIN</td><td>(legacy)</td><td>{@code passwordMatch()}</td></tr>
- *   <tr><td>CRAM-MD5</td><td>RFC 2195</td><td>{@code getCramMD5Response()}</td></tr>
- *   <tr><td>DIGEST-MD5</td><td>RFC 2831</td><td>{@code getDigestHA1()}</td></tr>
  *   <tr><td>SCRAM-SHA-256</td><td>RFC 7677</td><td>{@code getScramCredentials()}</td></tr>
  *   <tr><td>OAUTHBEARER</td><td>RFC 7628</td><td>{@code validateBearerToken()}</td></tr>
  *   <tr><td>GSSAPI</td><td>RFC 4752</td><td>(Kerberos, external)</td></tr>
  *   <tr><td>EXTERNAL</td><td>RFC 4422</td><td>{@code userExists()}</td></tr>
  * </table>
+ *
+ * <p>The MD5-based SASL mechanisms (CRAM-MD5, DIGEST-MD5) are not supported.
+ * HTTP Digest authentication uses SHA-256 ({@code getDigestHA1()}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.auth.Realm

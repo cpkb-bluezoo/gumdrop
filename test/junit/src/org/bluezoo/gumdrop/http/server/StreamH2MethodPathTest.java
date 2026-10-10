@@ -30,18 +30,16 @@ import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SaslUtils;
+import org.bluezoo.gumdrop.testsupport.DigestTestSupport;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
-import org.bluezoo.util.ByteArrays;
 import org.junit.Test;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -85,7 +83,7 @@ public class StreamH2MethodPathTest {
     private static final String REALM = "test-realm";
     private static final String USERNAME = "alice";
     private static final String PASSWORD = "secret";
-    private static final String HA1 = SaslUtils.computeDigestHA1(
+    private static final String HA1 = DigestTestSupport.ha1(
             USERNAME, REALM, PASSWORD);
 
     private static final class TestDigestProvider extends InlineHttpAuthenticationProvider {
@@ -118,26 +116,9 @@ public class StreamH2MethodPathTest {
     }
 
     private static String computeDigestResponse(String nonce, String qop, String nc,
-            String cnonce, String method, String uri) throws Exception {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        md.update(method.getBytes());
-        md.update((byte) ':');
-        md.update(uri.getBytes());
-        String ha2Hex = ByteArrays.toHexString(md.digest());
-
-        md.reset();
-        md.update(HA1.getBytes());
-        md.update((byte) ':');
-        md.update(nonce.getBytes());
-        md.update((byte) ':');
-        md.update(nc.getBytes());
-        md.update((byte) ':');
-        md.update(cnonce.getBytes());
-        md.update((byte) ':');
-        md.update(qop.getBytes());
-        md.update((byte) ':');
-        md.update(ha2Hex.getBytes());
-        return ByteArrays.toHexString(md.digest());
+            String cnonce, String method, String uri) {
+        return DigestTestSupport.response("SHA-256", HA1, nonce, nc, cnonce, qop,
+                method, uri);
     }
 
     /** RFC 7616 Digest Authorization header, bound to {@code method}/{@code uri}. */
@@ -150,7 +131,7 @@ public class StreamH2MethodPathTest {
         return "Digest username=\"" + USERNAME + "\", realm=\"" + REALM
                 + "\", nonce=\"" + nonce + "\", uri=\"" + uri + "\", response="
                 + response + ", qop=" + qop + ", nc=" + nc + ", cnonce=\""
-                + cnonce + "\"";
+                + cnonce + "\", algorithm=SHA-256";
     }
 
     private static class StubH2Connection extends HttpConnectionLike {

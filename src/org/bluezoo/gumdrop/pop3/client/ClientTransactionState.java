@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.pop3.client;
  * Operations available in the POP3 TRANSACTION state.
  *
  * <p>This interface is provided to the handler after successful
- * authentication (via USER/PASS, APOP, or SASL AUTH) and represents
+ * authentication (via USER/PASS or SASL AUTH) and represents
  * the state where the client can access the mailbox.
  *
  * <p>Available operations correspond to POP3 TRANSACTION-state commands:
@@ -43,7 +43,6 @@ package org.bluezoo.gumdrop.pop3.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see PassReplyHandler#handleAuthenticated
- * @see ApopReplyHandler#handleAuthenticated
  * @see AuthReplyHandler#handleAuthSuccess
  */
 public interface ClientTransactionState {

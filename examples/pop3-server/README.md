@@ -14,7 +14,7 @@ argument: path to another fixture root (for example `test/integration/mailbox/mb
 
 - Cleartext POP3 on port **1110** (no root privileges)
 - Optional POP3S on port **1995** when PEM certificate and key paths are passed
-- APOP and UTF-8 enabled; 2s login delay after failed auth
+- UTF-8 enabled; 2s login delay after failed auth
 
 ## Build
 

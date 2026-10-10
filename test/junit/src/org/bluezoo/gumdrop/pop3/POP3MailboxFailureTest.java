@@ -44,7 +44,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * Checks the error replies {@link Pop3ProtocolHandler} sends when the
  * mailbox backend throws {@link IOException} from each transaction command,
- * and the CAPA output for the optional pipelining and APOP capabilities.
+ * and the CAPA output for the optional pipelining capability.
  * The backend is a mock that delegates to the shared stub mailbox and fails
  * on demand.
  *
@@ -65,7 +65,6 @@ public class POP3MailboxFailureTest {
         realm = new POP3ProtocolHandlerTest.StubRealm();
         listener.realm(realm);
         listener.mailboxFactory(factory);
-        listener.enableAPOP(false);
         endpoint = new POP3AuthFlowsTest.TimerEndpoint();
     }
 
@@ -178,8 +177,7 @@ public class POP3MailboxFailureTest {
     }
 
     @Test
-    public void testCapaListsPipeliningAndApopWhenEnabled() {
-        listener.enableAPOP(true);
+    public void testCapaListsPipeliningWhenEnabled() {
         listener.enablePipelining(true);
         handler = new Pop3ProtocolHandler(listener);
         handler.connected(endpoint);
@@ -187,7 +185,7 @@ public class POP3MailboxFailureTest {
         send("CAPA");
         String capa = all();
         assertTrue(capa, capa.contains("PIPELINING"));
-        assertTrue(capa, capa.contains("APOP"));
+        assertFalse(capa, capa.contains("APOP"));
     }
 
     @Test
@@ -260,12 +258,10 @@ public class POP3MailboxFailureTest {
     }
 
     @Test
-    public void testDigestMd5RejectsInitialResponseAndLoginBadInitial() {
+    public void testLoginBadInitialResponse() {
         handler = new Pop3ProtocolHandler(listener);
         handler.connected(endpoint);
         endpoint.sentData.clear();
-        send("AUTH DIGEST-MD5 abcd");
-        assertTrue(last(), last().startsWith("-ERR"));
         send("AUTH LOGIN !!!");
         assertTrue(last(), last().startsWith("-ERR"));
         send("AUTH LOGIN dGVzdHVzZXI=");
@@ -293,13 +289,13 @@ public class POP3MailboxFailureTest {
     public void testCapaSaslListDependsOnTransportSecurity() {
         realm.supportedMechanisms.add(SaslMechanism.PLAIN);
         realm.supportedMechanisms.add(SaslMechanism.EXTERNAL);
-        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.SCRAM_SHA_256);
         handler = new Pop3ProtocolHandler(listener);
         handler.connected(endpoint);
         endpoint.sentData.clear();
         send("CAPA");
         String plain = saslLine();
-        assertTrue(plain, plain.contains("CRAM-MD5"));
+        assertTrue(plain, plain.contains("SCRAM-SHA-256"));
         assertFalse(plain, plain.contains("PLAIN"));
         assertFalse(plain, plain.contains("EXTERNAL"));
 
@@ -330,7 +326,7 @@ public class POP3MailboxFailureTest {
         handler = new Pop3ProtocolHandler(listener);
         handler.connected(endpoint);
         endpoint.sentData.clear();
-        String[] mechanisms = {"PLAIN", "LOGIN", "OAUTHBEARER", "SCRAM-SHA-256", "CRAM-MD5"};
+        String[] mechanisms = {"PLAIN", "LOGIN", "OAUTHBEARER", "SCRAM-SHA-256"};
         for (int i = 0; i < mechanisms.length; i++) {
             endpoint.sentData.clear();
             handler.receive(ByteBuffer.wrap(("AUTH " + mechanisms[i] + " \r\n").getBytes(StandardCharsets.US_ASCII)));

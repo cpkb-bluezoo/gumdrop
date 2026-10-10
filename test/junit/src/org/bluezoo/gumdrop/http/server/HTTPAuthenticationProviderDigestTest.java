@@ -23,12 +23,8 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SaslUtils;
-import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.testsupport.DigestTestSupport;
 import org.junit.Test;
-
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -44,7 +40,7 @@ public class HTTPAuthenticationProviderDigestTest {
     private static final String REALM = "test-realm";
     private static final String USERNAME = "alice";
     private static final String PASSWORD = "secret";
-    private static final String HA1 = SaslUtils.computeDigestHA1(
+    private static final String HA1 = DigestTestSupport.ha1(
             USERNAME, REALM, PASSWORD);
 
     private static final class TestProvider extends InlineHttpAuthenticationProvider {
@@ -79,39 +75,100 @@ public class HTTPAuthenticationProviderDigestTest {
         return challenge.substring(start, end);
     }
 
-    private static String computeDigestResponse(String ha1Hex, String nonce,
-            String qop, String nc, String cnonce, String method, String uri)
-            throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        md.update(method.getBytes());
-        md.update((byte) ':');
-        md.update(uri.getBytes());
-        String ha2Hex = ByteArrays.toHexString(md.digest());
-
-        md.reset();
-        md.update(ha1Hex.getBytes());
-        md.update((byte) ':');
-        md.update(nonce.getBytes());
-        md.update((byte) ':');
-        md.update(nc.getBytes());
-        md.update((byte) ':');
-        md.update(cnonce.getBytes());
-        md.update((byte) ':');
-        md.update(qop.getBytes());
-        md.update((byte) ':');
-        md.update(ha2Hex.getBytes());
-        return ByteArrays.toHexString(md.digest());
+    private static String buildAuthorizationHeader(String nonce, String method,
+            String uri, String cnonce, String nc) {
+        return buildHeader("SHA-256", HA1, "SHA-256", "auth", nonce, method,
+                uri, cnonce, nc);
     }
 
-    private static String buildAuthorizationHeader(String nonce, String method,
-            String uri, String cnonce, String nc) throws NoSuchAlgorithmException {
-        String qop = "auth";
-        String response = computeDigestResponse(
-                HA1, nonce, qop, nc, cnonce, method, uri);
-        return "Digest username=\"" + USERNAME + "\", realm=\"" + REALM
-                + "\", nonce=\"" + nonce + "\", uri=\"" + uri + "\", response="
-                + response + ", qop=" + qop + ", nc=" + nc + ", cnonce=\""
-                + cnonce + "\"";
+    /**
+     * Builds an Authorization header. hashAlg is the hash used to compute the
+     * response; algParam is the algorithm value declared in the header (null
+     * to omit); qopParam is the qop value declared (null to omit).
+     */
+    private static String buildHeader(String hashAlg, String ha1, String algParam,
+            String qopParam, String nonce, String method, String uri,
+            String cnonce, String nc) {
+        String response = DigestTestSupport.response(hashAlg, ha1, nonce, nc,
+                cnonce, "auth", method, uri);
+        StringBuilder sb = new StringBuilder();
+        sb.append("Digest username=\"").append(USERNAME).append("\", realm=\"")
+                .append(REALM).append("\", nonce=\"").append(nonce)
+                .append("\", uri=\"").append(uri).append("\", response=")
+                .append(response);
+        if (qopParam != null) {
+            sb.append(", qop=").append(qopParam);
+        }
+        sb.append(", nc=").append(nc).append(", cnonce=\"").append(cnonce)
+                .append("\"");
+        if (algParam != null) {
+            sb.append(", algorithm=").append(algParam);
+        }
+        return sb.toString();
+    }
+
+    @Test
+    public void testChallengeAdvertisesSha256AndQopAuth() {
+        TestProvider provider = new TestProvider();
+        String challenge = provider.generateChallenge();
+        assertTrue(challenge, challenge.contains("algorithm=SHA-256"));
+        assertTrue(challenge, challenge.contains("qop=\"auth\""));
+    }
+
+    @Test
+    public void testSha256ResponseSucceeds() {
+        TestProvider provider = new TestProvider();
+        String nonce = extractNonce(provider.generateChallenge());
+        String h = buildHeader("SHA-256", HA1, "SHA-256", "auth", nonce, "GET",
+                "/r", "cn1", "00000001");
+        assertTrue(provider.authenticate(h, "GET", "/r").success);
+    }
+
+    @Test
+    public void testAlgorithmNameIsCaseInsensitive() {
+        TestProvider provider = new TestProvider();
+        String nonce = extractNonce(provider.generateChallenge());
+        String h = buildHeader("SHA-256", HA1, "sha-256", "auth", nonce, "GET",
+                "/r", "cn1", "00000001");
+        assertTrue(provider.authenticate(h, "GET", "/r").success);
+    }
+
+    @Test
+    public void testMd5ResponseRejected() {
+        TestProvider provider = new TestProvider();
+        String nonce = extractNonce(provider.generateChallenge());
+        String md5Ha1 = DigestTestSupport.hex("MD5",
+                USERNAME + ":" + REALM + ":" + PASSWORD);
+        String h = buildHeader("MD5", md5Ha1, "MD5", "auth", nonce, "GET",
+                "/r", "cn1", "00000001");
+        assertFalse(provider.authenticate(h, "GET", "/r").success);
+    }
+
+    @Test
+    public void testAlgorithmOmittedRejected() {
+        TestProvider provider = new TestProvider();
+        String nonce = extractNonce(provider.generateChallenge());
+        String h = buildHeader("SHA-256", HA1, null, "auth", nonce, "GET",
+                "/r", "cn1", "00000001");
+        assertFalse(provider.authenticate(h, "GET", "/r").success);
+    }
+
+    @Test
+    public void testSha256SessRejected() {
+        TestProvider provider = new TestProvider();
+        String nonce = extractNonce(provider.generateChallenge());
+        String h = buildHeader("SHA-256", HA1, "SHA-256-sess", "auth", nonce,
+                "GET", "/r", "cn1", "00000001");
+        assertFalse(provider.authenticate(h, "GET", "/r").success);
+    }
+
+    @Test
+    public void testQopOmittedRejected() {
+        TestProvider provider = new TestProvider();
+        String nonce = extractNonce(provider.generateChallenge());
+        String h = buildHeader("SHA-256", HA1, "SHA-256", null, nonce, "GET",
+                "/r", "cn1", "00000001");
+        assertFalse(provider.authenticate(h, "GET", "/r").success);
     }
 
     @Test

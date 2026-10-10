@@ -85,7 +85,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
     private MailboxFactory mailboxFactory;
     private long loginDelayMs = 0;
     private long transactionTimeoutMs = 600000;
-    private boolean enableAPOP = true;
     private boolean enableUTF8 = true;
     private boolean enablePipelining = false;
 
@@ -170,15 +169,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
 
     public Pop3Server transactionTimeoutMs(long transactionTimeoutMs) {
         this.transactionTimeoutMs = transactionTimeoutMs;
-        return this;
-    }
-
-    public boolean isEnableAPOP() {
-        return enableAPOP;
-    }
-
-    public Pop3Server enableAPOP(boolean enableAPOP) {
-        this.enableAPOP = enableAPOP;
         return this;
     }
 
@@ -313,7 +303,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
         }
         ep.loginDelayMs(loginDelayMs);
         ep.transactionTimeoutMs(transactionTimeoutMs);
-        ep.enableAPOP(enableAPOP);
         ep.enableUTF8(enableUTF8);
         ep.enablePipelining(enablePipelining);
     }
@@ -358,7 +347,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
         private Realm realm;
         private long loginDelayMs = 0;
         private long transactionTimeoutMs = 600000;
-        private boolean enableAPOP = true;
         private boolean enableUTF8 = true;
         private boolean enablePipelining = false;
 
@@ -426,11 +414,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
             return this;
         }
 
-        public Composer enableAPOP(boolean enableAPOP) {
-            this.enableAPOP = enableAPOP;
-            return this;
-        }
-
         public Composer enableUTF8(boolean enableUTF8) {
             this.enableUTF8 = enableUTF8;
             return this;
@@ -457,7 +440,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
             }
             server.loginDelayMs(loginDelayMs);
             server.transactionTimeoutMs(transactionTimeoutMs);
-            server.enableAPOP(enableAPOP);
             server.enableUTF8(enableUTF8);
             server.enablePipelining(enablePipelining);
             for (int i = 0; i < listeners.size(); i++) {
