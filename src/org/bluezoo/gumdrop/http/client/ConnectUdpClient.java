@@ -186,7 +186,7 @@ public class ConnectUdpClient implements AltSvcListener {
 
     /**
      * Creates a CONNECT-UDP client for a proxy reached over a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)}
      * on the server side. Only the proxy connection itself may be a UNIX
      * domain socket -- the UDP target requested through the tunnel (see
      * {@link #connect}) is always a network host/port, per RFC 9298.

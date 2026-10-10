@@ -211,7 +211,7 @@ public interface HttpResponse {
      * Returns the current trace for distributed tracing, or null if none.
      *
      * <p>When making outbound HTTP calls to other services, pass this trace
-     * to {@link org.bluezoo.gumdrop.http.HttpClient#setTrace} so that
+     * to {@link org.bluezoo.gumdrop.http.HttpClient#trace} so that
      * the traceparent header is automatically propagated and the distributed
      * trace remains connected.
      *

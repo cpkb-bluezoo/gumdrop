@@ -48,12 +48,12 @@ import org.bluezoo.gumdrop.TimerHandle;
  * RFC 7858 section 3.3: all DoT messages use the same 2-octet length framing.
  *
  * <p>By default this is a plain TCP transport on port 53. When configured
- * with {@link #setSecure(boolean) setSecure(true)} (or via the {@link
+ * with {@link #secure(boolean) secure(true)} (or via the {@link
  * #createDoT()} factory), it becomes a DNS-over-TLS (DoT) transport on
  * port 853, advertising the {@code "dot"} ALPN identifier as required
  * by RFC 7858 section 3.1. Server certificate verification uses the
  * JVM's default WebPKI trust store unless overridden with {@link
- * #setTrustManager} (an arbitrary {@code X509TrustManager}, e.g. {@link
+ * #tls} (an arbitrary {@code X509TrustManager}, e.g. {@link
  * org.bluezoo.gumdrop.dns.client.DaneTrustManager}) or {@link
  * #pinnedSpkiFingerprints} (RFC 7858 section 4.2's Strict usage
  * profile); when both are set, the trust manager is used as the SPKI

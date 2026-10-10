@@ -125,7 +125,7 @@ public final class Dtls12RecordEngine {
 
     /**
      * Invoked on the owning loop thread once an async handshake batch finishes
-     * and deferred record-layer callbacks have been replayed. {@link Dtls12Session}
+     * and deferred record-layer callbacks have been replayed. {@link org.bluezoo.gumdrop.Dtls12Session}
      * uses this to flush queued handshake flights that were built after the
      * synchronous {@code commitFlightIfNeeded()} call returned.
      */

@@ -45,7 +45,7 @@ package org.bluezoo.gumdrop;
  * @param <S> the session pipeline entry type for one accepted connection
  *            (often the first staged server handler interface)
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  */
 public interface ServerSessionProvider<S> {
 

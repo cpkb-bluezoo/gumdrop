@@ -60,7 +60,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 /**
  * A multicast DNS responder and querier (RFC 6762).
  *
- * <p>On {@link #start()}, this service probes for the exclusive right
+ * <p>On {@link #start(Gumdrop)}, this service probes for the exclusive right
  * to use its configured hostname on the local network (RFC 6762
  * section 8.1), renaming itself (e.g. {@code gumdrop-2.local}) and
  * re-probing if another host already holds the name or wins a
@@ -244,7 +244,7 @@ public class MdnsServer implements Server {
     /**
      * Returns the name currently probed for or announced (including
      * any conflict-resolution suffix and the {@code .local} suffix),
-     * or null before {@link #start()} has run.
+     * or null before {@link #start(Gumdrop)} has run.
      *
      * @return the current mDNS name
      */

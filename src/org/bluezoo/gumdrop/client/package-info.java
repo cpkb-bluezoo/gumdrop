@@ -24,6 +24,6 @@
  *
  * @see org.bluezoo.gumdrop.client.ClientDial
  * @see org.bluezoo.gumdrop.tls.TlsConfig
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  */
 package org.bluezoo.gumdrop.client;

@@ -509,7 +509,7 @@ public class DnsResolver {
      * has.
      *
      * <p>Must be called before {@link #open()}. Disabled by default,
-     * like {@link #setDnssecEnabled}, since it adds an extra query per
+     * like {@link #dnssecEnabled}, since it adds an extra query per
      * not-yet-known server; has no effect when a transport was
      * explicitly configured via {@link #transport}.
      *

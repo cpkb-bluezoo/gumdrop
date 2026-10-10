@@ -90,7 +90,7 @@
  *   <li>Data channel protection via PROT command</li>
  *   <li>RFC 4217 section 10 data-connection IP verification in both
  *       passive and active modes (override with
- *       {@link org.bluezoo.gumdrop.ftp.FtpListener#setAllowActiveModeBounce}
+ *       {@link org.bluezoo.gumdrop.ftp.FtpListener#allowActiveModeBounce}
  *       only when required)</li>
  * </ul>
  *

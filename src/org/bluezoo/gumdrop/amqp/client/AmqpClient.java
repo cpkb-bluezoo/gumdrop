@@ -211,7 +211,7 @@ public class AmqpClient {
 
     /**
      * Creates an AMQP client for a broker reached over a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)}
      * on the server side.
      *
      * @param socketPath the broker's UNIX domain socket path

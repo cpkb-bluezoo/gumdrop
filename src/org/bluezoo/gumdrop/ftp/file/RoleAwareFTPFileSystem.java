@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.ftp.FtpFileSystem;
  * </ul>
  *
  * <p>Optionally, home directory confinement can be enabled via
- * {@link #setHomeDirectoryConfinement(boolean)}. When active, all paths
+ * {@link #homeDirectoryConfinement(boolean)}. When active, all paths
  * are verified to be under {@code /home/<username>}; requests outside
  * that tree are denied.
  *
@@ -68,7 +68,7 @@ import org.bluezoo.gumdrop.ftp.FtpFileSystem;
  * FtpFileSystem base = new BasicFTPFileSystem(rootPath);
  * RoleAwareFTPFileSystem secured =
  *         new RoleAwareFTPFileSystem(base);
- * secured.setHomeDirectoryConfinement(true);
+ * secured.homeDirectoryConfinement(true);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

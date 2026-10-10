@@ -408,7 +408,7 @@ public interface Realm {
     /**
      * Result of certificate-based authentication.
      *
-     * @see #authenticateCertificate(X509Certificate)
+     * @see #authenticateCertificate(X509Certificate, RealmCallback)
      */
     public static class CertificateAuthenticationResult {
         /** Whether the certificate was successfully authenticated. */

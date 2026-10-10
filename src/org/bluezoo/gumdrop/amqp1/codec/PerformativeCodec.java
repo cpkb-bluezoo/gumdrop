@@ -48,7 +48,7 @@ public final class PerformativeCodec {
      * caller reads directly.
      *
      * @param body the frame body, as delivered to
-     *      {@link Amqp1FrameHandler#frame}
+     *      {@link Amqp1FrameHandler#frameBody}
      * @return the decoded performative
      * @throws Amqp1ProtocolException if the body is malformed, or its
      *      descriptor is not a supported performative

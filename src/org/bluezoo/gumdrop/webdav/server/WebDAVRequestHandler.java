@@ -53,7 +53,7 @@ import java.util.logging.Logger;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  */
 public final class WebDAVRequestHandler implements HttpStreamHandler {
 

@@ -94,7 +94,7 @@ public class ImapClient {
     private ImapClientProtocolHandler endpointHandler;
 
     /**
-     * Creates a client for fluent configuration before {@link #connect(RemoteGreeting)}.
+     * Creates a client for fluent configuration before {@link #connect(Gumdrop, RemoteGreeting)}.
      */
     public ImapClient() {
     }
@@ -153,7 +153,7 @@ public class ImapClient {
 
     /**
      * Creates an IMAP client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.

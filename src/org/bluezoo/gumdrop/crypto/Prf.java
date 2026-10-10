@@ -87,7 +87,7 @@ public final class Prf {
 
     /**
      * Returns the PRF instance matching a cipher suite's own digest
-     * algorithm name (e.g. {@link Tls12CipherSuite#getPrfHashAlgorithm}).
+     * algorithm name (e.g. {@link org.bluezoo.gumdrop.tls.Tls12CipherSuite#getPrfHashAlgorithm}).
      *
      * @param digestAlgorithm {@code "SHA-256"} or {@code "SHA-384"}
      * @return the matching PRF instance

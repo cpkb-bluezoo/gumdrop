@@ -114,7 +114,7 @@ public class SmtpClient {
     private Gumdrop gumdrop;
 
     /**
-     * Creates an SMTP client for fluent configuration before {@link #connect()}.
+     * Creates an SMTP client for fluent configuration before {@link #connect(Gumdrop, RemoteGreeting)}.
      */
     public SmtpClient() {
     }
@@ -173,7 +173,7 @@ public class SmtpClient {
 
     /**
      * Creates an SMTP client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.
@@ -201,7 +201,7 @@ public class SmtpClient {
 
     /**
      * Sets the remote hostname. Resolved via {@link DnsResolver} at
-     * {@link #connect()}.
+     * {@link #connect(Gumdrop, RemoteGreeting)}.
      *
      * @param host the remote hostname
      * @return this client
@@ -303,7 +303,7 @@ public class SmtpClient {
      * Connects to the remote SMTP server.
      *
      * <p>If a DANE resolver was configured via {@link
-     * #setDaneResolver}, first looks up TLSA records for this
+     * #daneResolver}, first looks up TLSA records for this
      * client's host and port; otherwise connects immediately.
      *
      * @param gumdrop the runtime this connection is made under

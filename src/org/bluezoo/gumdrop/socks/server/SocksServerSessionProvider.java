@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.ServerSessionProvider;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerSessionProvider
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  */
 public interface SocksServerSessionProvider
         extends ServerSessionProvider<SocksSessionHandler> {

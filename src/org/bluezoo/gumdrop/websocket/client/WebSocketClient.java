@@ -218,7 +218,7 @@ public class WebSocketClient implements AltSvcListener {
 
     /**
      * Creates a WebSocket client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance. Incompatible with a version list permitting only HTTP/3
@@ -483,7 +483,7 @@ public class WebSocketClient implements AltSvcListener {
      *
      * @param gumdrop the runtime this connection is made under
      * @param path the request path (e.g. "/ws" or "/chat")
-     * @param handler the handler to receive WebSocket events
+     * @param eventHandler the handler to receive WebSocket events
      */
     public void connect(Gumdrop gumdrop, String path, WebSocketEventHandler eventHandler) {
         final WebSocketEventHandler handler = maxMessageSize >= 0

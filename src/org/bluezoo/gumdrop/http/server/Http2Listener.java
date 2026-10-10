@@ -79,7 +79,7 @@ public class Http2Listener extends TcpListener {
     /**
      * Default maximum request body size: 64 MB. Bounds memory and handler
      * exposure to oversized uploads. Deployments can raise this or set
-     * {@code 0} (unlimited) via {@link #setMaxRequestBodySize(long)}.
+     * {@code 0} (unlimited) via {@link #maxRequestBodySize(long)}.
      */
     public static final long DEFAULT_MAX_REQUEST_BODY_SIZE = 64L * 1024 * 1024;
 

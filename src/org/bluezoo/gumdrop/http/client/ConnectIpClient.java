@@ -195,7 +195,7 @@ public class ConnectIpClient implements AltSvcListener {
 
     /**
      * Creates a CONNECT-IP client for a proxy reached over a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)}
      * on the server side. Only the proxy connection itself may be a UNIX
      * domain socket -- the IP target requested through the tunnel (see
      * {@link #connect}) is a network-scope hint, per RFC 9484.

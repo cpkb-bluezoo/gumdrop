@@ -39,6 +39,6 @@
  * via {@link LegacyConnectionHandlerAdapter}.
  *
  * @see FtpServerSessionProvider
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  */
 package org.bluezoo.gumdrop.ftp.server;

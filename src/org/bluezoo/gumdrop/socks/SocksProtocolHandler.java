@@ -70,7 +70,7 @@ import static org.bluezoo.gumdrop.socks.SocksConstants.*;
  * or 0x05 (SOCKS5) per RFC 1928 §3 first octet.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SocksServer
+ * @see org.bluezoo.gumdrop.socks.server.SocksServer
  * @see SocksRelay
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1928">RFC 1928</a> SOCKS Protocol Version 5
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1929">RFC 1929</a> Username/Password Authentication

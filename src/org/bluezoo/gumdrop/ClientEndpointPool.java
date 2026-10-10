@@ -85,7 +85,7 @@ import java.text.MessageFormat;/**
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
  * @see ClientEndpoint
- * @see org.bluezoo.gumdrop.http.HttpClient#setConnectionPool
+ * @see org.bluezoo.gumdrop.http.HttpClient#connectionPool
  */
 public class ClientEndpointPool {
 

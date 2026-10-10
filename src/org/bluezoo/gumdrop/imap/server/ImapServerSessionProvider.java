@@ -30,7 +30,7 @@ import org.bluezoo.gumdrop.ServerSessionProvider;
  * <p>Stock provider: {@link MailboxStoreImapSessionProvider}.
  *
  * @see ServerSessionProvider
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface ImapServerSessionProvider

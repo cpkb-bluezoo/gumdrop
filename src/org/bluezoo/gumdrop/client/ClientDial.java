@@ -35,13 +35,13 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
  * Shared outbound dial target for protocol client facades — host, port, UNIX
  * socket path, selector loop, and optional DNS resolver.
  *
- * <p>Configure fluently before {@link #connect(TransportFactory, ProtocolHandler)}.
+ * <p>Configure fluently before {@link #connect(Gumdrop, TransportFactory, ProtocolHandler)}.
  * When no {@link #dnsResolver(DnsResolver)} is set, {@link ClientEndpoint} uses
  * {@link DnsResolver#forLoop} at connect time (until {@code Runtime} client
  * defaults land).
  *
  * @see org.bluezoo.gumdrop.tls.TlsConfig
- * @see web/configuration.html
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class ClientDial {

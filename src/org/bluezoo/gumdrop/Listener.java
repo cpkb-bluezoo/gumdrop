@@ -394,11 +394,6 @@ public abstract class Listener {
         return dtlsVersion;
     }
 
-    /**
-     * Sets the DTLS protocol version UDP listeners speak.
-     *
-     * @param dtlsVersion the DTLS version
-     */
     protected void setDtlsRequireCookie(boolean require) {
         this.dtlsRequireCookie = require;
     }
@@ -411,6 +406,11 @@ public abstract class Listener {
         this.dtlsMaxFragmentSize = bytes;
     }
 
+    /**
+     * Sets the DTLS protocol version UDP listeners speak.
+     *
+     * @param dtlsVersion the DTLS version
+     */
     protected void setDtlsVersion(DtlsVersion dtlsVersion) {
         this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.NEGOTIATE;
     }

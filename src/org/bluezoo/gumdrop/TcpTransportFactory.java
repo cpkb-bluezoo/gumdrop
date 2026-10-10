@@ -667,12 +667,12 @@ public class TcpTransportFactory extends TransportFactory {
 
     /**
      * Creates a client-side TcpEndpoint and connects to a UNIX domain
-     * socket, mirroring {@link TcpListener#setPath} on the server side:
+     * socket, mirroring {@link TcpListener#path(java.nio.file.Path)} on the server side:
      * {@link StandardProtocolFamily#UNIX} instead of a TCP port.
      *
      * <p>The connection is initiated asynchronously, with the same
-     * endpoint setup/registration as {@link #connect(InetAddress, int,
-     * ProtocolHandler, SelectorLoop)}. TLS remains orthogonal to the
+     * endpoint setup/registration as {@link #connect(Gumdrop, InetAddress,
+     * int, ProtocolHandler, SelectorLoop)}. TLS remains orthogonal to the
      * addressing mode -- if this factory is secure, the TLS handshake
      * proceeds the same way over the connected UNIX domain socket channel
      * as it would over TCP; since a filesystem path has no meaningful

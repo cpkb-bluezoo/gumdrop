@@ -167,7 +167,7 @@ public class ClientEndpoint {
 
     /**
      * Creates a client for a UNIX domain socket with a specific
-     * SelectorLoop for I/O, mirroring {@link TcpListener#setPath} on the
+     * SelectorLoop for I/O, mirroring {@link TcpListener#path(java.nio.file.Path)} on the
      * server side. Requires a {@link TcpTransportFactory} -- there is no
      * QUIC/UDP equivalent of a filesystem socket.
      *
@@ -250,7 +250,7 @@ public class ClientEndpoint {
 
     /**
      * Creates a client for a UNIX domain socket without a SelectorLoop,
-     * mirroring {@link TcpListener#setPath} on the server side. Requires a
+     * mirroring {@link TcpListener#path(java.nio.file.Path)} on the server side. Requires a
      * {@link TcpTransportFactory} -- there is no QUIC/UDP equivalent of a
      * filesystem socket.
      *

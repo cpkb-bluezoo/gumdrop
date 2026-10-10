@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.Endpoint;
  *
  * <p>The name {@code ClientConnected} is historical (remote client connected to
  * our server). Prefer thinking in terms of <em>inbound session opened</em>.
- * Stateless protocols (HTTP, DNS) do not use {@link ServerSessionProvider}.
+ * Stateless protocols (HTTP, DNS) do not use {@link org.bluezoo.gumdrop.ServerSessionProvider}.
  *
  * <p>The staged handler pattern guides implementers through the SMTP protocol
  * by providing type-safe state interfaces at each step. This makes it impossible

@@ -30,14 +30,14 @@ import javax.net.ssl.X509TrustManager;
 
 /**
  * TLS identity and trust material — the same type for both a server-side
- * {@link Listener} (HTTPS, HTTP/3, SMTPS, DoT, …) and an outbound client
+ * {@link org.bluezoo.gumdrop.Listener} (HTTPS, HTTP/3, SMTPS, DoT, …) and an outbound client
  * facade.
  *
  * <p>A {@code TlsConfig} holds <strong>material only</strong>: the identity
  * a side presents (certificate/key or keystore, or {@link ServerCredentials})
  * and the trust it extends to its peer ({@link #verifyPeer}, {@link
  * #trustManager}). It says nothing about <em>when</em> TLS starts — that is
- * a property of the consumer, not this config: {@link Listener#secure(boolean)}
+ * a property of the consumer, not this config: {@link org.bluezoo.gumdrop.Listener#secure(boolean)}
  * on the server side, and each client facade's own {@code secure(boolean)}
  * on the client side. Supplying material here only makes TLS (and, on a
  * STARTTLS-capable protocol, an upgrade) <em>possible</em>; it never by
@@ -56,8 +56,8 @@ import javax.net.ssl.X509TrustManager;
  * it before {@code connect()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Listener#tls(TlsConfig)
- * @see web/configuration.html
+ * @see org.bluezoo.gumdrop.Listener#tls(TlsConfig)
+ * @see <a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/web/configuration.html">web/configuration.html</a>
  */
 public final class TlsConfig {
 

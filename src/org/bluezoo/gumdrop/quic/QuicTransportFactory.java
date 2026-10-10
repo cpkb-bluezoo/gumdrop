@@ -842,7 +842,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
-     * Applies configured ECH server keys to a {@link QuicTlsServerEngine}.
+     * Applies configured ECH server keys to a {@link org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine}.
      */
     public void applyEchServerSettings(org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine tlsEngine) {
         HandshakeConfig cfg = tlsEngine.getHandshakeConfig();
@@ -850,7 +850,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
-     * Applies client ECH settings to a {@link QuicTlsClientEngine}.
+     * Applies client ECH settings to a {@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine}.
      */
     public void applyEchClientSettings(org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine tlsEngine) {
         if (clientEchConfig != null) {

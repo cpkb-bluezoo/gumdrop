@@ -88,7 +88,7 @@ import java.util.logging.Logger;
  * <p>Valid keys are promoted into {@link DnssecTrustAnchor} via {@link
  * DnssecTrustAnchor#addDNSKEYAnchor}; keys leaving the Valid state are
  * removed from it the same way. Tracked state (which keys, which
- * state, and since when) is persisted to {@link #setStateFile} across
+ * state, and since when) is persisted to {@link #stateFile} across
  * restarts, as RFC 5011 section 2.3 requires for hold-down timers to
  * survive one.
  *
@@ -239,7 +239,7 @@ public class DnssecTrustAnchorUpdater {
      * Valid key(s) on the first successful check; a zone with no
      * static anchor at all can still be enrolled, but nothing is ever
      * promoted for it unless some other already-Valid key already
-     * covers it (e.g. one restored from {@link #setStateFile}).
+     * covers it (e.g. one restored from {@link #stateFile}).
      *
      * @param zone the trust point zone name (e.g. {@code "."} for the root)
      */

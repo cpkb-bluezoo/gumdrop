@@ -1733,7 +1733,7 @@ public class Gumdrop {
      * Returns the shared crypto worker pool used to run CPU-bound TLS
      * handshake delegated tasks off the SelectorLoop threads.
      *
-     * <p>Available after {@link #start()}. {@link SSLState} and {@code
+     * <p>Available after {@link #start()}. {@code TlsHandshakeAsyncOffload} and {@code
      * DTLSSession} submit TLS/DTLS handshake delegated tasks (RSA/ECDHE key
      * exchange, certificate chain validation) here and resume on the
      * connection's loop via the callback; {@code

@@ -36,12 +36,12 @@ import java.util.logging.Logger;
 /**
  * Reads and writes the small sidecar file holding a mailbox's RFC 8474
  * MAILBOXID: a stable identifier for the mailbox itself (as opposed to
- * {@link MessageIndex the per-message search index}, which is rebuilt
+ * {@link org.bluezoo.gumdrop.mailbox.index.MessageIndex the per-message search index}, which is rebuilt
  * routinely and covers only messages).
  *
  * <p>Deliberately its own tiny sidecar rather than a field inside the
  * {@code .gidx} message index: the index is expected to be discarded and
- * rebuilt on corruption or a format version bump (see {@link MessageIndex
+ * rebuilt on corruption or a format version bump (see {@link org.bluezoo.gumdrop.mailbox.index.MessageIndex
  * MessageIndex}'s version handling), but MAILBOXID must survive that --
  * losing it and generating a new one on every index rebuild would defeat
  * the point of the identifier being stable.

@@ -35,7 +35,7 @@ import java.net.UnixDomainSocketAddress;
 import java.util.ResourceBundle;
 /**
  * Base class for TCP server connectors that listen on ports and accept
- * connections. Also supports UNIX domain sockets when a {@link #setPath
+ * connections. Also supports UNIX domain sockets when a {@link #path(java.nio.file.Path)
  * path} is configured instead of a port.
  *
  * <p>Extends {@link Listener} with TCP-specific

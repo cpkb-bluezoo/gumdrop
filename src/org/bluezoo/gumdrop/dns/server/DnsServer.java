@@ -220,7 +220,7 @@ public class DnsServer implements Server {
     // ── Lifecycle ──
 
     /**
-     * Called during {@link #start()} before listeners are wired and
+     * Called during {@link #start(Gumdrop)} before listeners are wired and
      * started. Subclasses can override to perform custom initialisation.
      */
     protected void initService() {

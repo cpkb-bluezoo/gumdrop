@@ -103,8 +103,8 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * <ul>
  *   <li>TLS with ALPN "h2" (section 3.2) -- default for secure connections</li>
  *   <li>h2c cleartext upgrade (section 3.1, deprecated by RFC 9113 but
- *       intentionally retained) -- see {@link #setH2cUpgradeEnabled}</li>
- *   <li>Prior knowledge (section 3.3) -- see {@link #setH2WithPriorKnowledge}</li>
+ *       intentionally retained) -- see {@link #versions(HttpVersion...)}</li>
+ *   <li>Prior knowledge (section 3.3) -- see {@link #h2WithPriorKnowledge(boolean)}</li>
  * </ul>
  *
  * <h4>Basic Usage</h4>
@@ -269,10 +269,10 @@ public class HttpClient implements AltSvcListener {
 
     /**
      * Creates an HTTP client for a UNIX domain socket, mirroring {@link
-     * org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
+     * org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
-     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * Gumdrop} instance. Incompatible with {@link #versions(HttpVersion...)} with HTTP/3
      * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
      * equivalent -- and with DNS/Alt-Svc transport negotiation, both
      * skipped entirely for a path-based client. The {@code Host} header
@@ -1297,7 +1297,7 @@ public class HttpClient implements AltSvcListener {
 
     /**
      * Initiates a WebSocket-over-HTTP/3 connection via Extended CONNECT
-     * (RFC 9220 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * (RFC 9220 section 3). Requires {@link #versions(HttpVersion...)} with HTTP/3 and a
      * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
      *
      * @param path the request path
@@ -1321,7 +1321,7 @@ public class HttpClient implements AltSvcListener {
 
     /**
      * Initiates a CONNECT-UDP tunnel over HTTP/3 Extended CONNECT (RFC
-     * 9298 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * 9298 section 3). Requires {@link #versions(HttpVersion...)} with HTTP/3 and a
      * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
      *
      * @param targetHost the UDP target's host (hostname or literal address)
@@ -1343,7 +1343,7 @@ public class HttpClient implements AltSvcListener {
 
     /**
      * Initiates a CONNECT-IP tunnel over HTTP/3 Extended CONNECT (RFC
-     * 9484 section 4.4). Requires {@link #setH3Enabled(boolean)} and a
+     * 9484 section 4.4). Requires {@link #versions(HttpVersion...)} with HTTP/3 and a
      * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
      *
      * @param target the target scope hint ({@link

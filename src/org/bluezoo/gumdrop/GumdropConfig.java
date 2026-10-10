@@ -22,10 +22,10 @@
 package org.bluezoo.gumdrop;
 
 /**
- * Configuration for {@link Gumdrop#start(GumdropConfig)}.
+ * Configuration for {@link Gumdrop#boot(GumdropConfig)}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Gumdrop#start(GumdropConfig)
+ * @see Gumdrop#boot(GumdropConfig)
  */
 public final class GumdropConfig {
 

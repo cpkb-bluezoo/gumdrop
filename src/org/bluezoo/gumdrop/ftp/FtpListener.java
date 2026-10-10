@@ -43,7 +43,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  *       This is the normal server deployment path.</li>
  *   <li>When used standalone (no server), a
  *       {@link FtpConnectionHandlerFactory} can be set directly via
- *       {@link #setHandlerFactory}. This enables standalone FTP data
+ *       {@link #handlerFactory}. This enables standalone FTP data
  *       servers or embedded usage without a full server lifecycle.</li>
  * </ol>
  *
@@ -303,7 +303,7 @@ public class FtpListener extends TcpListener {
 
     /**
      * Sets the lowest port number to use for passive-mode (PASV/EPSV)
-     * data listeners. Used together with {@link #setPasvMaxPort} to
+     * data listeners. Used together with {@link #pasvMaxPort} to
      * restrict passive data connections to a fixed range, for
      * deployments behind a firewall that only forwards a limited set of
      * ports. 0 (the default) means unrestricted, OS-assigned.
@@ -328,7 +328,7 @@ public class FtpListener extends TcpListener {
 
     /**
      * Sets the highest port number to use for passive-mode (PASV/EPSV)
-     * data listeners. See {@link #setPasvMinPort}.
+     * data listeners. See {@link #pasvMinPort}.
      *
      * @param port the highest passive-mode port, or 0 for unrestricted
      * @return this

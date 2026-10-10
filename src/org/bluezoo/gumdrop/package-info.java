@@ -39,7 +39,7 @@
  * org.bluezoo.gumdrop.ProtocolHandler} is the callback interface protocol
  * implementations receive events through. {@link org.bluezoo.gumdrop.TcpListener}
  * is the base class for server-side connectors (TCP or, via {@link
- * org.bluezoo.gumdrop.TcpListener#setPath}, a UNIX domain socket); {@link
+ * org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)}, a UNIX domain socket); {@link
  * org.bluezoo.gumdrop.ClientEndpoint} is its client-side counterpart for
  * initiating outbound connections. {@link org.bluezoo.gumdrop.SecurityInfo}
  * exposes negotiated TLS/DTLS/QUIC session metadata to protocol handlers,

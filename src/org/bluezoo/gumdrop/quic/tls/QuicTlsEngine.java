@@ -36,7 +36,7 @@ public interface QuicTlsEngine {
     /**
      * Feeds received CRYPTO frame data at the given level into
      * handshake message reassembly. Complete messages are dispatched to
-     * {@link HandshakeEngine} asynchronously, off the caller's thread,
+     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} asynchronously, off the caller's thread,
      * via {@link QuicHandshakeAsyncOffload}; a processing failure
      * reaches {@link QuicTlsEngineListener#cryptoProcessingFailed}
      * rather than being thrown back through this call.

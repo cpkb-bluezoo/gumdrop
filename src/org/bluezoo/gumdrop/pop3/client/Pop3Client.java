@@ -110,7 +110,7 @@ public class Pop3Client {
     private Pop3ClientProtocolHandler endpointHandler;
 
     /**
-     * Creates a client for fluent configuration before {@link #connect(RemoteGreeting)}.
+     * Creates a client for fluent configuration before {@link #connect(Gumdrop, RemoteGreeting)}.
      */
     public Pop3Client() {
     }
@@ -168,7 +168,7 @@ public class Pop3Client {
 
     /**
      * Creates a POP3 client for a UNIX domain socket, mirroring {@link
-     * org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
+     * org.bluezoo.gumdrop.TcpListener#path(java.nio.file.Path)} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.

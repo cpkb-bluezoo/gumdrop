@@ -215,7 +215,7 @@ public final class TlsUtils {
      * Extracts server credentials (certificate chain + private key) from
      * an already-loaded keystore, for a specific alias -- the
      * already-loaded-{@link KeyStore} counterpart of
-     * {@link #loadServerCredentials(Path, String, String, String)}, for a
+     * {@link #loadServerCredentials(Path, String, KeystoreFormat, String)}, for a
      * caller (such as SNI dispatch) that needs to extract credentials for
      * several different aliases from the same keystore without reloading
      * it from disk each time ({@link #loadKeyStore} already caches by
