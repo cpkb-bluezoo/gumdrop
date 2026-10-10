@@ -730,36 +730,58 @@ public class AcceptSelectorLoop implements Runnable {
         Set<InetAddress> addrs = server.getAddresses();
         int port = server.getPort();
 
+        // Addresses the operator did not name are best-effort: one that cannot
+        // be bound (for example a tentative IPv6 link-local address in a
+        // freshly started container) is skipped so the rest still serve.
+        boolean bestEffort = server.hasDefaultAddresses();
+        IOException failure = null;
+        int bound = 0;
         for (InetAddress address : addrs) {
             ServerSocketChannel ssc = ServerSocketChannel.open();
-            ssc.configureBlocking(false);
-            ServerSocket ss = ssc.socket();
+            try {
+                ssc.configureBlocking(false);
+                ServerSocket ss = ssc.socket();
 
-            // For the wildcard/any-local address, bind without an explicit
-            // address so the JDK creates a single (dual-stack where the OS
-            // allows) wildcard socket rather than an IPv4-only 0.0.0.0 bind.
-            InetSocketAddress socketAddress = address.isAnyLocalAddress()
-                    ? new InetSocketAddress(port)
-                    : new InetSocketAddress(address, port);
-            long t1 = System.currentTimeMillis();
-            ss.bind(socketAddress);
-            long t2 = System.currentTimeMillis();
+                // For the wildcard/any-local address, bind without an explicit
+                // address so the JDK creates a single (dual-stack where the OS
+                // allows) wildcard socket rather than an IPv4-only 0.0.0.0 bind.
+                InetSocketAddress socketAddress = address.isAnyLocalAddress()
+                        ? new InetSocketAddress(port)
+                        : new InetSocketAddress(address, port);
+                long t1 = System.currentTimeMillis();
+                ss.bind(socketAddress);
+                long t2 = System.currentTimeMillis();
 
-            if (ss.getLocalPort() > 0) {
-                server.applyBoundTcpPort(ss.getLocalPort());
+                if (ss.getLocalPort() > 0) {
+                    server.applyBoundTcpPort(ss.getLocalPort());
+                }
+
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    String message = Gumdrop.L10N.getString("info.bound_server");
+                    message = MessageFormat.format(message,
+                            server.getDescription(), ss.getLocalPort(), address, (t2 - t1));
+                    LOGGER.fine(message);
+                }
+
+                SelectionKey key = ssc.register(selector, SelectionKey.OP_ACCEPT);
+                key.attach(server);
+
+                server.addServerChannel(ssc);
+                bound++;
+            } catch (IOException e) {
+                closeQuietly(ssc);
+                if (!bestEffort) {
+                    throw e;
+                }
+                failure = e;
+                events.warn("log.skipped_unbindable_address")
+                        .attr("listener", server.getDescription())
+                        .attr("address", address.getHostAddress())
+                        .attr("reason", e.getMessage()).emit();
             }
-
-            if (LOGGER.isLoggable(Level.FINE)) {
-                String message = Gumdrop.L10N.getString("info.bound_server");
-                message = MessageFormat.format(message,
-                        server.getDescription(), ss.getLocalPort(), address, (t2 - t1));
-                LOGGER.fine(message);
-            }
-
-            SelectionKey key = ssc.register(selector, SelectionKey.OP_ACCEPT);
-            key.attach(server);
-
-            server.addServerChannel(ssc);
+        }
+        if (bound == 0 && failure != null) {
+            throw failure;
         }
     }
 

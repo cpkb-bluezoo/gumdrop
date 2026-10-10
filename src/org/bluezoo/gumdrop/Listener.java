@@ -991,6 +991,14 @@ public abstract class Listener {
     }
 
     /**
+     * Returns whether this listener is on the default address set (every
+     * local address) rather than a wildcard or an explicit list.
+     */
+    boolean hasDefaultAddresses() {
+        return getPath() == null && !wildcard && addresses == null;
+    }
+
+    /**
      * Checks whether a connection from the given remote address should
      * be accepted, based on CIDR allow/block lists and rate limits.
      *

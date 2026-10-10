@@ -23,7 +23,8 @@ COPY . .
 RUN ant container-zip
 
 # ---- Runtime stage ---------------------------------------------------------
-FROM eclipse-temurin:25-jre AS runtime
+# JDK, not JRE: JSP pages are compiled at run time and need jdk.compiler.
+FROM eclipse-temurin:25-jdk AS runtime
 
 # Run as an unprivileged user on a (mostly) read-only-friendly layout.
 RUN groupadd --system gumdrop \

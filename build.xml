@@ -1437,6 +1437,7 @@
           <include name='**/SelectorLoopTcpLoopbackIntegrationTest.java'/>
           <include name='**/GumdropLiveConnectionIntegrationTest.java'/>
           <include name='**/AcceptSelectorLoopUnconfiguredListenerIntegrationTest.java'/>
+          <include name='**/AcceptSelectorLoopUnbindableAddressIntegrationTest.java'/>
           <include name='**/UDPTransportFactoryConnectTest.java'/>
           <include name='**/SelectorLoopCrashIsolationTest.java'/>
           <include name='**/ClientEndpointUnixSocketTest.java'/>
