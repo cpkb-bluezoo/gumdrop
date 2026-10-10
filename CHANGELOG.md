@@ -13,6 +13,14 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **`DnssecChainValidator.clock(Clock)`** sets the clock that signature validity
+  periods are checked against (the system clock by default), so DNSSEC data
+  recorded from the real DNS can be validated as of the time it was captured.
+  `scripts/capture-dnssec-fixture.sh` records such data (a maintainer tool, never
+  run by the build) and the unit tests replay real chains for cloudflare.com,
+  www.ietf.org, iana.org and an unsigned zone through the shipped IANA root
+  trust anchors, with no network, together with damaged copies of each.
+
 - **IMAP server example**: `examples/imap-server/ImapExample.java` serves the mbox
   fixture and shows a `DefaultIMAPHandler` subclass adding policy (it logs SELECT
   and refuses to delete INBOX). It is built by `examples-compile`.
@@ -484,6 +492,11 @@ user-visible themes since 2.2.x.
     applies at every level of the chain, including the DS RRset. DNSSEC
     validation is off unless enabled on the resolver, but the DNS relay server
     uses the same validator.
+  - **A key set that does not match a configured trust anchor is `BOGUS`**
+    (it used to look unsigned). With the root's keys not authenticated, the walk
+    asked for a DS record above the root, got an empty answer and reported
+    `INSECURE`, so a forged root key set downgraded silently. Any zone that has
+    an anchor must now match it.
   - **DNSSEC now tries every RRSIG** on an RRset instead of only the first, so
     an algorithm or key rollover (several signatures, not all usable) no
     longer makes a valid zone `BOGUS`.

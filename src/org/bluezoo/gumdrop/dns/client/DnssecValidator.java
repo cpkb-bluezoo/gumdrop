@@ -135,7 +135,17 @@ public final class DnssecValidator {
      * @return true if the signature is within its validity period
      */
     public static boolean isRRSIGCurrent(DnsResourceRecord rrsig) {
-        long now = System.currentTimeMillis() / 1000;
+        return isRRSIGCurrent(rrsig, System.currentTimeMillis() / 1000);
+    }
+
+    /**
+     * Checks whether an RRSIG is temporally valid at a given time.
+     *
+     * @param rrsig the RRSIG record
+     * @param now the time to test, in seconds since the epoch
+     * @return true if the signature is within its validity period at that time
+     */
+    public static boolean isRRSIGCurrent(DnsResourceRecord rrsig, long now) {
         long inception = rrsig.getRRSIGInception();
         long expiration = rrsig.getRRSIGExpiration();
         return now >= inception && now <= expiration;

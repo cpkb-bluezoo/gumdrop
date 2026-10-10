@@ -210,6 +210,32 @@ public class DnssecChainValidatorTest {
         assertEquals(DnssecStatus.SECURE, status);
     }
 
+    private DnssecStatus runAt(long epochSeconds) throws Exception {
+        TestKey ksk = ecdsaP256("example.com.", 257);
+        TestKey parent = ecdsaP256("com.", 257);
+        anchors.addDNSKEYAnchor("com.", parent.dnskey);
+        List<DnsResourceRecord> answers = setUpTwoLevelChain(ksk, parent);
+        validator.clock(java.time.Clock.fixed(
+                java.time.Instant.ofEpochSecond(epochSeconds), java.time.ZoneOffset.UTC));
+        run(answers, none());
+        return status;
+    }
+
+    @Test
+    public void testFixedClockInsideValidityWindowIsSecure() throws Exception {
+        assertEquals(DnssecStatus.SECURE, runAt(now()));
+    }
+
+    @Test
+    public void testFixedClockAfterExpiryIsBogus() throws Exception {
+        assertEquals(DnssecStatus.BOGUS, runAt(now() + 7200));
+    }
+
+    @Test
+    public void testFixedClockBeforeInceptionIsBogus() throws Exception {
+        assertEquals(DnssecStatus.BOGUS, runAt(now() - 7200));
+    }
+
     @Test
     public void testDsMismatchIsBogus() throws Exception {
         TestKey ksk = ecdsaP256("example.com.", 257);

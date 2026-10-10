@@ -31,6 +31,7 @@ import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 
 import java.text.MessageFormat;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -78,6 +79,7 @@ public final class DnssecChainValidator {
 
     private final DnsResolver resolver;
     private final DnssecTrustAnchor trustAnchor;
+    private Clock clock = Clock.systemUTC();
 
     /**
      * Creates a chain validator.
@@ -89,6 +91,19 @@ public final class DnssecChainValidator {
                                 DnssecTrustAnchor trustAnchor) {
         this.resolver = resolver;
         this.trustAnchor = trustAnchor;
+    }
+
+    /**
+     * Sets the clock that signature validity periods are checked against.
+     * The default is the system clock; a fixed clock lets recorded
+     * responses be validated as of the time they were captured.
+     *
+     * @param clock the clock to use
+     * @return this validator
+     */
+    public DnssecChainValidator clock(Clock clock) {
+        this.clock = clock;
+        return this;
     }
 
     /**
@@ -210,12 +225,17 @@ public final class DnssecChainValidator {
         fetchDNSKEY(rrset, current, signerZone, response, callback, 0);
     }
 
+    /** The validation time, in seconds since the epoch. */
+    private long now() {
+        return clock.millis() / 1000;
+    }
+
     /** The signatures whose validity period includes the present. */
-    private static List<DnsResourceRecord> currentSignatures(
+    private List<DnsResourceRecord> currentSignatures(
             List<DnsResourceRecord> rrsigs) {
         List<DnsResourceRecord> current = new ArrayList<>();
         for (int i = 0; i < rrsigs.size(); i++) {
-            if (DnssecValidator.isRRSIGCurrent(rrsigs.get(i))) {
+            if (DnssecValidator.isRRSIGCurrent(rrsigs.get(i), now())) {
                 current.add(rrsigs.get(i));
             }
         }
@@ -378,7 +398,7 @@ public final class DnssecChainValidator {
                 keyRecords, DnsType.DNSKEY.getValue());
         for (int i = 0; i < sigs.size(); i++) {
             DnsResourceRecord sig = sigs.get(i);
-            if (!DnssecValidator.isRRSIGCurrent(sig)
+            if (!DnssecValidator.isRRSIGCurrent(sig, now())
                     || !signerZone.equalsIgnoreCase(sig.getRRSIGSignerName())
                     || DnssecAlgorithm.fromNumber(sig.getRRSIGAlgorithm()) == null) {
                 continue;
@@ -453,6 +473,21 @@ public final class DnssecChainValidator {
                 callback.onValidated(DnssecStatus.SECURE, response);
                 return;
             }
+        }
+
+        // A zone with a trust anchor is one that must validate; its keys not
+        // matching the anchor is a failure, not a reason to look further. In
+        // particular the root has no parent whose DS record could be asked
+        // for, and the answer a resolver gets to that question (nothing)
+        // would otherwise make a forged root key set look merely unsigned.
+        if (!trustAnchor.getAnchors(signerZone).isEmpty()
+                || !trustAnchor.getDNSKEYAnchors(signerZone).isEmpty()) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("dnssec.anchor_mismatch"), signerZone));
+            }
+            callback.onValidated(DnssecStatus.BOGUS, response);
+            return;
         }
 
         if (depth >= MAX_CHAIN_DEPTH) {
