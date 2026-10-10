@@ -921,8 +921,11 @@
       <!-- Per-testcase detail goes to ${testdir}/junit/results only; do not
            mirror plain formatter to the console (parameterized suites such
            as HPACK story tests would print dozens of passing lines per class).
-           Failures are still echoed via logfailedtests and haltonfailure. -->
+           The brief formatter prints nothing for a passing test case, but
+           for a failing one the assertion message and stack trace, so a
+           failure in CI says which assertion failed, not just which class. -->
       <formatter type="plain" />
+      <formatter type="brief" usefile="false" />
       <!--formatter type="xml" /-->
     </junit>
   </target>

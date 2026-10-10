@@ -95,6 +95,17 @@ public class RequestApiTest {
         }
     }
 
+    // An address that already carries its host name, so asking for the
+    // name never does a reverse lookup: unit tests do no real I/O.
+    private static java.net.InetSocketAddress named(String host, int port) {
+        try {
+            return new java.net.InetSocketAddress(
+                    java.net.InetAddress.getByAddress(host, new byte[] {127, 0, 0, 1}), port);
+        } catch (java.net.UnknownHostException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static final class StubState implements HttpResponse {
         boolean secure;
         boolean push = true;
@@ -106,10 +117,10 @@ public class RequestApiTest {
         String pending;
 
         @Override public SocketAddress getRemoteAddress() {
-            return new java.net.InetSocketAddress("127.0.0.1", 40000);
+            return named("client.test", 40000);
         }
         @Override public SocketAddress getLocalAddress() {
-            return new java.net.InetSocketAddress("127.0.0.1", 8443);
+            return named("server.test", 8443);
         }
         @Override public boolean isSecure() { return secure; }
         @Override public SecurityInfo getSecurityInfo() { return NullSecurityInfo.INSTANCE; }
@@ -498,11 +509,11 @@ public class RequestApiTest {
         assertEquals("example.org", r.getServerName());
         assertEquals(8443, r.getServerPort());
         assertEquals("127.0.0.1", r.getRemoteAddr());
-        assertNotNull(r.getRemoteHost());
+        assertEquals("client.test", r.getRemoteHost());
         assertEquals(40000, r.getRemotePort());
         assertEquals("127.0.0.1", r.getLocalAddr());
         assertEquals(8443, r.getLocalPort());
-        assertNotNull(r.getLocalName());
+        assertEquals("server.test", r.getLocalName());
         assertNotNull(r.getRequestId());
         assertNotNull(r.getProtocolRequestId());
         ServletConnection conn = r.getServletConnection();
