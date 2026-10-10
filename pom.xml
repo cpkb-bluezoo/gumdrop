@@ -27,7 +27,7 @@
     <packaging>jar</packaging>
 
     <name>Gumdrop</name>
-    <description>Multipurpose Java server framework with HTTP, SMTP, POP3, IMAP, FTP, DNS, MQTT, SOCKS, and servlet container</description>
+    <description>Multipurpose Java networking framework with HTTP, SMTP, POP3, IMAP, FTP, DNS, MQTT, SOCKS, and servlet container</description>
 
     <licenses>
         <license>

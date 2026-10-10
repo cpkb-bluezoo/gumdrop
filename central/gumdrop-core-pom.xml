@@ -15,7 +15,7 @@
     <packaging>jar</packaging>
 
     <name>Gumdrop Core</name>
-    <description>Core Gumdrop server framework (I/O, QUIC, DNS, telemetry API, auth primitives)</description>
+    <description>Core Gumdrop networking framework (I/O, QUIC, DNS, telemetry API, auth primitives)</description>
     <url>https://github.com/cpkb-bluezoo/gumdrop</url>
 
     <licenses>

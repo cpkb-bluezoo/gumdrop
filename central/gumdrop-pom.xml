@@ -2,7 +2,7 @@
 <!--
   This POM declares Maven coordinates and the metadata Maven Central's
   Publisher API validates (name/description/url/licenses/developers/scm)
-  for the "gumdrop" artifact (the core server framework). It performs no
+  for the "gumdrop" artifact (the core networking framework). It performs no
   build or deploy action of its own: Ant (build.xml) is the sole build
   tool, and this file is only consumed by scripts/publish-to-central.sh
   when assembling the Central upload bundle.
@@ -34,7 +34,7 @@
     <packaging>jar</packaging>
 
     <name>Gumdrop</name>
-    <description>Multipurpose Java server framework with HTTP, SMTP, POP3, IMAP, FTP, DNS, MQTT, SOCKS, and servlet container</description>
+    <description>Multipurpose Java networking framework with HTTP, SMTP, POP3, IMAP, FTP, DNS, MQTT, SOCKS, and servlet container</description>
     <url>https://github.com/cpkb-bluezoo/gumdrop</url>
 
     <licenses>
