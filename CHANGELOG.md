@@ -469,6 +469,18 @@ user-visible themes since 2.2.x.
 
 ### Fixed
 
+- **QUIC handshakes that needed a HelloRetryRequest stalled**: both engines sent
+  only their first handshake message at the Initial level and everything after it
+  at the Handshake level, so after a HelloRetryRequest the server's real
+  ServerHello (and the client's second ClientHello) went out at the wrong level
+  (RFC 9001 section 4.1.3). A client that had been told to retry never received a
+  ServerHello at Initial level, never derived Handshake keys and hung, and a gumdrop
+  server could not complete a handshake with ngtcp2, picoquic or msquic, whose
+  first ClientHello does not offer the key share gumdrop wants. quic-go and quiche
+  offer it, which is why they were unaffected. The level is now taken from the
+  message type. gumdrop's own client and server tolerated the wrong level, so the
+  in-process tests never saw it. Found by the quic-interop-runner (#550).
+
 - **QUIC server sent its NewSessionTicket at the wrong encryption level**:
   the ticket went out in a Handshake CRYPTO frame, after the server's Finished,
   instead of in a 1-RTT frame (RFC 9001 section 4.1.3). A peer that checks, such

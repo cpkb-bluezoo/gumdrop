@@ -109,13 +109,13 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     private long initialSendOffset;
     private long handshakeSendOffset;
 
-    // The first message this engine ever emits (ClientHello) goes at
-    // EncryptionLevel.INITIAL (RFC 9001 section 4.1.3); every message
-    // after that (this engine's own Finished) goes at
-    // EncryptionLevel.HANDSHAKE. HandshakeEngine's events don't carry a
-    // level of their own, so this flag tracks which regime the next
-    // outbound message falls into.
-    private boolean clientHelloSent;
+    // RFC 9001 section 4.1.3: ClientHello goes at EncryptionLevel.INITIAL,
+    // and so does the second ClientHello a server's HelloRetryRequest
+    // provokes; every other message this engine emits (its own Finished)
+    // goes at EncryptionLevel.HANDSHAKE. HandshakeEngine's events don't
+    // carry a level of their own, so the message type, its first byte,
+    // decides.
+    private static final int HANDSHAKE_TYPE_CLIENT_HELLO = 1;
 
     // Set from TlsEventSink#quicEarlyKeysReady, when a presented session
     // ticket's 0-RTT is actually attempted -- the suite half backs
@@ -501,8 +501,7 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
 
         @Override
         public void handshakeDataReady(byte[] data) {
-            if (!clientHelloSent) {
-                clientHelloSent = true;
+            if (data.length > 0 && (data[0] & 0xff) == HANDSHAKE_TYPE_CLIENT_HELLO) {
                 sendAtInitialLevel(data);
             } else {
                 sendAtHandshakeLevel(data);

@@ -105,13 +105,15 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     private long handshakeSendOffset;
     private long applicationSendOffset;
 
-    // The first message this engine ever emits (ServerHello) goes at
-    // EncryptionLevel.INITIAL (RFC 9001 section 4.1.3); every message
-    // after that (EncryptedExtensions, Certificate, CertificateVerify,
-    // Finished) goes at EncryptionLevel.HANDSHAKE. HandshakeEngine's
-    // events don't carry a level of their own, so this flag tracks which
-    // regime the next outbound message falls into.
-    private boolean serverHelloSent;
+    // RFC 9001 section 4.1.3: ServerHello goes at EncryptionLevel.INITIAL
+    // and so does the HelloRetryRequest that replaces it when the client's
+    // key share is not the group the server wants (a HelloRetryRequest is
+    // a ServerHello message too, and the real ServerHello follows it at the
+    // same level); every other message (EncryptedExtensions, Certificate,
+    // CertificateVerify, Finished) goes at EncryptionLevel.HANDSHAKE.
+    // HandshakeEngine's events don't carry a level of their own, so the
+    // message type, its first byte, decides.
+    private static final int HANDSHAKE_TYPE_SERVER_HELLO = 2;
 
     // Set once the client's Finished has been verified. What the engine
     // emits after that is post-handshake (the NewSessionTicket), which
@@ -548,11 +550,10 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
 
         @Override
         public void handshakeDataReady(byte[] data) {
-            if (!serverHelloSent) {
-                serverHelloSent = true;
-                sendAtInitialLevel(data);
-            } else if (handshakeComplete) {
+            if (handshakeComplete) {
                 sendAtApplicationLevel(data);
+            } else if (data.length > 0 && (data[0] & 0xff) == HANDSHAKE_TYPE_SERVER_HELLO) {
+                sendAtInitialLevel(data);
             } else {
                 sendAtHandshakeLevel(data);
             }

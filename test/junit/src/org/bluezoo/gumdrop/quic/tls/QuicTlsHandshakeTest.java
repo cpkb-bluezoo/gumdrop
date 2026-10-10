@@ -350,6 +350,65 @@ public class QuicTlsHandshakeTest {
     }
 
     /**
+     * RFC 9001 section 4.1.3: ClientHello and ServerHello are sent in
+     * Initial packets, and so is the HelloRetryRequest that replaces the
+     * first ServerHello when the client's key share is not the group the
+     * server wants: it is a ServerHello message too, and the real
+     * ServerHello follows it at the same level. Sent at the Handshake
+     * level, the ServerHello never reaches a client that has no Handshake
+     * keys yet (it has only just been told which keys to derive), and the
+     * handshake stalls: ngtcp2, picoquic and msquic, whose first
+     * ClientHello offers a key share the server will not take, all hung.
+     * gumdrop's own client tolerates the wrong level, which is how this
+     * went unseen.
+     */
+    @Test
+    public void testHelloRetryRequestAndServerHelloAreSentAtTheInitialLevel() throws Exception {
+        QuicTlsClientEngine client = newClient("h3", "x25519:secp256r1", null);
+        QuicTlsServerEngine server = newServer("h3", null, false);
+        server.setNamedGroups("secp256r1");
+        // the client lists secp256r1 but sends no key share for it, so the
+        // server has to ask for one with a HelloRetryRequest
+        java.lang.reflect.Field configField = QuicTlsClientEngine.class.getDeclaredField("config");
+        configField.setAccessible(true);
+        ((org.bluezoo.gumdrop.tls.HandshakeConfig) configField.get(client)).setClientOmitInitialKeyShareGroups(
+                java.util.Collections.singletonList(org.bluezoo.gumdrop.crypto.NamedGroup.SECP256R1));
+        client.startHandshake("localhost");
+        pump(client, server, 0, false);
+        assertCompleted(client, server);
+
+        final int serverHello = 2;
+        int atInitial = 0;
+        for (int i = 0; i < serverPeer.sent.size(); i++) {
+            Frame f = serverPeer.sent.get(i);
+            boolean isServerHello = f.data.length > 0 && f.data[0] == serverHello;
+            if (f.level == EncryptionLevel.INITIAL) {
+                assertTrue("only ServerHello messages belong at the Initial level", isServerHello);
+                atInitial++;
+            } else {
+                assertFalse("a ServerHello must not be sent at the " + f.level + " level", isServerHello);
+            }
+        }
+        assertEquals("the HelloRetryRequest and the ServerHello are both at the Initial level", 2, atInitial);
+
+        // and the client's second ClientHello, answering the retry, is an
+        // Initial-level message too
+        final int clientHello = 1;
+        int clientHellosAtInitial = 0;
+        for (int i = 0; i < clientPeer.sent.size(); i++) {
+            Frame f = clientPeer.sent.get(i);
+            boolean isClientHello = f.data.length > 0 && f.data[0] == clientHello;
+            if (f.level == EncryptionLevel.INITIAL) {
+                assertTrue("only ClientHello messages belong at the Initial level", isClientHello);
+                clientHellosAtInitial++;
+            } else {
+                assertFalse("a ClientHello must not be sent at the " + f.level + " level", isClientHello);
+            }
+        }
+        assertEquals("both ClientHellos are at the Initial level", 2, clientHellosAtInitial);
+    }
+
+    /**
      * RFC 9001 section 4.1.3: a NewSessionTicket is a post-handshake
      * message, so it goes in a 1-RTT CRYPTO frame. Sent at the Handshake
      * level it follows the server's Finished in that stream, and a peer
