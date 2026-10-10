@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.tls.TlsProtocolError;
 final class QuicTlsDeferredDispatch {
 
     private static final int MAX_CRYPTO_DATA_SLOTS = 12;
+    private static final int MAX_APPLICATION_CRYPTO_SLOTS = 4;
     private static final int MAX_TRANSPORT_PARAMETERS_SLOTS = 2;
     private static final int MAX_PROTOCOL_ERROR_SLOTS = 2;
     private static final int MAX_SESSION_TICKET_SLOTS = 4;
@@ -60,12 +61,15 @@ final class QuicTlsDeferredDispatch {
 
     private int initialCryptoSlotIndex;
     private int handshakeCryptoSlotIndex;
+    private int applicationCryptoSlotIndex;
     private int transportParametersSlotIndex;
     private int protocolErrorSlotIndex;
     private int sessionTicketSlotIndex;
 
     private final InitialCryptoSlot[] initialCryptoSlots = new InitialCryptoSlot[MAX_CRYPTO_DATA_SLOTS];
     private final HandshakeCryptoSlot[] handshakeCryptoSlots = new HandshakeCryptoSlot[MAX_CRYPTO_DATA_SLOTS];
+    private final ApplicationCryptoSlot[] applicationCryptoSlots =
+            new ApplicationCryptoSlot[MAX_APPLICATION_CRYPTO_SLOTS];
     private final TransportParametersSlot[] transportParametersSlots =
             new TransportParametersSlot[MAX_TRANSPORT_PARAMETERS_SLOTS];
     private final ProtocolErrorSlot[] protocolErrorSlots = new ProtocolErrorSlot[MAX_PROTOCOL_ERROR_SLOTS];
@@ -100,6 +104,9 @@ final class QuicTlsDeferredDispatch {
         for (int i = 0; i < handshakeCryptoSlots.length; i++) {
             handshakeCryptoSlots[i] = new HandshakeCryptoSlot();
         }
+        for (int i = 0; i < applicationCryptoSlots.length; i++) {
+            applicationCryptoSlots[i] = new ApplicationCryptoSlot();
+        }
         for (int i = 0; i < transportParametersSlots.length; i++) {
             transportParametersSlots[i] = new TransportParametersSlot();
         }
@@ -114,6 +121,7 @@ final class QuicTlsDeferredDispatch {
     void resetSlots() {
         initialCryptoSlotIndex = 0;
         handshakeCryptoSlotIndex = 0;
+        applicationCryptoSlotIndex = 0;
         transportParametersSlotIndex = 0;
         protocolErrorSlotIndex = 0;
         sessionTicketSlotIndex = 0;
@@ -137,6 +145,18 @@ final class QuicTlsDeferredDispatch {
             return;
         }
         HandshakeCryptoSlot slot = nextHandshakeCryptoSlot();
+        slot.offset = offset;
+        slot.data = data;
+        offload.dispatch(slot);
+    }
+
+    /** Post-handshake CRYPTO data (a NewSessionTicket), which travels in 1-RTT packets. */
+    void applicationCryptoData(long offset, byte[] data) {
+        if (!offload.isDeferring()) {
+            target.deliverCryptoData(EncryptionLevel.ONE_RTT, offset, data);
+            return;
+        }
+        ApplicationCryptoSlot slot = nextApplicationCryptoSlot();
         slot.offset = offset;
         slot.data = data;
         offload.dispatch(slot);
@@ -224,6 +244,13 @@ final class QuicTlsDeferredDispatch {
         return handshakeCryptoSlots[handshakeCryptoSlotIndex++];
     }
 
+    private ApplicationCryptoSlot nextApplicationCryptoSlot() {
+        if (applicationCryptoSlotIndex >= applicationCryptoSlots.length) {
+            throw new IllegalStateException("QUIC application CRYPTO deferred output exceeded slot capacity");
+        }
+        return applicationCryptoSlots[applicationCryptoSlotIndex++];
+    }
+
     private TransportParametersSlot nextTransportParametersSlot() {
         if (transportParametersSlotIndex >= transportParametersSlots.length) {
             throw new IllegalStateException("QUIC transport-parameters deferred output exceeded slot capacity");
@@ -262,6 +289,16 @@ final class QuicTlsDeferredDispatch {
         @Override
         public void run() {
             target.deliverCryptoData(EncryptionLevel.HANDSHAKE, offset, data);
+        }
+    }
+
+    private final class ApplicationCryptoSlot implements Runnable {
+        long offset;
+        byte[] data;
+
+        @Override
+        public void run() {
+            target.deliverCryptoData(EncryptionLevel.ONE_RTT, offset, data);
         }
     }
 

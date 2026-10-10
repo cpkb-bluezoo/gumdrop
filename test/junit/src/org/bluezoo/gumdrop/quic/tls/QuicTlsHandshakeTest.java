@@ -67,6 +67,8 @@ public class QuicTlsHandshakeTest {
     /** Listener recording everything an engine reports. */
     private static final class Peer implements QuicTlsEngineListener {
         final List<Frame> outbox = new ArrayList<Frame>();
+        /** Every CRYPTO frame ever reported, in order, kept after the pump empties the outbox. */
+        final List<Frame> sent = new ArrayList<Frame>();
         final List<Throwable> failures = new ArrayList<Throwable>();
         final List<SessionTicket> tickets = new ArrayList<SessionTicket>();
         TransportParameters peerParameters;
@@ -81,6 +83,7 @@ public class QuicTlsHandshakeTest {
 
         @Override
         public void cryptoDataReady(EncryptionLevel level, long offset, byte[] data) {
+            sent.add(new Frame(level, offset, data));
             if (onFirstCrypto != null) {
                 Runnable action = onFirstCrypto;
                 onFirstCrypto = null;
@@ -344,6 +347,40 @@ public class QuicTlsHandshakeTest {
         pump(client, server, 0, false);
         assertCompleted(client, server);
         assertEquals(QuicVersion.V1.getWireValue(), clientPeer.peerParameters.getVersionInformationChosen());
+    }
+
+    /**
+     * RFC 9001 section 4.1.3: a NewSessionTicket is a post-handshake
+     * message, so it goes in a 1-RTT CRYPTO frame. Sent at the Handshake
+     * level it follows the server's Finished in that stream, and a peer
+     * that checks (quic-go: "received crypto data after change of
+     * encryption level") closes the connection with PROTOCOL_VIOLATION.
+     * gumdrop's own client accepts it, which is how this went unseen.
+     */
+    @Test
+    public void testSessionTicketIsSentAtTheOneRttLevel() throws Exception {
+        TicketKeys keys = new TicketKeys(new byte[16]);
+        QuicTlsClientEngine client = newClient("h3", null, null);
+        QuicTlsServerEngine server = newServer("h3", null, false);
+        server.setTicketKeys(keys);
+        client.startHandshake("localhost");
+        pump(client, server, 0, false);
+        assertCompleted(client, server);
+        assertEquals("the client still gets its ticket", 1, clientPeer.tickets.size());
+
+        final int newSessionTicket = 4;
+        int ticketsAtOneRtt = 0;
+        for (int i = 0; i < serverPeer.sent.size(); i++) {
+            Frame f = serverPeer.sent.get(i);
+            boolean isTicket = f.data.length > 0 && f.data[0] == newSessionTicket;
+            if (f.level == EncryptionLevel.HANDSHAKE) {
+                assertFalse("a NewSessionTicket must not be sent at the Handshake level", isTicket);
+            }
+            if (f.level == EncryptionLevel.ONE_RTT && isTicket) {
+                ticketsAtOneRtt++;
+            }
+        }
+        assertEquals("the ticket must be sent at the 1-RTT level", 1, ticketsAtOneRtt);
     }
 
     @Test

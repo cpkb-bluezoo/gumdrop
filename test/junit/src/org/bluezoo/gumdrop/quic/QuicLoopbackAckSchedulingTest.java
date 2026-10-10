@@ -51,6 +51,12 @@ public class QuicLoopbackAckSchedulingTest {
 
     private void connect() throws Exception {
         lb = new QuicLoopback();
+        // These tests are about the RFC 9000 default policy (an ACK after
+        // every second packet). The server's ticket now travels in an
+        // acknowledged 1-RTT packet, which gives it the RTT sample it needs
+        // to ask the client for fewer ACKs; that is tested separately.
+        lb.clientFactory.setAckFrequencyEnabled(false);
+        lb.serverFactory.setAckFrequencyEnabled(false);
         lb.startFactories();
         server = new ConnCapture();
         lb.startServer(server);

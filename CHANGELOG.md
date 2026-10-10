@@ -469,6 +469,16 @@ user-visible themes since 2.2.x.
 
 ### Fixed
 
+- **QUIC server sent its NewSessionTicket at the wrong encryption level**:
+  the ticket went out in a Handshake CRYPTO frame, after the server's Finished,
+  instead of in a 1-RTT frame (RFC 9001 section 4.1.3). A peer that checks, such
+  as quic-go, closed the connection with PROTOCOL_VIOLATION ("received crypto
+  data after change of encryption level"), so a transfer with gumdrop as server
+  and a quic-go client could not complete; gumdrop's own client tolerated it,
+  which is why the in-process tests never saw it. It also means the server now
+  gets an RTT sample from the client's acknowledgement of the ticket and
+  starts asking for fewer ACKs sooner. Found by the quic-interop-runner.
+
 - **Security advisories fixed since 2.2.0** (affected versions up to 2.2.0):
   - GHSA-4vx4-8xxq-gvwj: the protobuf varint parser mistook a field value of
     `-1` for "need more data" and stalled gRPC and telemetry parsing for good.

@@ -103,6 +103,7 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
 
     private long initialSendOffset;
     private long handshakeSendOffset;
+    private long applicationSendOffset;
 
     // The first message this engine ever emits (ServerHello) goes at
     // EncryptionLevel.INITIAL (RFC 9001 section 4.1.3); every message
@@ -111,6 +112,13 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     // events don't carry a level of their own, so this flag tracks which
     // regime the next outbound message falls into.
     private boolean serverHelloSent;
+
+    // Set once the client's Finished has been verified. What the engine
+    // emits after that is post-handshake (the NewSessionTicket), which
+    // RFC 9001 section 4.1.3 puts in 1-RTT CRYPTO frames: sent at the
+    // Handshake level it would follow the server's Finished there, and a
+    // peer that checks closes the connection.
+    private boolean handshakeComplete;
 
     // Set from TlsEventSink#quicEarlyKeysReady when the client's offered
     // PSK is accepted with 0-RTT.
@@ -543,6 +551,8 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
             if (!serverHelloSent) {
                 serverHelloSent = true;
                 sendAtInitialLevel(data);
+            } else if (handshakeComplete) {
+                sendAtApplicationLevel(data);
             } else {
                 sendAtHandshakeLevel(data);
             }
@@ -555,6 +565,7 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
 
         @Override
         public void applicationSecretsReady() {
+            handshakeComplete = true;
             deferredDispatch.handshakeFinished();
         }
 
@@ -629,6 +640,12 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
         long offset = initialSendOffset;
         initialSendOffset += data.length;
         deferredDispatch.initialCryptoData(offset, data);
+    }
+
+    private void sendAtApplicationLevel(byte[] data) {
+        long offset = applicationSendOffset;
+        applicationSendOffset += data.length;
+        deferredDispatch.applicationCryptoData(offset, data);
     }
 
     private void sendAtHandshakeLevel(byte[] data) {
