@@ -141,6 +141,8 @@ jobs:
           { echo "### gumdrop server, $PEER client (gumdrop ${REF:-$GITHUB_SHA})"; echo; cat server.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
           python3 "$GITHUB_WORKSPACE/gumdrop-ci/test/quic-interop-runner/ack_stats.py" server \
             "$GITHUB_WORKSPACE/logs/gumdrop-server" > acks.md || echo "ack_stats failed" > acks.md
+          python3 "$GITHUB_WORKSPACE/gumdrop-ci/test/quic-interop-runner/dump_frames.py" server \
+            "$GITHUB_WORKSPACE/logs/gumdrop-server" || true
           { echo "#### ACK-only packets, gumdrop server vs $PEER"; echo; cat acks.md; echo; } >> "$GITHUB_STEP_SUMMARY"
           # the job summary is not readable from the gh CLI, the log is
           echo "ACK-only packets, gumdrop server vs $PEER (gumdrop ${REF:-$GITHUB_SHA})"; cat acks.md
@@ -162,6 +164,8 @@ jobs:
           { echo "### $PEER server, gumdrop client (gumdrop ${REF:-$GITHUB_SHA})"; echo; cat client.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
           python3 "$GITHUB_WORKSPACE/gumdrop-ci/test/quic-interop-runner/ack_stats.py" client \
             "$GITHUB_WORKSPACE/logs/gumdrop-client" > acks.md || echo "ack_stats failed" > acks.md
+          python3 "$GITHUB_WORKSPACE/gumdrop-ci/test/quic-interop-runner/dump_frames.py" client \
+            "$GITHUB_WORKSPACE/logs/gumdrop-client" || true
           { echo "#### ACK-only packets, gumdrop client vs $PEER"; echo; cat acks.md; echo; } >> "$GITHUB_STEP_SUMMARY"
           echo "ACK-only packets, gumdrop client vs $PEER (gumdrop ${REF:-$GITHUB_SHA})"; cat acks.md
 

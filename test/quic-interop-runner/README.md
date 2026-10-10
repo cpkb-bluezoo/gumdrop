@@ -128,6 +128,15 @@ named `quic-interop-<peer>`. Run it from the Actions tab; the `peers` and
 gumdrop commit, branch or tag (a full commit SHA, not `sha^`) while the
 workflow itself stays at the commit it was dispatched from.
 
+## Decoded packet traces
+
+`dump_frames.py` writes `frames.tsv` into every test case directory: one row
+per QUIC packet on gumdrop's side of the simulator, with the time, source,
+packet number, frame types, the ACK ranges and delay, and the STREAM and flow
+control fields. The workflow runs it after each direction, so the file is in
+the uploaded logs, and it is what shows what a peer really received when a
+transfer stalls. It needs `tshark` and the same key logs as `ack_stats.py`.
+
 ## Counting ACK-only packets
 
 `ack_stats.py` reads a runner `--log-dir` and, from the pcap taken on
