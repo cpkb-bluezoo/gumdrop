@@ -695,6 +695,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     static volatile MigrationCompletedObserver migrationCompletedObserver;
     static volatile PathValidationRejectedObserver pathValidationRejectedObserver;
     static volatile PathValidationAbandonedObserver pathValidationAbandonedObserver;
+    static volatile PacketProcessedObserver packetProcessedObserver;
 
     /** @see #encryptionLevelDiscardedObserver */
     interface EncryptionLevelDiscardedObserver {
@@ -714,6 +715,13 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     /** @see #pathValidationAbandonedObserver */
     interface PathValidationAbandonedObserver {
         void pathValidationAbandoned(QuicConnection connection, InetSocketAddress candidate);
+    }
+
+    /**
+     * @see #packetProcessedObserver
+     */
+    interface PacketProcessedObserver {
+        void packetProcessed(QuicConnection connection, EncryptionLevel level, long packetNumber);
     }
 
     private boolean handshakeConfirmed;
@@ -2555,6 +2563,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 receivedUnacked.put(level, unacked);
             }
             unacked.add(Long.valueOf(fullPacketNumber));
+            PacketProcessedObserver processed = packetProcessedObserver;
+            if (processed != null) {
+                processed.packetProcessed(this, level, fullPacketNumber);
+            }
         } catch (PacketProtectionException e) {
             if (qlog != null) {
                 qlogPacketDropped(isZeroRtt ? QlogEvents.PACKET_TYPE_0RTT : qlogPacketType(level), packet.length,

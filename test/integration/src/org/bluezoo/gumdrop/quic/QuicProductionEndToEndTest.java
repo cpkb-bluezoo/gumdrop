@@ -3501,32 +3501,32 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
-     * Waits until the connection has received and fully handled the given
-     * packet number at a level. A peer that never acknowledges what the
-     * connection sends (a forging test client) leaves its probe timeout
-     * armed for good, so "no loss-detection timer" is not a usable signal
-     * that the connection has finished with an input.
+     * Runs {@code trigger} and waits until the connection has received and
+     * fully handled the given packet number at a level. A peer that never
+     * acknowledges what the connection sends (a forging test client) leaves
+     * its probe timeout armed for good, so "no loss-detection timer" is not
+     * a usable signal that the connection has finished with an input.
      */
     private static void awaitPacketProcessed(final QuicConnection connection,
-            EncryptionLevel level, long packetNumber) throws Exception {
-        long[] largestReceived = getPrivateField(connection, "largestReceived", long[].class);
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (largestReceived[level.ordinal()] < packetNumber) {
-            assertTrue("Connection should have received packet " + packetNumber
-                    + " at " + level + " within 5s", System.nanoTime() < deadline);
-            Thread.sleep(5);
-        }
-        // The loop handles a packet's frames in one go; a task queued behind
-        // it runs only once that has finished.
-        final CountDownLatch handled = new CountDownLatch(1);
-        connection.getSelectorLoop().invokeLater(new Runnable() {
+            final EncryptionLevel level, final long packetNumber, Runnable trigger)
+            throws Exception {
+        final CountDownLatch processed = new CountDownLatch(1);
+        QuicConnection.PacketProcessedObserver previous = QuicConnection.packetProcessedObserver;
+        QuicConnection.packetProcessedObserver = new QuicConnection.PacketProcessedObserver() {
             @Override
-            public void run() {
-                handled.countDown();
+            public void packetProcessed(QuicConnection conn, EncryptionLevel l, long pn) {
+                if (conn == connection && l == level && pn == packetNumber) {
+                    processed.countDown();
+                }
             }
-        });
-        assertTrue("Loop should have handled the packet within 5s",
-                handled.await(5, TimeUnit.SECONDS));
+        };
+        try {
+            trigger.run();
+            assertTrue("Connection should have handled packet " + packetNumber
+                    + " at " + level + " within 5s", processed.await(5, TimeUnit.SECONDS));
+        } finally {
+            QuicConnection.packetProcessedObserver = previous;
+        }
     }
 
     private static void waitForConnectionIdle(final QuicConnection connection) throws Exception {
@@ -5081,10 +5081,20 @@ public class QuicProductionEndToEndTest {
             // challenge nonce -- its attempt was already cleared when B
             // won, so this must not pull the connection back to A.
             long responseA = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
-            sendReliably(channelA,
-                    forgePathResponsePacket(clientToServerKeys, serverConnectionId, responseA, challengeA),
-                    serverAddress);
-            awaitPacketProcessed(serverConnection, EncryptionLevel.ONE_RTT, responseA);
+            final byte[] staleResponsePacket = forgePathResponsePacket(clientToServerKeys,
+                    serverConnectionId, responseA, challengeA);
+            final DatagramChannel staleChannelA = channelA;
+            final InetSocketAddress staleTarget = serverAddress;
+            awaitPacketProcessed(serverConnection, EncryptionLevel.ONE_RTT, responseA, new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        sendReliably(staleChannelA, staleResponsePacket, staleTarget);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            });
             InetSocketAddress finalRemote =
                     getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
             assertEquals("A's stale response must not re-migrate the connection -- should still be on B",
