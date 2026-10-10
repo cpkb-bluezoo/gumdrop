@@ -4151,8 +4151,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             return;
         }
         long currentLimit = currentLocalStreamLimit(streamId, key);
+        // A full window ahead, for the reason maybeGrowConnectionLimit gives.
         if (highestOffset > currentLimit - windowSize / 2) {
-            growStreamLimit(streamId, key, highestOffset + windowSize / 2);
+            growStreamLimit(streamId, key, highestOffset + windowSize);
         }
     }
 
@@ -4187,8 +4188,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         if (windowSize <= 0) {
             return;
         }
+        // Raised to a full window ahead of what has been received: half a
+        // window ahead would leave the very next packet under the same
+        // half-window threshold, and every packet would cost an update.
         if (connectionBytesReceived > localMaxData - windowSize / 2) {
-            localMaxData = connectionBytesReceived + windowSize / 2;
+            localMaxData = connectionBytesReceived + windowSize;
             maxDataOwed = true;
         }
     }

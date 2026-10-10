@@ -518,6 +518,17 @@ user-visible themes since 2.2.x.
   quic-go, ngtcp2, quiche and picoquic do not retire an ID in use, so they were
   unaffected. Found by the quic-interop-runner (#550).
 
+- **QUIC receivers sent a flow-control update with nearly every packet**: once
+  half of a receive window was used, the limit was raised only half a window
+  ahead of the data received, which left the next packet under the same
+  threshold, so every received packet cost a MAX_DATA and a MAX_STREAM_DATA
+  frame. That made almost every acknowledgement ack-eliciting, so the peer had
+  to acknowledge gumdrop's acknowledgements, and gumdrop sent about one packet
+  per data packet it received (against quic-go, ngtcp2, msquic and picoquic)
+  instead of about one per two, which defeated the ACK reduction of the ACK
+  scheduling work. The limits are now raised a full window ahead, so an update
+  goes out once per half window. Found by the quic-interop-runner (#550).
+
 - **Security advisories fixed since 2.2.0** (affected versions up to 2.2.0):
   - GHSA-4vx4-8xxq-gvwj: the protobuf varint parser mistook a field value of
     `-1` for "need more data" and stalled gRPC and telemetry parsing for good.
