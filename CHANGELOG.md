@@ -471,6 +471,26 @@ user-visible themes since 2.2.x.
     produced a DKIM pass that DMARC then relied on, allowing same-domain
     sender spoofing. Such a signature is now a `PERMERROR`.
   - GHSA-9p92-hc4p-35rp is resolved by removing DIGEST-MD5 (see **Removed**).
+  - **DNSSEC chain validation accepted forged answers** (not yet advisory
+    numbered; the same chain walk is in 2.2.0). The validator verified an
+    answer's signature with whichever zone key signed it, then tied the zone to
+    its parent by matching a *different* key, the KSK found in the same
+    unauthenticated key list, against the DS record. It never checked that the
+    DNSKEY RRset was signed by a key the DS or trust anchor vouches for, so an
+    attacker could sign a forged answer with a key of their own and send it
+    with the genuine KSK beside it to get `SECURE`. A signing key must now be
+    authenticated: the DNSKEY RRset has to be signed by a key that a trust
+    anchor or DS record names (or the signing key must itself be named). This
+    applies at every level of the chain, including the DS RRset. DNSSEC
+    validation is off unless enabled on the resolver, but the DNS relay server
+    uses the same validator.
+  - **DNSSEC now tries every RRSIG** on an RRset instead of only the first, so
+    an algorithm or key rollover (several signatures, not all usable) no
+    longer makes a valid zone `BOGUS`.
+  - **A zone signed only with an unsupported algorithm is `INSECURE`, not
+    `BOGUS`** (RFC 4035 section 5.2), but only once the parent's DS RRset has
+    been authenticated, and not when the DS RRset names a supported algorithm,
+    so an injected signature cannot downgrade a signed zone.
 
 - **SMTP EHLO and HELO named the server by its socket address**: the first line
   read like `/[0:0:0:0:0:0:0:1]:2525 Hello client`, and the same string was used in
