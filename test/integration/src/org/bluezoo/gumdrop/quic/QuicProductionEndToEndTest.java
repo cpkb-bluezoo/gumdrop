@@ -1809,8 +1809,9 @@ public class QuicProductionEndToEndTest {
                                 0, delayWhenNeverReceived);
 
                         long simulatedElapsedMillis = 200;
+                        // the connection measures with a monotonic nanosecond clock
                         largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] =
-                                System.currentTimeMillis() - simulatedElapsedMillis;
+                                System.nanoTime() - simulatedElapsedMillis * 1000000L;
                         long delay = (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
                         assertTrue("A real elapsed receipt-to-send gap must produce a nonzero ACK Delay, "
                                 + "not the old hardcoded zero (was " + delay + ")", delay > 0);
@@ -1821,8 +1822,16 @@ public class QuicProductionEndToEndTest {
 
                         largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = originalTime;
 
-                        Method peerMaxAckDelay = QuicConnection.class.getDeclaredMethod("peerMaxAckDelay");
+                        // The delay is reported in microseconds and also reflects any
+                        // ACK_FREQUENCY request in force; pin that state to "none" so
+                        // that only the transport parameter is being tested.
+                        Method peerMaxAckDelay =
+                                QuicConnection.class.getDeclaredMethod("peerMaxAckDelayMicros");
                         peerMaxAckDelay.setAccessible(true);
+                        Object originalAcked = getField(serverConnection, "ackFrequencyAckedDelayMicros");
+                        Object originalPending = getField(serverConnection, "ackFrequencyPendingDelayMicros");
+                        setPrivateField(serverConnection, "ackFrequencyAckedDelayMicros", Long.valueOf(-1));
+                        setPrivateField(serverConnection, "ackFrequencyPendingDelayMicros", Long.valueOf(-1));
 
                         TransportParameters original =
                                 getPrivateField(serverConnection, "peerTransportParameters", TransportParameters.class);
@@ -1831,16 +1840,18 @@ public class QuicProductionEndToEndTest {
                         setPrivateField(serverConnection, "peerTransportParameters", null);
                         long defaultDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
                         assertEquals("With no peer transport parameters yet, the RFC default must apply",
-                                TransportParameters.DEFAULT_MAX_ACK_DELAY, defaultDelay);
+                                TransportParameters.DEFAULT_MAX_ACK_DELAY * 1000L, defaultDelay);
 
                         TransportParameters custom = new TransportParameters();
                         custom.setMaxAckDelay(777);
                         setPrivateField(serverConnection, "peerTransportParameters", custom);
                         long customDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
                         assertEquals("The peer's actual declared max_ack_delay must be used, not a hardcoded value",
-                                777, customDelay);
+                                777 * 1000L, customDelay);
 
                         setPrivateField(serverConnection, "peerTransportParameters", original);
+                        setPrivateField(serverConnection, "ackFrequencyAckedDelayMicros", originalAcked);
+                        setPrivateField(serverConnection, "ackFrequencyPendingDelayMicros", originalPending);
                     } catch (Throwable t) {
                         ackDelayFailure.set(t);
                     } finally {
@@ -3489,6 +3500,35 @@ public class QuicProductionEndToEndTest {
         }
     }
 
+    /**
+     * Waits until the connection has received and fully handled the given
+     * packet number at a level. A peer that never acknowledges what the
+     * connection sends (a forging test client) leaves its probe timeout
+     * armed for good, so "no loss-detection timer" is not a usable signal
+     * that the connection has finished with an input.
+     */
+    private static void awaitPacketProcessed(final QuicConnection connection,
+            EncryptionLevel level, long packetNumber) throws Exception {
+        long[] largestReceived = getPrivateField(connection, "largestReceived", long[].class);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (largestReceived[level.ordinal()] < packetNumber) {
+            assertTrue("Connection should have received packet " + packetNumber
+                    + " at " + level + " within 5s", System.nanoTime() < deadline);
+            Thread.sleep(5);
+        }
+        // The loop handles a packet's frames in one go; a task queued behind
+        // it runs only once that has finished.
+        final CountDownLatch handled = new CountDownLatch(1);
+        connection.getSelectorLoop().invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                handled.countDown();
+            }
+        });
+        assertTrue("Loop should have handled the packet within 5s",
+                handled.await(5, TimeUnit.SECONDS));
+    }
+
     private static void waitForConnectionIdle(final QuicConnection connection) throws Exception {
         final CountDownLatch idle = new CountDownLatch(1);
         final CountDownLatch done = new CountDownLatch(1);
@@ -3658,6 +3698,12 @@ public class QuicProductionEndToEndTest {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         return (T) field.get(target);
+    }
+
+    private static Object getField(Object target, String name) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     private static void setPrivateField(Object target, String name, Object value) throws Exception {
@@ -5038,7 +5084,7 @@ public class QuicProductionEndToEndTest {
             sendReliably(channelA,
                     forgePathResponsePacket(clientToServerKeys, serverConnectionId, responseA, challengeA),
                     serverAddress);
-            waitForConnectionIdle(serverConnection);
+            awaitPacketProcessed(serverConnection, EncryptionLevel.ONE_RTT, responseA);
             InetSocketAddress finalRemote =
                     getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
             assertEquals("A's stale response must not re-migrate the connection -- should still be on B",
