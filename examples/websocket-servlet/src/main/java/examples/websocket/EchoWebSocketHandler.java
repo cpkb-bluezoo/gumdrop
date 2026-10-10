@@ -114,7 +114,7 @@ public class EchoWebSocketHandler implements HttpUpgradeHandler {
         }
         try {
             connection.close();
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOGGER.log(Level.FINE, "Error closing WebSocket connection", e);
         }
     }
