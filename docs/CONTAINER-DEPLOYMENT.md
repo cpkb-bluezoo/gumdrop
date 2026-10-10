@@ -104,7 +104,7 @@ custom `main`:
 <server>
   <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
          href="realm-servlet.xml"/>
-  <context path="" root="../webapps/ROOT" distributable="true"/>
+  <context path="" root="../webapps/ROOT"/>
   <context path="/manager" root="../webapps/manager.war"/>
   <listener port="8080"/>
   <listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"
