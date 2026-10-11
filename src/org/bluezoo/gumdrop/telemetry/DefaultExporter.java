@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Formatter;
@@ -152,6 +151,9 @@ public final class DefaultExporter implements TelemetryExporter {
         ensureThread();
         if (queue.offer(record)) {
             pending.incrementAndGet();
+            synchronized (lock) {
+                lock.notifyAll();
+            }
         } else {
             dropped.incrementAndGet();
         }
@@ -215,20 +217,20 @@ public final class DefaultExporter implements TelemetryExporter {
         }
     }
 
+    // Records leave the queue only under the lock, so a flush cannot
+    // overtake one the publisher has taken but not yet published.
     private void runPublisher() {
         while (running) {
-            try {
-                LogRecord first = queue.poll(1, TimeUnit.SECONDS);
-                if (first != null) {
-                    synchronized (lock) {
-                        publish(first);
-                        pending.decrementAndGet();
-                        drainLocked();
-                        lock.notifyAll();
+            synchronized (lock) {
+                try {
+                    while (running && queue.isEmpty()) {
+                        lock.wait(1000L);
                     }
+                } catch (InterruptedException e) {
+                    // shutdown wakes the thread this way; the loop condition ends it
                 }
-            } catch (InterruptedException e) {
-                // shutdown wakes the thread this way; the loop condition ends it
+                drainLocked();
+                lock.notifyAll();
             }
         }
     }
