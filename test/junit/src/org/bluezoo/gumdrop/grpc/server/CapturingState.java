@@ -49,6 +49,12 @@ final class CapturingState implements HttpResponse {
     int pauseCount;
     int resumeCount;
     int cancelCount;
+    SocketAddress remoteAddress;
+    SecurityInfo securityInfo;
+    Principal principal;
+    Runnable timerCallback;
+    long timerDelayMs = -1;
+    boolean timerCancelled;
 
     @Override
     public void status(int code) {
@@ -86,14 +92,23 @@ final class CapturingState implements HttpResponse {
         completeCount++;
     }
 
-    @Override public SocketAddress getRemoteAddress() { return null; }
+    @Override public SocketAddress getRemoteAddress() { return remoteAddress; }
     @Override public SocketAddress getLocalAddress() { return null; }
     @Override public boolean isSecure() { return false; }
-    @Override public SecurityInfo getSecurityInfo() { return null; }
+    @Override public SecurityInfo getSecurityInfo() { return securityInfo; }
     @Override public HttpVersion getVersion() { return HttpVersion.HTTP_2_0; }
     @Override public String getScheme() { return "http"; }
     @Override public SelectorLoop getSelectorLoop() { return null; }
-    @Override public Principal getPrincipal() { return null; }
+    @Override public Principal getPrincipal() { return principal; }
+@Override
+public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+    timerDelayMs = delayMs;
+    timerCallback = callback;
+    return new org.bluezoo.gumdrop.TimerHandle() {
+        public void cancel() { timerCancelled = true; }
+        public boolean isCancelled() { return timerCancelled; }
+    };
+}
     @Override public void execute(Runnable task) { task.run(); }
     @Override public void onWritable(Runnable callback) { writable = callback; }
     @Override public int pendingResponseBytes() { return pending; }

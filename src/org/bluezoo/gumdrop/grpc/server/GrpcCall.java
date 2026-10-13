@@ -22,6 +22,12 @@
 package org.bluezoo.gumdrop.grpc.server;
 
 import java.io.IOException;
+import java.net.SocketAddress;
+import java.security.Principal;
+import java.time.Instant;
+
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.grpc.GrpcMetadata;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
 
 /**
@@ -116,4 +122,63 @@ public interface GrpcCall {
 
     /** Resumes delivery of request messages after {@link #pauseRequests()}. */
     void resumeRequests();
+
+    /**
+     * Returns the metadata the client sent with the request. Entries the
+     * protocol itself uses ({@code grpc-*}, {@code content-type}, {@code te})
+     * are not included.
+     *
+     * @return the request metadata, empty if there is none
+     */
+    GrpcMetadata getRequestMetadata();
+
+    /**
+     * Returns the initial metadata of the response, which is sent with the
+     * response headers, that is with the first message or with the status of
+     * a call that sends none. Add to it before then: later changes are not
+     * sent.
+     *
+     * @return the initial response metadata, to be added to
+     */
+    GrpcMetadata getResponseMetadata();
+
+    /**
+     * Returns the trailing metadata of the response, which is sent with the
+     * status when the call ends. Add to it before then: later changes are not
+     * sent.
+     *
+     * @return the trailing response metadata, to be added to
+     */
+    GrpcMetadata getTrailingMetadata();
+
+    /**
+     * Returns when the client wants the call to be over, from its
+     * {@code grpc-timeout}. When the deadline passes the framework ends the
+     * call with {@code DEADLINE_EXCEEDED} (4) and tells a
+     * {@link GrpcCallHandler} that it is cancelled.
+     *
+     * @return the deadline, or {@code null} if the client set none
+     */
+    Instant getDeadline();
+
+    /**
+     * Returns the address of the client.
+     *
+     * @return the remote address
+     */
+    SocketAddress getRemoteAddress();
+
+    /**
+     * Returns the TLS details of the connection.
+     *
+     * @return the security information, or {@code null} if it is not secure
+     */
+    SecurityInfo getSecurityInfo();
+
+    /**
+     * Returns the authenticated principal of the client.
+     *
+     * @return the principal, or {@code null} if the client is not authenticated
+     */
+    Principal getPrincipal();
 }

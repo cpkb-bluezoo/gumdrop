@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.grpc.server;
 
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
+import org.bluezoo.gumdrop.grpc.GrpcMetadata;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -82,6 +83,8 @@ public class GrpcRequestHandler implements HttpStreamHandler {
         private final HttpResponse response;
         private String path;
         private ContentType contentType;
+        private final GrpcMetadata metadata = new GrpcMetadata();
+        private String timeout;
         private HttpRequestHandler delegate;
 
         GrpcStreamHandler(HttpResponse response) {
@@ -98,6 +101,17 @@ public class GrpcRequestHandler implements HttpStreamHandler {
         @Override
         public void contentType(ContentType contentType) {
             this.contentType = contentType;
+        }
+
+        @Override
+        public void header(String name, ByteBuffer value) {
+            String key = name.toLowerCase(java.util.Locale.ROOT);
+            String text = StandardCharsets.ISO_8859_1.decode(value.duplicate()).toString();
+            if (key.equals("grpc-timeout")) {
+                timeout = text;
+            } else if (!GrpcMetadata.isReserved(key)) {
+                metadata.addReceived(key, text);
+            }
         }
 
         @Override
@@ -154,8 +168,10 @@ public class GrpcRequestHandler implements HttpStreamHandler {
                 return null;
             }
 
-            return new GrpcHandler(protoFile, server, response, path, maxMessageSize,
-                    protoFile.getRpcByPath(path));
+            GrpcHandler handler = new GrpcHandler(protoFile, server, response, path,
+                    maxMessageSize, protoFile.getRpcByPath(path));
+            handler.requestHeaders(metadata, timeout);
+            return handler;
         }
     }
 

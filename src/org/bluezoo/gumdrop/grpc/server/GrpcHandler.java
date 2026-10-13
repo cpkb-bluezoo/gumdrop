@@ -22,12 +22,19 @@
 package org.bluezoo.gumdrop.grpc.server;
 
 import java.io.IOException;
+import java.net.SocketAddress;
+import java.security.Principal;
+import java.time.Instant;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
+import org.bluezoo.gumdrop.grpc.GrpcMetadata;
+import org.bluezoo.gumdrop.grpc.GrpcTimeout;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.GrpcStatus;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
@@ -86,6 +93,12 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private GrpcFrameParser frameParser;
     /** Bytes of the current message the protobuf parser has not consumed yet. */
     private ByteBuffer pending;
+    private GrpcMetadata requestMetadata = new GrpcMetadata();
+    private final GrpcMetadata responseMetadata = new GrpcMetadata();
+    private final GrpcMetadata trailingMetadata = new GrpcMetadata();
+    private long timeoutNanos = -1L;
+    private Instant deadline;
+    private TimerHandle deadlineTimer;
     private int requestMessages;
     private boolean cancelledSent;
     private boolean bodyStarted;
@@ -101,6 +114,16 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         this.rpc = rpc;
         this.requestTypeName = rpc != null ? rpc.getInputTypeName() : null;
         this.responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
+    }
+
+    /**
+     * Gives the handler the request headers it will need: the call metadata
+     * and the {@code grpc-timeout} value, or {@code null}. Called before
+     * {@link #endHeaders()}.
+     */
+    void requestHeaders(GrpcMetadata metadata, String timeout) {
+        requestMetadata = metadata != null ? metadata : new GrpcMetadata();
+        timeoutNanos = timeout != null ? GrpcTimeout.parse(timeout) : -1L;
     }
 
     /** Starts the call; the header section has ended. */
@@ -123,6 +146,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             bodyRejected = true;
             return;
         }
+        if (timeoutNanos >= 0) {
+            deadline = Instant.now().plusNanos(timeoutNanos);
+        }
         requestHandler = server.startCall(path, responseSender);
         if (requestHandler == null) {
             responseSender.sendError(GrpcStatus.UNIMPLEMENTED, "Unimplemented");
@@ -132,6 +158,31 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
         frameParser = new GrpcFrameParser(new FrameToProtobufBridge());
         frameParser.setMaxMessageSize(maxMessageSize);
+        startDeadline();
+    }
+
+    /** Arms the timer for the client's deadline, if it set one. */
+    private void startDeadline() {
+        if (timeoutNanos < 0) {
+            return;
+        }
+        long millis = timeoutNanos / 1000000L;
+        if (timeoutNanos % 1000000L != 0) {
+            millis++;
+        }
+        deadlineTimer = response.scheduleTimer(millis, new Runnable() {
+            @Override
+            public void run() {
+                abort(GrpcStatus.DEADLINE_EXCEEDED, "Deadline exceeded");
+            }
+        });
+    }
+
+    private void stopDeadline() {
+        if (deadlineTimer != null) {
+            deadlineTimer.cancel();
+            deadlineTimer = null;
+        }
     }
 
     @Override
@@ -339,6 +390,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 return false;
             }
             closed = true;
+            stopDeadline();
             notifyCancelled();
             return true;
         }
@@ -387,11 +439,14 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 return;
             }
             closed = true;
+            stopDeadline();
             boolean trailersOnly = !started;
             if (trailersOnly) {
                 responseState.status(HttpStatus.OK.code);
                 responseState.header("content-type", CONTENT_TYPE_GRPC);
+                sendMetadata(responseMetadata);
             }
+            sendMetadata(trailingMetadata);
             // in the trailers when messages have been sent: the call's outcome
             // is carried there, and a gRPC client that does not see grpc-status
             // treats the call as failed
@@ -401,6 +456,47 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 responseState.header("grpc-message", encodeGrpcMessage(message));
             }
             responseState.endMessage();
+        }
+
+        @Override
+        public GrpcMetadata getRequestMetadata() {
+            return requestMetadata;
+        }
+
+        @Override
+        public GrpcMetadata getResponseMetadata() {
+            return responseMetadata;
+        }
+
+        @Override
+        public GrpcMetadata getTrailingMetadata() {
+            return trailingMetadata;
+        }
+
+        @Override
+        public Instant getDeadline() {
+            return deadline;
+        }
+
+        @Override
+        public SocketAddress getRemoteAddress() {
+            return responseState.getRemoteAddress();
+        }
+
+        @Override
+        public SecurityInfo getSecurityInfo() {
+            return responseState.getSecurityInfo();
+        }
+
+        @Override
+        public Principal getPrincipal() {
+            return responseState.getPrincipal();
+        }
+
+        private void sendMetadata(GrpcMetadata metadata) {
+            for (int i = 0; i < metadata.size(); i++) {
+                responseState.header(metadata.keyAt(i), metadata.wireValueAt(i));
+            }
         }
 
         @Override
@@ -455,6 +551,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 started = true;
                 responseState.status(HttpStatus.OK.code);
                 responseState.header("content-type", CONTENT_TYPE_GRPC);
+                sendMetadata(responseMetadata);
             }
             responseState.bodyContent(framed);
             if (!rpc.isServerStreaming()) {
