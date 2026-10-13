@@ -11,6 +11,9 @@
 #
 # Build: podman build -t gumdrop-grpc-test -f test/integration/docker/grpc/Dockerfile test/integration/docker/grpc
 # Run:   podman run -d --name grpc-test -p 15051:50051 gumdrop-grpc-test
+#
+# The same image holds client.py, run against a gumdrop gRPC server:
+#        podman run --rm gumdrop-grpc-test python3 client.py host.containers.internal:15052
 # Probe: podman exec grpc-test python3 -c "import grpc; print('ok')"
 
 FROM python:3.12-slim
@@ -21,7 +24,7 @@ WORKDIR /app
 COPY echo.proto .
 RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. echo.proto
 
-COPY server.py .
+COPY server.py client.py ./
 
 EXPOSE 50051
 
