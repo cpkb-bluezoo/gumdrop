@@ -41,6 +41,10 @@ service Echo {
   // initial metadata x-echo (and x-test-bin as x-echo-bin) and the
   // trailing metadata x-trailer: done.
   rpc Metadata(EchoRequest) returns (EchoResponse);
+  // Answers with repeat_count letters "a", compressed with gzip, or with
+  // deflate if the request message is "deflate", whatever the client asked
+  // for (if it accepts it), for exercising compressed responses.
+  rpc Compressed(EchoRequest) returns (EchoResponse);
   // Takes three seconds to answer, or until the call is cancelled, for
   // exercising deadlines.
   rpc Slow(EchoRequest) returns (EchoResponse);

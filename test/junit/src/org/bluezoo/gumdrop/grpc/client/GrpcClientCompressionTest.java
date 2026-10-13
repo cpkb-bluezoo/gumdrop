@@ -109,6 +109,12 @@ public class GrpcClientCompressionTest {
     private static final class Handler implements GrpcResponseHandler {
         final List<String> texts = new ArrayList<String>();
         final List<Exception> errors = new ArrayList<Exception>();
+        final List<Integer> completions = new ArrayList<Integer>();
+
+        @Override
+        public void onComplete(int status, String message) {
+            completions.add(status);
+        }
 
         @Override
         public ProtoMessageHandler startMessage(String messageTypeName) {
@@ -127,8 +133,11 @@ public class GrpcClientCompressionTest {
             errors.add(e);
         }
 
+        /** The status of the one error, which the call was also completed with. */
         int status() {
-            return ((GrpcException) errors.get(0)).getStatus();
+            int status = ((GrpcException) errors.get(0)).getStatus();
+            assertEquals(Arrays.asList(status), completions);
+            return status;
         }
     }
 

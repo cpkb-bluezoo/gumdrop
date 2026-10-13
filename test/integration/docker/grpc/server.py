@@ -54,6 +54,14 @@ class EchoServicer(echo_pb2_grpc.EchoServicer):
         context.set_trailing_metadata((("x-trailer", "done"),))
         return echo_pb2.EchoResponse(message=value, length=len(value))
 
+    def Compressed(self, request, context):
+        if request.message == "deflate":
+            context.set_compression(grpc.Compression.Deflate)
+        else:
+            context.set_compression(grpc.Compression.Gzip)
+        text = "a" * request.repeat_count
+        return echo_pb2.EchoResponse(message=text, length=len(text))
+
     def Slow(self, request, context):
         deadline = time.time() + 3
         while time.time() < deadline and context.is_active():

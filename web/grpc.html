@@ -55,13 +55,12 @@ schema from your <code>.proto</code> file, turning wire fields into named, typed
 
 <p>
 Both the client and the server handle unary and <b>streaming</b> calls (server, client and
-bidirectional), <b>call metadata</b> and <b>deadlines</b>. Compression is not supported yet: a
-compressed message is rejected. The server serves an RPC declared with <code>stream</code> in the
+bidirectional), <b>call metadata</b>, <b>deadlines</b> and message <b>compression</b>. The server serves an RPC declared with <code>stream</code> in the
 <code>.proto</code> only if its <code>GrpcServer</code> says it can
 (<code>isStreamingSupported()</code>, <code>false</code> by default), so a service written for
 unary calls is never surprised: it answers such a call <code>UNIMPLEMENTED</code> (12) without the
-service seeing it. See <a href="#streaming">Streaming RPCs</a>, <a href="#metadata">Call metadata</a>
-and <a href="#deadlines">Deadlines</a>.
+service seeing it. See <a href="#streaming">Streaming RPCs</a>, <a href="#metadata">Call metadata</a>,
+<a href="#deadlines">Deadlines</a> and <a href="#compression">Compression</a>.
 </p>
 
 <h3>Contents</h3>
@@ -74,6 +73,7 @@ and <a href="#deadlines">Deadlines</a>.
 <li><a href="#streaming">Streaming RPCs</a></li>
 <li><a href="#metadata">Call metadata</a></li>
 <li><a href="#deadlines">Deadlines</a></li>
+<li><a href="#compression">Compression</a></li>
 <li><a href="#serialization">Serialisation and parsing</a></li>
 <li><a href="#integration">Integration with HTTP services</a></li>
 </ul>
@@ -503,6 +503,45 @@ server is told to stop. On a transport that cannot schedule timers only the serv
 GrpcCallOptions options = new GrpcCallOptions().timeout(5, TimeUnit.SECONDS);
 options.getMetadata().add("x-request-id", "abc123");
 grpcClient.call(httpClient, path, requestMessage, handler, options);
+</pre>
+
+<h3 id="compression">Compression</h3>
+
+<p>
+Each message is compressed on its own, as the gRPC protocol specifies: its flag byte is 1, and the
+<code>grpc-encoding</code> header names the algorithm for the call. A peer lists what it can decode in
+<code>grpc-accept-encoding</code>, which every Gumdrop request and response carries. The algorithms are
+<code>gzip</code> and <code>deflate</code>, which are the specification's and are on by default, and
+<code>br</code> (Brotli), which is <b>not</b> part of the gRPC specification: it is an extension that
+works only between peers that both support it, so it is never offered or used unless you ask for it.
+<code>identity</code>, no compression, is always allowed.
+</p>
+
+<p>
+<b>Receiving.</b> A compressed message is decoded as it streams in, without being held whole, and a
+message may not expand beyond the maximum message size (4 MB by default,
+<code>GrpcRequestHandler.maxMessageSize</code>), so a small message cannot be a decompression bomb. A
+message that does is <code>RESOURCE_EXHAUSTED</code> (8); a corrupt or truncated one, or a compressed
+message with no <code>grpc-encoding</code>, is <code>INTERNAL</code> (13). A server answers a request in an
+encoding it does not offer <code>UNIMPLEMENTED</code> (12), in a response that lists the ones it does.
+</p>
+
+<p>
+<b>Sending.</b> A server compresses response messages when the request's
+<code>grpc-accept-encoding</code> lists an algorithm it offers, taking the first of its own list. A message
+below a minimum size, or one that would not be smaller compressed, is sent as it is. A client compresses
+request messages with the algorithm it is given, which the server must be able to decode.
+</p>
+
+<pre>
+GrpcRequestHandler handler = new GrpcRequestHandler(protoFile, service)
+        .encodings(Coding.GZIP, Coding.DEFLATE)   // decoded and offered, most wanted first
+        .compressResponses(true)                  // the default
+        .compressionThreshold(256);               // bytes, the default
+
+GrpcClient client = new GrpcClient(protoFile)
+        .encodings(Coding.GZIP, Coding.DEFLATE)   // what responses may be compressed with
+        .compression(Coding.GZIP);                // compress requests; none by default
 </pre>
 
 <h3 id="serialization">Serialisation and parsing</h3>

@@ -666,13 +666,17 @@ public class GrpcClient {
                 return true;
             }
 
-            /** Fails the call and cancels the stream, which can no longer be used. */
+            /**
+             * Fails the call with a status of its own and cancels the stream,
+             * which can no longer be used.
+             */
             private void abandon(GrpcException e) {
                 if (decoder != null) {
                     decoder.close();
                     decoder = null;
                 }
                 fail(e);
+                complete(e.getStatus(), e.getMessage());
                 call.request.cancel();
             }
 

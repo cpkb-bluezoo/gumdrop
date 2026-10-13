@@ -123,7 +123,7 @@ public class PyGrpcServerIntegrationTest extends AbstractServerIntegrationTest {
             assertTrue(lines.get(i), lines.get(i).startsWith("ok "));
         }
         assertEquals(lines.toString(), 0, p.exitValue());
-        assertEquals(lines.toString(), 9, lines.size());
+        assertEquals(lines.toString(), 12, lines.size());
         // the Slow call was cut short by the client's deadline and then
         // cancelled, and the handler was told
         assertTrue("the slow call was not cancelled",
