@@ -44,4 +44,18 @@ public interface GrpcResponseHandler {
      * @param e the error
      */
     void onError(Exception e);
+
+    /**
+     * Called once when the call ends with a gRPC status, whether it is
+     * {@code OK} or not. For a status other than {@code OK},
+     * {@link #onError} is called first with the matching exception. Not
+     * called when the call fails without a status, such as when the
+     * connection is lost, which is reported through {@link #onError} alone.
+     *
+     * @param status the gRPC status code, see
+     *        {@link org.bluezoo.gumdrop.grpc.GrpcStatus}
+     * @param message the status message, or {@code null}
+     */
+    default void onComplete(int status, String message) {
+    }
 }

@@ -24,9 +24,9 @@ package org.bluezoo.gumdrop.grpc.client;
 /**
  * A gRPC call in progress, as returned by {@link GrpcClient#call}.
  *
- * <p>This is the client's whole handle on a call. Other operations on a
- * call, such as sending further request messages, a deadline and metadata,
- * will be methods of this interface.
+ * <p>This is the client's whole handle on a call. A call that streams its
+ * request sends the messages through it. A deadline and metadata will be
+ * further methods of this interface.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -38,4 +38,23 @@ public interface GrpcClientCall {
      * response handler. Has no effect on a call that has finished.
      */
     void cancel();
+
+    /**
+     * Sends a request message on a call that was started without one, for an
+     * RPC that streams its requests. The message is framed and sent at once.
+     * Does nothing if the call has ended.
+     *
+     * @param message the serialised request message
+     * @throws IllegalStateException if the request has been ended already,
+     *         with {@link #halfClose()} or by the call having been made with
+     *         its one request message
+     */
+    void send(java.nio.ByteBuffer message);
+
+    /**
+     * Ends the request stream (half-close): the client will send no more
+     * messages, but the response continues. Does nothing if it has been
+     * ended already.
+     */
+    void halfClose();
 }
