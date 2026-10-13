@@ -407,8 +407,8 @@ public class GrpcStreamingServerTest {
         handler.endHeaders();
         handler.bodyContent(request("a"));
         recorder.reply("hello");
-        // a frame that announces compression, which is not supported
-        handler.bodyContent(ByteBuffer.wrap(new byte[] {1, 0, 0, 0, 0}));
+        // a frame with a compression flag that gRPC does not define
+        handler.bodyContent(ByteBuffer.wrap(new byte[] {2, 0, 0, 0, 0}));
         assertEquals("[grpc-status: 13, grpc-message: Invalid gRPC frame]",
                 state.trailers.toString());
         assertEquals(1, state.completeCount);

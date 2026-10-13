@@ -21,12 +21,14 @@
 
 package org.bluezoo.gumdrop.grpc.server;
 
+import org.bluezoo.gumdrop.grpc.GrpcCompression;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.GrpcMetadata;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
+import org.bluezoo.gumdrop.http.ContentEncoding.Coding;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -49,6 +51,7 @@ public class GrpcRequestHandler implements HttpStreamHandler {
     private final ProtoFile protoFile;
     private final GrpcServer server;
     private long maxMessageSize = GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE;
+    private Coding[] encodings = GrpcCompression.DEFAULT_ENCODINGS;
 
     public GrpcRequestHandler(ProtoFile protoFile, GrpcServer server) {
         this.protoFile = protoFile;
@@ -65,6 +68,32 @@ public class GrpcRequestHandler implements HttpStreamHandler {
                     "maxMessageSize must not be negative, got: " + maxMessageSize);
         }
         this.maxMessageSize = maxMessageSize;
+        return this;
+    }
+
+    /**
+     * Returns the compression algorithms this handler decodes in requests and
+     * offers for responses, besides {@code identity}.
+     *
+     * @return the algorithms
+     */
+    public Coding[] getEncodings() {
+        return encodings.clone();
+    }
+
+    /**
+     * Sets the compression algorithms this handler decodes in requests and
+     * offers in {@code grpc-accept-encoding}, besides {@code identity}, which
+     * is always allowed. The default is {@code gzip} and {@code deflate}, the
+     * algorithms of the gRPC specification. Add {@link Coding#BR} (Brotli) to
+     * allow it too: it is an extension that only works with peers that have it
+     * as well.
+     *
+     * @param encodings the algorithms
+     * @return this handler
+     */
+    public GrpcRequestHandler encodings(Coding... encodings) {
+        this.encodings = encodings.clone();
         return this;
     }
 
@@ -85,6 +114,7 @@ public class GrpcRequestHandler implements HttpStreamHandler {
         private ContentType contentType;
         private final GrpcMetadata metadata = new GrpcMetadata();
         private String timeout;
+        private String encoding;
         private HttpRequestHandler delegate;
 
         GrpcStreamHandler(HttpResponse response) {
@@ -109,6 +139,8 @@ public class GrpcRequestHandler implements HttpStreamHandler {
             String text = StandardCharsets.ISO_8859_1.decode(value.duplicate()).toString();
             if (key.equals("grpc-timeout")) {
                 timeout = text;
+            } else if (key.equals("grpc-encoding")) {
+                encoding = text;
             } else if (!GrpcMetadata.isReserved(key)) {
                 metadata.addReceived(key, text);
             }
@@ -170,7 +202,7 @@ public class GrpcRequestHandler implements HttpStreamHandler {
 
             GrpcHandler handler = new GrpcHandler(protoFile, server, response, path,
                     maxMessageSize, protoFile.getRpcByPath(path));
-            handler.requestHeaders(metadata, timeout);
+            handler.requestHeaders(metadata, timeout, encoding, encodings);
             return handler;
         }
     }

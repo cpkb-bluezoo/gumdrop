@@ -46,12 +46,14 @@ public class GrpcFrameParserEdgeTest {
     private static final class Events implements GrpcEventHandler {
         final List<String> errors = new ArrayList<String>();
         int started;
+        final List<Byte> flags = new ArrayList<Byte>();
         int ended;
         int dataBytes;
 
         @Override
         public void startMessage(byte compressionFlag, int length) {
             started++;
+            flags.add(compressionFlag);
         }
 
         @Override
@@ -101,10 +103,26 @@ public class GrpcFrameParserEdgeTest {
     }
 
     @Test
-    public void compressedFramesAreReportedAndTheParserRecovers() {
+    public void compressedFramesAreDeliveredWithTheirFlag() {
         Events events = new Events();
         GrpcFrameParser parser = new GrpcFrameParser(events);
-        parser.receive(header(1, 3));
+        ByteBuffer frame = ByteBuffer.allocate(8);
+        frame.put(header(1, 3));
+        frame.put(new byte[] {7, 8, 9});
+        frame.flip();
+        parser.receive(frame);
+        assertEquals(0, events.errors.size());
+        assertEquals(1, events.started);
+        assertEquals(Byte.valueOf((byte) 1), events.flags.get(0));
+        assertEquals(3, events.dataBytes);
+        assertEquals(1, events.ended);
+    }
+
+    @Test
+    public void anUnknownCompressionFlagIsReportedAndTheParserRecovers() {
+        Events events = new Events();
+        GrpcFrameParser parser = new GrpcFrameParser(events);
+        parser.receive(header(2, 3));
         assertEquals(1, events.errors.size());
         assertFalse(parser.hasPartialFrame());
         parser.receive(header(0, 0));

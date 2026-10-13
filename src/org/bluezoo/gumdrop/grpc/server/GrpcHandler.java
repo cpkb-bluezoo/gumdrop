@@ -25,11 +25,14 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.security.Principal;
 import java.time.Instant;
+import java.util.Arrays;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.grpc.GrpcCompression;
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
+import org.bluezoo.gumdrop.grpc.GrpcException;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
@@ -43,6 +46,9 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
+import org.bluezoo.gumdrop.http.ContentEncoding.ContentEncodingException;
+import org.bluezoo.gumdrop.http.ContentEncoding.Coding;
+import org.bluezoo.gumdrop.http.ContentEncoding.Decoder;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
@@ -97,6 +103,10 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private final GrpcMetadata responseMetadata = new GrpcMetadata();
     private final GrpcMetadata trailingMetadata = new GrpcMetadata();
     private long timeoutNanos = -1L;
+    private String requestEncoding;
+    private Coding[] encodings = GrpcCompression.DEFAULT_ENCODINGS;
+    private Coding requestCoding;
+    private Decoder decoder;
     private Instant deadline;
     private TimerHandle deadlineTimer;
     private int requestMessages;
@@ -118,12 +128,16 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
     /**
      * Gives the handler the request headers it will need: the call metadata
-     * and the {@code grpc-timeout} value, or {@code null}. Called before
+     * the {@code grpc-timeout} value, the {@code grpc-encoding} value (or
+     * {@code null} for either) and the algorithms the server decodes. Called before
      * {@link #endHeaders()}.
      */
-    void requestHeaders(GrpcMetadata metadata, String timeout) {
+    void requestHeaders(GrpcMetadata metadata, String timeout, String encoding,
+            Coding[] encodings) {
         requestMetadata = metadata != null ? metadata : new GrpcMetadata();
         timeoutNanos = timeout != null ? GrpcTimeout.parse(timeout) : -1L;
+        requestEncoding = encoding;
+        this.encodings = encodings;
     }
 
     /** Starts the call; the header section has ended. */
@@ -145,6 +159,18 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                     "Streaming RPCs are not supported");
             bodyRejected = true;
             return;
+        }
+        if (!GrpcCompression.isIdentity(requestEncoding)) {
+            Coding coding = GrpcCompression.coding(requestEncoding);
+            if (coding == null || !Arrays.asList(encodings).contains(coding)) {
+                // the call never reaches the service; the response says what
+                // would have been understood
+                responseSender.sendError(GrpcStatus.UNIMPLEMENTED,
+                        "Unsupported grpc-encoding: " + requestEncoding);
+                bodyRejected = true;
+                return;
+            }
+            requestCoding = coding;
         }
         if (timeoutNanos >= 0) {
             deadline = Instant.now().plusNanos(timeoutNanos);
@@ -250,6 +276,13 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 abort(GrpcStatus.INTERNAL, "Too many request messages");
                 return;
             }
+            if (compressionFlag != 0) {
+                if (requestCoding == null) {
+                    abort(GrpcStatus.INTERNAL, "Compressed message without grpc-encoding");
+                    return;
+                }
+                decoder = GrpcCompression.newDecoder(requestCoding, maxMessageSize);
+            }
             requestMessages++;
             protoAdapter = new ProtoModelAdapter(protoFile, requestHandler);
             try {
@@ -268,23 +301,15 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             if (bodyRejected) {
                 return;
             }
-            ByteBuffer input = data;
-            if (pending != null) {
-                // the parser stopped part-way through a field last time:
-                // its unconsumed tail goes ahead of the new bytes
-                input = ByteBuffer.allocate(pending.remaining() + data.remaining());
-                input.put(pending);
-                input.put(data);
-                input.flip();
-                pending = null;
-            }
             try {
-                protobufParser.receive(input);
-                if (input.hasRemaining()) {
-                    pending = ByteBuffer.allocate(input.remaining());
-                    pending.put(input);
-                    pending.flip();
+                if (decoder != null) {
+                    decoder.write(data, false);
+                    drainDecoder();
+                } else {
+                    parse(data);
                 }
+            } catch (ContentEncodingException e) {
+                compressionFailed(e);
             } catch (ProtobufParseException e) {
                 events().warn("log.grpc_protobuf_parse_error").thrown(e).emit();
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
@@ -297,12 +322,60 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 return;
             }
             try {
+                if (decoder != null) {
+                    decoder.write(ByteBuffer.allocate(0), true);
+                    drainDecoder();
+                    decoder.close();
+                    decoder = null;
+                }
                 protobufParser.close();
                 protoAdapter.endRootMessage();
+            } catch (ContentEncodingException e) {
+                compressionFailed(e);
             } catch (ProtoParseException | ProtobufParseException e) {
                 events().warn("log.grpc_complete_request_failed").thrown(e).emit();
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
+        }
+
+        /** Feeds what the decoder has produced so far to the protobuf parser. */
+        private void drainDecoder() throws ProtobufParseException {
+            ByteBuffer chunk;
+            while ((chunk = decoder.readDecoded()) != null) {
+                parse(chunk);
+            }
+        }
+
+        /**
+         * Feeds bytes of the message to the protobuf parser. If it stops
+         * part-way through a field, its unconsumed tail goes ahead of the
+         * next bytes.
+         */
+        private void parse(ByteBuffer data) throws ProtobufParseException {
+            ByteBuffer input = data;
+            if (pending != null) {
+                input = ByteBuffer.allocate(pending.remaining() + data.remaining());
+                input.put(pending);
+                input.put(data);
+                input.flip();
+                pending = null;
+            }
+            protobufParser.receive(input);
+            if (input.hasRemaining()) {
+                pending = ByteBuffer.allocate(input.remaining());
+                pending.put(input);
+                pending.flip();
+            }
+        }
+
+        private void compressionFailed(ContentEncodingException e) {
+            if (decoder != null) {
+                decoder.close();
+                decoder = null;
+            }
+            GrpcException failure = GrpcCompression.failure(e);
+            events().warn("log.grpc_decompress_failed").thrown(e).emit();
+            abort(failure.getStatus(), failure.getMessage());
         }
 
         @Override
@@ -444,6 +517,8 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             if (trailersOnly) {
                 responseState.status(HttpStatus.OK.code);
                 responseState.header("content-type", CONTENT_TYPE_GRPC);
+                responseState.header("grpc-accept-encoding",
+                        GrpcCompression.acceptEncoding(encodings));
                 sendMetadata(responseMetadata);
             }
             sendMetadata(trailingMetadata);
@@ -551,6 +626,8 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 started = true;
                 responseState.status(HttpStatus.OK.code);
                 responseState.header("content-type", CONTENT_TYPE_GRPC);
+                responseState.header("grpc-accept-encoding",
+                        GrpcCompression.acceptEncoding(encodings));
                 sendMetadata(responseMetadata);
             }
             responseState.bodyContent(framed);

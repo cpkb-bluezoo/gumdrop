@@ -120,9 +120,12 @@ public class GrpcFrameParser {
 
         ByteBuffer header = ByteBuffer.wrap(headerBuf);
         byte compressionFlag = header.get();
-        if (compressionFlag != 0) {
+        // 0 is a message as it is, 1 a message compressed with the call's
+        // grpc-encoding (gRPC HTTP/2 protocol); anything else is not gRPC
+        if (compressionFlag != 0 && compressionFlag != 1) {
             reset();
-            handler.parseError(L10N.getString("err.compressed_frames_unsupported"));
+            handler.parseError(MessageFormat.format(
+                    L10N.getString("err.invalid_compression_flag"), compressionFlag));
             return false;
         }
 

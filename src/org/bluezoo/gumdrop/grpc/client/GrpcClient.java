@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.grpc.client;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
+import org.bluezoo.gumdrop.grpc.GrpcCompression;
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
 import org.bluezoo.gumdrop.TimerHandle;
@@ -36,6 +38,9 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
+import org.bluezoo.gumdrop.http.ContentEncoding.ContentEncodingException;
+import org.bluezoo.gumdrop.http.ContentEncoding.Coding;
+import org.bluezoo.gumdrop.http.ContentEncoding.Decoder;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
@@ -56,9 +61,36 @@ public class GrpcClient {
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
 
     private final ProtoFile protoFile;
+    private Coding[] encodings = GrpcCompression.DEFAULT_ENCODINGS;
 
     public GrpcClient(ProtoFile protoFile) {
         this.protoFile = protoFile;
+    }
+
+    /**
+     * Returns the compression algorithms this client decodes in responses and
+     * offers in {@code grpc-accept-encoding}, besides {@code identity}.
+     *
+     * @return the algorithms
+     */
+    public Coding[] getEncodings() {
+        return encodings.clone();
+    }
+
+    /**
+     * Sets the compression algorithms this client decodes in responses and
+     * offers in {@code grpc-accept-encoding}, besides {@code identity}, which
+     * is always allowed. The default is {@code gzip} and {@code deflate}, the
+     * algorithms of the gRPC specification. Add {@link Coding#BR} (Brotli) to
+     * allow it too: it is an extension that only works with a server that has
+     * it as well.
+     *
+     * @param encodings the algorithms
+     * @return this client
+     */
+    public GrpcClient encodings(Coding... encodings) {
+        this.encodings = encodings.clone();
+        return this;
     }
 
     /**
@@ -190,10 +222,12 @@ public class GrpcClient {
                             GrpcCallOptions options) {
         CallHandle call = new CallHandle();
         final StreamingResponseHandler responses =
-                new StreamingResponseHandler(handler, protoFile, responseTypeName, call);
+                new StreamingResponseHandler(handler, protoFile, responseTypeName, call,
+                        encodings);
         HttpRequest request = httpClient.post(path, responses);
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
+        request.header("grpc-accept-encoding", GrpcCompression.acceptEncoding(encodings));
         call.request = request;
         if (options == null) {
             return call;
@@ -317,6 +351,9 @@ public class GrpcClient {
         private final ProtoFile protoFile;
         private final String defaultResponseTypeName;
         private final CallHandle call;
+        private final Coding[] encodings;
+        private String responseEncoding;
+        private Decoder decoder;
         private boolean failed;
         private boolean completed;
         private boolean bodyStarted;
@@ -334,7 +371,8 @@ public class GrpcClient {
         private String grpcMessage;
 
         StreamingResponseHandler(GrpcResponseHandler handler, ProtoFile protoFile,
-                String defaultResponseTypeName, CallHandle call) {
+                String defaultResponseTypeName, CallHandle call, Coding[] encodings) {
+            this.encodings = encodings;
             this.handler = handler;
             this.protoFile = protoFile;
             this.defaultResponseTypeName = defaultResponseTypeName;
@@ -370,6 +408,8 @@ public class GrpcClient {
                 grpcStatus = text(valueBuffer);
             } else if ("grpc-message".equalsIgnoreCase(name)) {
                 grpcMessage = text(valueBuffer);
+            } else if ("grpc-encoding".equalsIgnoreCase(name)) {
+                responseEncoding = text(valueBuffer);
             } else {
                 String key = name.toLowerCase(java.util.Locale.ROOT);
                 if (!GrpcMetadata.isReserved(key)) {
@@ -538,6 +578,9 @@ public class GrpcClient {
                 if (failed) {
                     return;
                 }
+                if (compressionFlag != 0 && !startDecoder()) {
+                    return;
+                }
                 String typeName = defaultResponseTypeName;
                 messageHandler = handler.startMessage(typeName);
                 if (messageHandler == null) {
@@ -557,28 +600,52 @@ public class GrpcClient {
                 pending = null;
             }
 
+            /**
+             * Sets up the decoder for a compressed message, which the call's
+             * {@code grpc-encoding} must have named and this client offered.
+             *
+             * @return false if the call has failed instead
+             */
+            private boolean startDecoder() {
+                if (GrpcCompression.isIdentity(responseEncoding)) {
+                    abandon(new GrpcException(GrpcStatus.INTERNAL,
+                            "Compressed message without grpc-encoding"));
+                    return false;
+                }
+                Coding coding = GrpcCompression.coding(responseEncoding);
+                if (coding == null || !Arrays.asList(encodings).contains(coding)) {
+                    abandon(new GrpcException(GrpcStatus.UNIMPLEMENTED,
+                            "Unsupported grpc-encoding: " + responseEncoding));
+                    return false;
+                }
+                decoder = GrpcCompression.newDecoder(coding, frameParser.getMaxMessageSize());
+                return true;
+            }
+
+            /** Fails the call and cancels the stream, which can no longer be used. */
+            private void abandon(GrpcException e) {
+                if (decoder != null) {
+                    decoder.close();
+                    decoder = null;
+                }
+                fail(e);
+                call.request.cancel();
+            }
+
             @Override
             public void messageData(ByteBuffer data) {
                 if (failed) {
                     return;
                 }
-                ByteBuffer input = data;
-                if (pending != null) {
-                    // the parser stopped part-way through a field last time:
-                    // its unconsumed tail goes ahead of the new bytes
-                    input = ByteBuffer.allocate(pending.remaining() + data.remaining());
-                    input.put(pending);
-                    input.put(data);
-                    input.flip();
-                    pending = null;
-                }
                 try {
-                    protobufParser.receive(input);
-                    if (input.hasRemaining()) {
-                        pending = ByteBuffer.allocate(input.remaining());
-                        pending.put(input);
-                        pending.flip();
+                    if (decoder != null) {
+                        decoder.write(data, false);
+                        drainDecoder();
+                    } else {
+                        parse(data);
                     }
+                } catch (ContentEncodingException e) {
+                    abandon(GrpcCompression.failure(e));
                 } catch (ProtobufParseException e) {
                     fail(e);
                 }
@@ -590,10 +657,48 @@ public class GrpcClient {
                     return;
                 }
                 try {
+                    if (decoder != null) {
+                        decoder.write(ByteBuffer.allocate(0), true);
+                        drainDecoder();
+                        decoder.close();
+                        decoder = null;
+                    }
                     protobufParser.close();
                     protoAdapter.endRootMessage();
+                } catch (ContentEncodingException e) {
+                    abandon(GrpcCompression.failure(e));
                 } catch (ProtoParseException | ProtobufParseException e) {
                     fail(e);
+                }
+            }
+
+            /** Feeds what the decoder has produced so far to the protobuf parser. */
+            private void drainDecoder() throws ProtobufParseException {
+                ByteBuffer chunk;
+                while ((chunk = decoder.readDecoded()) != null) {
+                    parse(chunk);
+                }
+            }
+
+            /**
+             * Feeds bytes of the message to the protobuf parser. If it stops
+             * part-way through a field, its unconsumed tail goes ahead of the
+             * next bytes.
+             */
+            private void parse(ByteBuffer data) throws ProtobufParseException {
+                ByteBuffer input = data;
+                if (pending != null) {
+                    input = ByteBuffer.allocate(pending.remaining() + data.remaining());
+                    input.put(pending);
+                    input.put(data);
+                    input.flip();
+                    pending = null;
+                }
+                protobufParser.receive(input);
+                if (input.hasRemaining()) {
+                    pending = ByteBuffer.allocate(input.remaining());
+                    pending.put(input);
+                    pending.flip();
                 }
             }
 
