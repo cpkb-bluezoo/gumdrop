@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.grpc.client;
 
+import org.bluezoo.gumdrop.grpc.GrpcMetadata;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 
 /**
@@ -57,5 +58,26 @@ public interface GrpcResponseHandler {
      * @param message the status message, or {@code null}
      */
     default void onComplete(int status, String message) {
+    }
+
+    /**
+     * Called with the metadata the server sent with the response headers,
+     * before the first response message. Not called when the response has no
+     * messages and carries its status in the one header block, as a call that
+     * fails at once does: that metadata goes to
+     * {@link #onTrailingMetadata}.
+     *
+     * @param metadata the initial metadata, without the protocol's own headers
+     */
+    default void onInitialMetadata(GrpcMetadata metadata) {
+    }
+
+    /**
+     * Called with the metadata the server sent with the status, before
+     * {@link #onError} and {@link #onComplete}.
+     *
+     * @param metadata the trailing metadata, without the protocol's own headers
+     */
+    default void onTrailingMetadata(GrpcMetadata metadata) {
     }
 }

@@ -25,7 +25,10 @@ import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
+import org.bluezoo.gumdrop.grpc.GrpcMetadata;
+import org.bluezoo.gumdrop.grpc.GrpcTimeout;
 import org.bluezoo.gumdrop.grpc.GrpcException;
 import org.bluezoo.gumdrop.grpc.GrpcStatus;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
@@ -86,24 +89,18 @@ public class GrpcClient {
             @Override
             public void onError(Exception e) {
             }
-        }, responseTypeName);
+        }, responseTypeName, null);
     }
 
     private GrpcClientCall call(HttpClient httpClient, String path,
                                 ByteBuffer requestMessage,
                                 GrpcResponseHandler handler,
-                                String responseTypeName) {
+                                String responseTypeName,
+                                GrpcCallOptions options) {
         ByteBuffer framed = GrpcFraming.frame(requestMessage);
-
-        CallHandle call = new CallHandle();
-        HttpRequest request = httpClient.post(path,
-                new StreamingResponseHandler(handler, protoFile, responseTypeName, call));
-        request.header("Content-Type", CONTENT_TYPE_GRPC);
-        request.header("Te", "trailers");
-        call.request = request;
-
-        request.bodyContent(framed);
-        request.endMessage();
+        CallHandle call = open(httpClient, path, handler, responseTypeName, options);
+        call.request.bodyContent(framed);
+        call.request.endMessage();
         call.requestEnded = true;
         return call;
     }
@@ -123,7 +120,49 @@ public class GrpcClient {
                                GrpcResponseHandler handler) {
         RpcDescriptor rpc = protoFile.getRpcByPath(path);
         String responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
-        return call(httpClient, path, requestMessage, handler, responseTypeName);
+        return call(httpClient, path, requestMessage, handler, responseTypeName, null);
+    }
+
+    /**
+     * As {@link #call(HttpClient, String, ByteBuffer, GrpcResponseHandler)},
+     * with request metadata and a deadline.
+     *
+     * @param httpClient a connected HTTP client
+     * @param path the gRPC path ({@code /package.Service/Method})
+     * @param requestMessage the serialised request message
+     * @param handler receives the response messages, the metadata and the end
+     * @param options the metadata and deadline of the call, or {@code null}
+     * @return the call
+     */
+    public GrpcClientCall call(HttpClient httpClient, String path,
+                               ByteBuffer requestMessage,
+                               GrpcResponseHandler handler,
+                               GrpcCallOptions options) {
+        RpcDescriptor rpc = protoFile.getRpcByPath(path);
+        String responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
+        return call(httpClient, path, requestMessage, handler, responseTypeName, options);
+    }
+
+    /**
+     * As {@link #call(HttpClient, String, GrpcResponseHandler)}, with request
+     * metadata and a deadline.
+     *
+     * @param httpClient a connected HTTP client
+     * @param path the gRPC path ({@code /package.Service/Method})
+     * @param handler receives the response messages, the metadata and the end
+     * @param options the metadata and deadline of the call, or {@code null}
+     * @return the call
+     */
+    public GrpcClientCall call(HttpClient httpClient, String path,
+                               GrpcResponseHandler handler,
+                               GrpcCallOptions options) {
+        RpcDescriptor rpc = protoFile.getRpcByPath(path);
+        String responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
+        CallHandle call = open(httpClient, path, handler, responseTypeName, options);
+        // send the header section now: the first message must not wait for
+        // a second one, or for the half-close, to go out
+        call.request.endHeaders();
+        return call;
     }
 
     /**
@@ -139,18 +178,46 @@ public class GrpcClient {
      */
     public GrpcClientCall call(HttpClient httpClient, String path,
                                GrpcResponseHandler handler) {
-        RpcDescriptor rpc = protoFile.getRpcByPath(path);
-        String responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
+        return call(httpClient, path, handler, (GrpcCallOptions) null);
+    }
 
+    /**
+     * Opens the request of a call: the headers, the metadata and the
+     * deadline. Nothing of the body has gone out.
+     */
+    private CallHandle open(HttpClient httpClient, String path,
+                            GrpcResponseHandler handler, String responseTypeName,
+                            GrpcCallOptions options) {
         CallHandle call = new CallHandle();
-        HttpRequest request = httpClient.post(path,
-                new StreamingResponseHandler(handler, protoFile, responseTypeName, call));
+        final StreamingResponseHandler responses =
+                new StreamingResponseHandler(handler, protoFile, responseTypeName, call);
+        HttpRequest request = httpClient.post(path, responses);
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
-        // send the header section now: the first message must not wait for
-        // a second one, or for the half-close, to go out
-        request.endHeaders();
         call.request = request;
+        if (options == null) {
+            return call;
+        }
+        GrpcMetadata metadata = options.getMetadata();
+        for (int i = 0; i < metadata.size(); i++) {
+            request.header(metadata.keyAt(i), metadata.wireValueAt(i));
+        }
+        long timeout = options.remainingNanos();
+        if (timeout >= 0) {
+            request.header("grpc-timeout", GrpcTimeout.format(timeout));
+            long millis = timeout / 1000000L;
+            if (timeout % 1000000L != 0) {
+                millis++;
+            }
+            // enforced here as well as by the server; a transport with no
+            // timers leaves it to the server
+            call.deadlineTimer = request.scheduleTimer(millis, new Runnable() {
+                @Override
+                public void run() {
+                    responses.deadlineExceeded();
+                }
+            });
+        }
         return call;
     }
 
@@ -160,9 +227,19 @@ public class GrpcClient {
         boolean requestEnded;
         /** The response has ended or failed: nothing more is sent. */
         boolean finished;
+        TimerHandle deadlineTimer;
         private boolean cancelled;
         /** Framed request data the transport has not taken yet. */
         private ByteBuffer pending;
+
+        /** The call is over: nothing more is sent and its deadline no longer matters. */
+        void finish() {
+            finished = true;
+            if (deadlineTimer != null) {
+                deadlineTimer.cancel();
+                deadlineTimer = null;
+            }
+        }
 
         @Override
         public void cancel() {
@@ -170,6 +247,7 @@ public class GrpcClient {
                 return;
             }
             cancelled = true;
+            finish();
             request.cancel();
         }
 
@@ -242,6 +320,10 @@ public class GrpcClient {
         private boolean failed;
         private boolean completed;
         private boolean bodyStarted;
+        private boolean headersEnded;
+        private boolean initialDelivered;
+        private final GrpcMetadata headerMetadata = new GrpcMetadata();
+        private final GrpcMetadata trailerMetadata = new GrpcMetadata();
         /** Bytes of the current message the protobuf parser has not consumed yet. */
         private ByteBuffer pending;
         private GrpcFrameParser frameParser;
@@ -288,7 +370,43 @@ public class GrpcClient {
                 grpcStatus = text(valueBuffer);
             } else if ("grpc-message".equalsIgnoreCase(name)) {
                 grpcMessage = text(valueBuffer);
+            } else {
+                String key = name.toLowerCase(java.util.Locale.ROOT);
+                if (!GrpcMetadata.isReserved(key)) {
+                    // a field after the header section ended, or once the
+                    // body has begun, is a trailer
+                    GrpcMetadata target = headersEnded || bodyStarted
+                            ? trailerMetadata : headerMetadata;
+                    target.addReceived(key, text(valueBuffer));
+                }
             }
+        }
+
+        @Override
+        public void endHeaders() {
+            headersEnded = true;
+            // a status in the header block means a response with no
+            // messages, whose metadata is the trailing metadata
+            if (grpcStatus == null) {
+                deliverInitialMetadata();
+            }
+        }
+
+        private void deliverInitialMetadata() {
+            if (!initialDelivered && !failed) {
+                initialDelivered = true;
+                handler.onInitialMetadata(headerMetadata);
+            }
+        }
+
+        /** Tells the handler that the call has been out of time. */
+        void deadlineExceeded() {
+            if (call.finished) {
+                return;
+            }
+            fail(new GrpcException(GrpcStatus.DEADLINE_EXCEEDED, "Deadline exceeded"));
+            complete(GrpcStatus.DEADLINE_EXCEEDED, "Deadline exceeded");
+            call.request.cancel();
         }
 
         private String text(ByteBuffer b) {
@@ -300,6 +418,7 @@ public class GrpcClient {
         @Override
         public void bodyContent(ByteBuffer data) {
             if (!bodyStarted) {
+                deliverInitialMetadata();
                 bodyStarted = true;
                 frameParser = new GrpcFrameParser(new FrameBridge());
             }
@@ -324,6 +443,9 @@ public class GrpcClient {
             if (frameParser != null && frameParser.hasPartialFrame()) {
                 fail(new GrpcException(GrpcStatus.INTERNAL, "incomplete response frame"));
                 return;
+            }
+            if (!failed) {
+                handler.onTrailingMetadata(initialDelivered ? trailerMetadata : headerMetadata);
             }
             if (grpcStatus != null && !"0".equals(grpcStatus)) {
                 String message = grpcMessage != null ? decodeGrpcMessage(grpcMessage) : null;
@@ -354,7 +476,7 @@ public class GrpcClient {
         }
 
         private void complete(int status, String message) {
-            call.finished = true;
+            call.finish();
             if (!completed) {
                 completed = true;
                 handler.onComplete(status, message);
@@ -397,7 +519,7 @@ public class GrpcClient {
         }
 
         private void fail(Exception e) {
-            call.finished = true;
+            call.finish();
             if (!failed) {
                 failed = true;
                 handler.onError(e);

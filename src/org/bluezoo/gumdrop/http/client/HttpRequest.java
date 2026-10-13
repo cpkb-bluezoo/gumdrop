@@ -239,6 +239,25 @@ public interface HttpRequest {
     void endMessage();
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Timers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Schedules a one-shot timer callback on this request's connection, on the
+     * thread that delivers its response events. A caller that enforces its own
+     * deadline on the request uses it, as a server does with
+     * {@link org.bluezoo.gumdrop.http.server.HttpResponse#scheduleTimer}.
+     *
+     * @param delayMs the delay in milliseconds
+     * @param callback the callback to run after the delay
+     * @return a handle that can cancel the timer, or {@code null} if
+     *         timers are not supported by this implementation
+     */
+    default org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Cancellation
     // ─────────────────────────────────────────────────────────────────────────
 

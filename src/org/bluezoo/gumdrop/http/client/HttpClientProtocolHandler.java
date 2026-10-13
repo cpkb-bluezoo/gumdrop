@@ -412,6 +412,11 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
     }
 
     @Override
+    org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return endpoint != null ? endpoint.scheduleTimer(delayMs, callback) : null;
+    }
+
+    @Override
     public void receive(ByteBuffer data) {
         if (Boolean.getBoolean("gumdrop.http.debug")) {
             events().info("info.debug_receive")
