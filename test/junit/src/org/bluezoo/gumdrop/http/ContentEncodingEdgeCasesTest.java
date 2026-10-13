@@ -132,6 +132,34 @@ public class ContentEncodingEdgeCasesTest {
     }
 
     @Test
+    public void everyDecoderReportsTheSizeLimitAsSuch() throws Exception {
+        ContentEncoding.Coding[] codings = ContentEncoding.Coding.values();
+        for (int i = 0; i < codings.length; i++) {
+            byte[] packed = ContentEncoding.compressFully(codings[i], new byte[10000]);
+            try {
+                ContentEncoding.decompress(codings[i], packed, 100);
+                fail("expected limit failure for " + codings[i]);
+            } catch (ContentEncoding.SizeLimitException expected) {
+                // expected
+            }
+        }
+    }
+
+    @Test
+    public void aCorruptBodyIsNotASizeLimitFailure() throws Exception {
+        byte[] packed = ContentEncoding.compressFully(ContentEncoding.Coding.GZIP, new byte[100]);
+        packed[packed.length - 6] ^= 0x55;
+        try {
+            ContentEncoding.decompress(ContentEncoding.Coding.GZIP, packed, 1000);
+            fail("expected a failure");
+        } catch (ContentEncoding.SizeLimitException unexpected) {
+            fail("a corrupt body is not a size limit failure");
+        } catch (ContentEncoding.ContentEncodingException expected) {
+            // expected
+        }
+    }
+
+    @Test
     public void truncatedGzipIsRejected() throws Exception {
         byte[] packed = ContentEncoding.compressFully(ContentEncoding.Coding.GZIP,
             bytes("hello hello hello hello hello"));

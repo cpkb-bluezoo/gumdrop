@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
+import org.bluezoo.gumdrop.http.ContentEncoding.Coding;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.protobuf.ByteBufferChannel;
@@ -59,7 +60,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 /**
- * Streaming RPCs, call metadata and deadlines of gumdrop's gRPC client
+ * Streaming RPCs, call metadata, deadlines and message compression of
+ * gumdrop's gRPC client
  * against a real, locally-running Python (grpcio) gRPC server -- not run
  * in CI, see {@link PyGrpcTestSupport}.
  *
@@ -295,5 +297,76 @@ public class PyGrpcStreamingClientIntegrationTest {
         assertEquals(GrpcStatus.DEADLINE_EXCEEDED, outcome.status.getStatus());
         // the server takes three seconds, so this was cut short
         assertTrue("took " + elapsedMs + "ms", elapsedMs < 2500);
+    }
+
+    // ── Compression ──
+
+    private static String letters(int count) {
+        char[] text = new char[count];
+        java.util.Arrays.fill(text, 'a');
+        return new String(text);
+    }
+
+    private void echoCompressed(final Coding coding) throws Exception {
+        final Outcome outcome = new Outcome();
+        connectAndRun(outcome, new Starter() {
+            public void start(HttpClient http, GrpcClient client) throws Exception {
+                client.compression(coding).call(http, ECHO + "SayEcho",
+                        echoRequest(letters(3000), 1), outcome);
+            }
+        });
+        outcome.await();
+        assertEquals(Arrays.asList(letters(3000)), outcome.messages);
+        assertEquals(GrpcStatus.OK, outcome.completedStatus);
+    }
+
+    @Test
+    public void gzipRequestsAreDecodedByTheServer() throws Exception {
+        echoCompressed(Coding.GZIP);
+    }
+
+    @Test
+    public void deflateRequestsAreDecodedByTheServer() throws Exception {
+        echoCompressed(Coding.DEFLATE);
+    }
+
+    private void compressedResponse(String algorithm) throws Exception {
+        final Outcome outcome = new Outcome();
+        final String name = algorithm;
+        connectAndRun(outcome, new Starter() {
+            public void start(HttpClient http, GrpcClient client) throws Exception {
+                client.call(http, ECHO + "Compressed", echoRequest(name, 3000), outcome);
+            }
+        });
+        outcome.await();
+        assertEquals(Arrays.asList(letters(3000)), outcome.messages);
+        assertEquals(GrpcStatus.OK, outcome.completedStatus);
+    }
+
+    @Test
+    public void gzipResponsesAreDecoded() throws Exception {
+        compressedResponse("gzip");
+    }
+
+    @Test
+    public void deflateResponsesAreDecoded() throws Exception {
+        compressedResponse("deflate");
+    }
+
+    @Test
+    public void aResponseThatExpandsBeyondTheLimitIsRefused() throws Exception {
+        // five million letters are a few KB of gzip, which the frame limit lets
+        // through, so only the decoder can refuse it: had the server not
+        // compressed it, the frame itself would have been too large, and the
+        // status would not be RESOURCE_EXHAUSTED
+        final Outcome outcome = new Outcome();
+        connectAndRun(outcome, new Starter() {
+            public void start(HttpClient http, GrpcClient client) throws Exception {
+                client.call(http, ECHO + "Compressed", echoRequest("gzip", 5000000), outcome);
+            }
+        });
+        outcome.await();
+        assertNotNull(outcome.status);
+        assertEquals(GrpcStatus.RESOURCE_EXHAUSTED, outcome.status.getStatus());
     }
 }

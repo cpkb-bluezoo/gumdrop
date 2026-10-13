@@ -90,6 +90,30 @@ def cancellation(stub):
     assert call.cancelled()
 
 
+def compressed_request(stub, algorithm):
+    text = "a" * 3000
+    response = stub.SayEcho(echo_pb2.EchoRequest(message=text), compression=algorithm)
+    assert response.message == text, len(response.message)
+
+
+def gzip_request(stub):
+    compressed_request(stub, grpc.Compression.Gzip)
+
+
+def deflate_request(stub):
+    compressed_request(stub, grpc.Compression.Deflate)
+
+
+def compressed_request_beyond_the_limit(stub):
+    # 5 MB of one letter is a few KB of gzip, which the frame limit lets
+    # through, so it is the decompressed size that the server must refuse
+    try:
+        stub.SayEcho(echo_pb2.EchoRequest(message="a" * 5000000), compression=grpc.Compression.Gzip)
+        raise AssertionError("the message was accepted")
+    except grpc.RpcError as e:
+        assert e.code() == grpc.StatusCode.RESOURCE_EXHAUSTED, e.code()
+
+
 SCENARIOS = [
     ("unary", unary),
     ("server-streaming", server_streaming),
@@ -100,6 +124,9 @@ SCENARIOS = [
     ("metadata", metadata),
     ("deadline", deadline),
     ("cancellation", cancellation),
+    ("gzip-request", gzip_request),
+    ("deflate-request", deflate_request),
+    ("compressed-request-beyond-the-limit", compressed_request_beyond_the_limit),
 ]
 
 

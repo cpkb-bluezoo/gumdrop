@@ -102,6 +102,7 @@ final class PyGrpcTestSupport {
             + "  rpc Collect(stream EchoRequest) returns (EchoResponse);\n"
             + "  rpc Chat(stream EchoRequest) returns (stream EchoResponse);\n"
             + "  rpc Metadata(EchoRequest) returns (EchoResponse);\n"
+            + "  rpc Compressed(EchoRequest) returns (EchoResponse);\n"
             + "  rpc Slow(EchoRequest) returns (EchoResponse);\n"
             + "}\n";
 }

@@ -21,12 +21,14 @@
 
 package org.bluezoo.gumdrop.grpc.server;
 
+import org.bluezoo.gumdrop.grpc.GrpcCompression;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.GrpcMetadata;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
+import org.bluezoo.gumdrop.http.ContentEncoding.Coding;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -46,9 +48,15 @@ public class GrpcRequestHandler implements HttpStreamHandler {
 
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
 
+    /** The default size below which a response message is not compressed. */
+    public static final int DEFAULT_COMPRESSION_THRESHOLD = 256;
+
     private final ProtoFile protoFile;
     private final GrpcServer server;
     private long maxMessageSize = GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE;
+    private Coding[] encodings = GrpcCompression.DEFAULT_ENCODINGS;
+    private boolean compressResponses = true;
+    private int compressionThreshold = DEFAULT_COMPRESSION_THRESHOLD;
 
     public GrpcRequestHandler(ProtoFile protoFile, GrpcServer server) {
         this.protoFile = protoFile;
@@ -65,6 +73,81 @@ public class GrpcRequestHandler implements HttpStreamHandler {
                     "maxMessageSize must not be negative, got: " + maxMessageSize);
         }
         this.maxMessageSize = maxMessageSize;
+        return this;
+    }
+
+    /**
+     * Returns the compression algorithms this handler decodes in requests and
+     * offers for responses, besides {@code identity}.
+     *
+     * @return the algorithms
+     */
+    public Coding[] getEncodings() {
+        return encodings.clone();
+    }
+
+    /**
+     * Sets the compression algorithms this handler decodes in requests and
+     * offers in {@code grpc-accept-encoding}, besides {@code identity}, which
+     * is always allowed. The default is {@code gzip} and {@code deflate}, the
+     * algorithms of the gRPC specification. Add {@link Coding#BR} (Brotli) to
+     * allow it too: it is an extension that only works with peers that have it
+     * as well.
+     *
+     * @param encodings the algorithms
+     * @return this handler
+     */
+    public GrpcRequestHandler encodings(Coding... encodings) {
+        this.encodings = encodings.clone();
+        return this;
+    }
+
+    /**
+     * Returns whether responses are compressed when the client allows it.
+     *
+     * @return true if they are
+     */
+    public boolean isCompressResponses() {
+        return compressResponses;
+    }
+
+    /**
+     * Sets whether response messages are compressed when the client lists an
+     * algorithm this handler offers in its {@code grpc-accept-encoding}. On by
+     * default.
+     *
+     * @param compressResponses true to compress
+     * @return this handler
+     */
+    public GrpcRequestHandler compressResponses(boolean compressResponses) {
+        this.compressResponses = compressResponses;
+        return this;
+    }
+
+    /**
+     * Returns the size below which a response message is not compressed.
+     *
+     * @return the size in bytes
+     */
+    public int getCompressionThreshold() {
+        return compressionThreshold;
+    }
+
+    /**
+     * Sets the size, in bytes of the serialised message, below which a
+     * response message is sent as it is, as compressing a small message gains
+     * little. The default is 256.
+     *
+     * @param compressionThreshold the size in bytes, not negative
+     * @return this handler
+     * @throws IllegalArgumentException if it is negative
+     */
+    public GrpcRequestHandler compressionThreshold(int compressionThreshold) {
+        if (compressionThreshold < 0) {
+            throw new IllegalArgumentException(
+                    "compressionThreshold must not be negative, got: " + compressionThreshold);
+        }
+        this.compressionThreshold = compressionThreshold;
         return this;
     }
 
@@ -85,6 +168,8 @@ public class GrpcRequestHandler implements HttpStreamHandler {
         private ContentType contentType;
         private final GrpcMetadata metadata = new GrpcMetadata();
         private String timeout;
+        private String encoding;
+        private String acceptEncoding;
         private HttpRequestHandler delegate;
 
         GrpcStreamHandler(HttpResponse response) {
@@ -109,6 +194,10 @@ public class GrpcRequestHandler implements HttpStreamHandler {
             String text = StandardCharsets.ISO_8859_1.decode(value.duplicate()).toString();
             if (key.equals("grpc-timeout")) {
                 timeout = text;
+            } else if (key.equals("grpc-encoding")) {
+                encoding = text;
+            } else if (key.equals("grpc-accept-encoding")) {
+                acceptEncoding = text;
             } else if (!GrpcMetadata.isReserved(key)) {
                 metadata.addReceived(key, text);
             }
@@ -170,7 +259,8 @@ public class GrpcRequestHandler implements HttpStreamHandler {
 
             GrpcHandler handler = new GrpcHandler(protoFile, server, response, path,
                     maxMessageSize, protoFile.getRpcByPath(path));
-            handler.requestHeaders(metadata, timeout);
+            handler.requestHeaders(metadata, timeout, encoding, acceptEncoding);
+            handler.compression(encodings, compressResponses, compressionThreshold);
             return handler;
         }
     }

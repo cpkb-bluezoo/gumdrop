@@ -8,6 +8,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **gRPC message compression**, on both the server and the client. Messages
+  flagged as compressed are decoded as they stream in, with `gzip` and
+  `deflate` by default and `br` (Brotli, an extension that is not in the gRPC
+  specification and needs a peer that has it) only when asked for with
+  `GrpcRequestHandler.encodings` or `GrpcClient.encodings`. A message may not
+  expand beyond the maximum message size: that is `RESOURCE_EXHAUSTED`, and a
+  corrupt one `INTERNAL`. A request in an encoding that is not offered is
+  answered `UNIMPLEMENTED` with `grpc-accept-encoding`. The server compresses
+  responses the client accepts (`compressResponses`, `compressionThreshold`),
+  and `GrpcClient.compression` compresses requests; a message that would not
+  shrink is sent as it is. `ContentEncoding.SizeLimitException` tells a limit
+  failure from a corrupt body, `GrpcFraming` can write the compressed flag, and
+  the Python interoperability tests exercise gzip and deflate in both
+  directions.
+
+### Fixed
+
+- **A call that the gRPC client fails itself, on a message it cannot decode,
+  now also completes** with its status through `onComplete`, as one that
+  passes its deadline does.
+
+### Added
+
 - **gRPC streaming RPCs, call metadata and deadlines**, on both the server and
   the client, additions to the 3.0 interfaces. A `GrpcServer` that returns true
   from `isStreamingSupported()` is given calls to server-streaming,

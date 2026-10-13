@@ -41,6 +41,7 @@ public final class GrpcFraming {
     public static final int HEADER_SIZE = 5;
 
     private static final byte UNCOMPRESSED = 0;
+    private static final byte COMPRESSED = 1;
 
     /**
      * Default maximum gRPC message payload size: 4 MB (common gRPC default).
@@ -59,9 +60,22 @@ public final class GrpcFraming {
      * @return a new buffer containing the framed message (flipped for reading)
      */
     public static ByteBuffer frame(ByteBuffer message) {
+        return frame(message, false);
+    }
+
+    /**
+     * Wraps a message with the gRPC 5-byte prefix, flagging whether it is
+     * compressed.
+     *
+     * @param message the message bytes, compressed if {@code compressed} is true
+     * @param compressed whether the message is compressed with the call's
+     *        {@code grpc-encoding}
+     * @return a new buffer containing the framed message (flipped for reading)
+     */
+    public static ByteBuffer frame(ByteBuffer message, boolean compressed) {
         int length = message.remaining();
         ByteBuffer framed = ByteBuffer.allocate(HEADER_SIZE + length);
-        writeHeader(framed, length);
+        writeHeader(framed, length, compressed);
         framed.position(HEADER_SIZE);
         framed.put(message);
         framed.flip();
@@ -75,7 +89,18 @@ public final class GrpcFraming {
      * @param payloadLength uncompressed payload length
      */
     public static void writeHeader(ByteBuffer buffer, int payloadLength) {
-        buffer.put(0, UNCOMPRESSED);
+        writeHeader(buffer, payloadLength, false);
+    }
+
+    /**
+     * Writes the gRPC 5-byte prefix at the start of {@code buffer}.
+     *
+     * @param buffer buffer with at least {@link #HEADER_SIZE} bytes available
+     * @param payloadLength length of the payload as it is sent, compressed if it is
+     * @param compressed whether the payload is compressed
+     */
+    public static void writeHeader(ByteBuffer buffer, int payloadLength, boolean compressed) {
+        buffer.put(0, compressed ? COMPRESSED : UNCOMPRESSED);
         buffer.put(1, (byte) (payloadLength >>> 24));
         buffer.put(2, (byte) (payloadLength >>> 16));
         buffer.put(3, (byte) (payloadLength >>> 8));

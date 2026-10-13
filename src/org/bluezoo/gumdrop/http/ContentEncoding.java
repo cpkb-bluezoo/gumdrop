@@ -561,7 +561,7 @@ public final class ContentEncoding {
         private void enqueueDecoded(int n) throws ContentEncodingException {
             decompressedSize += n;
             if (decompressedSize > maxDecompressedSize) {
-                throw new ContentEncodingException("decompressed body exceeds limit");
+                throw new SizeLimitException("decompressed body exceeds limit");
             }
             pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
         }
@@ -670,7 +670,7 @@ public final class ContentEncoding {
                     }
                     decompressedSize += n;
                     if (decompressedSize > maxDecompressedSize) {
-                        throw new ContentEncodingException("decompressed body exceeds limit");
+                        throw new SizeLimitException("decompressed body exceeds limit");
                     }
                     crc.update(buf, 0, n);
                     pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
@@ -685,6 +685,7 @@ public final class ContentEncoding {
         private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
         private final int maxDecompressedSize;
         private long decompressedSize;
+        private boolean limitExceeded;
         private BrotliDecoder decoder;
         private boolean closed;
 
@@ -707,6 +708,7 @@ public final class ContentEncoding {
                                 int n = chunk.remaining();
                                 decompressedSize += n;
                                 if (decompressedSize > maxDecompressedSize) {
+                                    limitExceeded = true;
                                     throw new BrotliException("decompressed body exceeds limit");
                                 }
                                 byte[] copy = new byte[n];
@@ -725,6 +727,9 @@ public final class ContentEncoding {
                     decoder = null;
                 }
             } catch (BrotliException e) {
+                if (limitExceeded) {
+                    throw new SizeLimitException("decompressed body exceeds limit");
+                }
                 throw new ContentEncodingException("brotli decompression failed", e);
             }
         }
@@ -760,6 +765,20 @@ public final class ContentEncoding {
 
         public ContentEncodingException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    /**
+     * Thrown when decoding would produce more output than the limit given to
+     * the decoder, which is how a compression bomb shows itself. It is told
+     * apart from {@link ContentEncodingException}, which a corrupt or
+     * truncated body causes, so that a caller can answer each properly.
+     */
+    public static class SizeLimitException extends ContentEncodingException {
+        private static final long serialVersionUID = 1L;
+
+        public SizeLimitException(String message) {
+            super(message);
         }
     }
 }
