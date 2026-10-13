@@ -42,6 +42,19 @@ public class GrpcFramingTest {
     }
 
     @Test
+    public void testCompressedFlagIsWrittenOnlyWhenAsked() {
+        assertEquals(0, GrpcFraming.frame(new byte[] {1, 2, 3}).get(0));
+        assertEquals(0, GrpcFraming.frame(ByteBuffer.wrap(new byte[] {1}), false).get(0));
+        ByteBuffer framed = GrpcFraming.frame(ByteBuffer.wrap(new byte[] {1, 2, 3}), true);
+        assertEquals(1, framed.get(0));
+        assertEquals(3, GrpcFraming.readHeader(framed, 1024));
+        ByteBuffer header = ByteBuffer.allocate(GrpcFraming.HEADER_SIZE);
+        GrpcFraming.writeHeader(header, 7, true);
+        assertEquals(1, header.get(0));
+        assertEquals(7, header.get(4));
+    }
+
+    @Test
     public void testReadHeaderIncompleteReturnsNegativeOne() {
         ByteBuffer buf = ByteBuffer.allocate(3);
         buf.put((byte) 0);

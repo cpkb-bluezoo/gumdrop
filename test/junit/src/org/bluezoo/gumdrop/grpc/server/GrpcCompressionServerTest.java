@@ -69,6 +69,7 @@ public class GrpcCompressionServerTest {
                         + "service Echo {\n"
                         + "  rpc SayEcho(EchoRequest) returns (EchoResponse);\n"
                         + "  rpc Collect(stream EchoRequest) returns (EchoResponse);\n"
+                        + "  rpc Watch(EchoRequest) returns (stream EchoResponse);\n"
                         + "}\n");
     }
 
@@ -339,5 +340,188 @@ public class GrpcCompressionServerTest {
                 new String[0], frame(0, serialised("x")));
         assertEquals("identity,gzip,deflate,br", d.state.headers.getValue("grpc-accept-encoding"));
         assertFalse(d.state.body.size() == 0);
+    }
+
+    // ── Compressing responses ──
+
+    /** Answers every request message with one response message of the given size. */
+    private static class Replier extends Service {
+        final int size;
+        final int count;
+
+        Replier(int size, int count) {
+            this.size = size;
+            this.count = count;
+        }
+
+        @Override
+        public ProtoMessageHandler startCall(String path, final GrpcCall call) {
+            calls++;
+            return new ProtoDefaultHandler() {
+                @Override
+                public void endMessage() {
+                    try {
+                        for (int i = 0; i < count; i++) {
+                            char[] text = new char[size];
+                            Arrays.fill(text, (char) ('a' + i));
+                            GrpcResponseMessage msg = call.openMessage(null);
+                            msg.getSerializer().field(msg.getWriter(), "message",
+                                    new String(text));
+                            msg.complete();
+                        }
+                        call.close();
+                    } catch (Exception e) {
+                        call.sendError(e);
+                    }
+                }
+            };
+        }
+    }
+
+    /** The messages of a response body: the flag and the payload of each frame. */
+    private static List<byte[]> frames(CapturingState state) {
+        List<byte[]> out = new ArrayList<byte[]>();
+        byte[] body = state.body.toByteArray();
+        int pos = 0;
+        while (pos < body.length) {
+            int length = ((body[pos + 1] & 0xff) << 24) | ((body[pos + 2] & 0xff) << 16)
+                    | ((body[pos + 3] & 0xff) << 8) | (body[pos + 4] & 0xff);
+            out.add(Arrays.copyOfRange(body, pos, pos + GrpcFraming.HEADER_SIZE + length));
+            pos += GrpcFraming.HEADER_SIZE + length;
+        }
+        return out;
+    }
+
+    private static byte[] payload(byte[] frame, Coding coding) throws Exception {
+        byte[] data = Arrays.copyOfRange(frame, GrpcFraming.HEADER_SIZE, frame.length);
+        return frame[0] == 0 ? data : ContentEncoding.decompress(coding, data, 1 << 20);
+    }
+
+    private Call answered(Service service, GrpcRequestHandler handler, String accept)
+            throws Exception {
+        String[] headers = accept == null ? new String[0]
+                : new String[] {"grpc-accept-encoding", accept};
+        return run(service, handler, UNARY, headers, frame(0, serialised("x")));
+    }
+
+    @Test
+    public void aLargeResponseIsCompressedWithWhatTheClientAccepts() throws Exception {
+        Replier service = new Replier(2000, 1);
+        Call c = answered(service, handler(service), "identity,gzip");
+        assertEquals("gzip", c.state.headers.getValue("grpc-encoding"));
+        List<byte[]> frames = frames(c.state);
+        assertEquals(1, frames.size());
+        assertEquals(1, frames.get(0)[0]);
+        assertTrue(frames.get(0).length < 200);
+        byte[] plain = payload(frames.get(0), Coding.GZIP);
+        assertTrue(plain.length > 2000);
+        assertEquals("[grpc-status: 0]", c.state.trailers.toString());
+    }
+
+    @Test
+    public void everyAlgorithmCompressesResponses() throws Exception {
+        Coding[] all = {Coding.GZIP, Coding.DEFLATE, Coding.BR};
+        for (int i = 0; i < all.length; i++) {
+            Replier service = new Replier(2000, 1);
+            Call c = answered(service, handler(service, all[i]), all[i].token());
+            assertEquals(all[i].token(), c.state.headers.getValue("grpc-encoding"));
+            List<byte[]> frames = frames(c.state);
+            assertEquals(1, frames.get(0)[0]);
+            assertTrue(payload(frames.get(0), all[i]).length > 2000);
+        }
+    }
+
+    @Test
+    public void aSmallResponseIsSentAsItIs() throws Exception {
+        Replier service = new Replier(100, 1);
+        Call c = answered(service, handler(service), "gzip");
+        assertEquals(0, frames(c.state).get(0)[0]);
+    }
+
+    @Test
+    public void theThresholdIsConfigurable() throws Exception {
+        Replier service = new Replier(100, 1);
+        Call c = answered(service, handler(service).compressionThreshold(50), "gzip");
+        assertEquals(1, frames(c.state).get(0)[0]);
+
+        Replier large = new Replier(2000, 1);
+        Call d = answered(large, handler(large).compressionThreshold(10000), "gzip");
+        assertEquals(0, frames(d.state).get(0)[0]);
+    }
+
+    @Test
+    public void noCompressionUnlessTheClientAsksForIt() throws Exception {
+        Replier none = new Replier(2000, 1);
+        Call a = answered(none, handler(none), null);
+        assertNull(a.state.headers.getValue("grpc-encoding"));
+        assertEquals(0, frames(a.state).get(0)[0]);
+
+        Replier identity = new Replier(2000, 1);
+        Call b = answered(identity, handler(identity), "identity");
+        assertNull(b.state.headers.getValue("grpc-encoding"));
+
+        Replier unknown = new Replier(2000, 1);
+        Call c = answered(unknown, handler(unknown), "snappy,zstd");
+        assertNull(c.state.headers.getValue("grpc-encoding"));
+        assertEquals(0, frames(c.state).get(0)[0]);
+    }
+
+    @Test
+    public void brotliIsUsedOnlyWhenItIsOfferedAndAccepted() throws Exception {
+        // the client accepts it, but it is an extension that is not on by default
+        Replier service = new Replier(2000, 1);
+        Call c = answered(service, handler(service), "br");
+        assertNull(c.state.headers.getValue("grpc-encoding"));
+
+        Replier both = new Replier(2000, 1);
+        Call d = answered(both, handler(both, Coding.GZIP, Coding.BR), "br,gzip");
+        assertEquals("gzip", d.state.headers.getValue("grpc-encoding"));
+    }
+
+    @Test
+    public void theOrderOfTheOfferedAlgorithmsIsThePreference() throws Exception {
+        Replier service = new Replier(2000, 1);
+        Call c = answered(service, handler(service, Coding.DEFLATE, Coding.GZIP), "gzip,deflate");
+        assertEquals("deflate", c.state.headers.getValue("grpc-encoding"));
+    }
+
+    @Test
+    public void compressionCanBeSwitchedOff() throws Exception {
+        Replier service = new Replier(2000, 1);
+        Call c = answered(service, handler(service).compressResponses(false), "gzip");
+        assertNull(c.state.headers.getValue("grpc-encoding"));
+        assertEquals(0, frames(c.state).get(0)[0]);
+        // the handler still decodes what it is sent
+        assertEquals("identity,gzip,deflate", c.state.headers.getValue("grpc-accept-encoding"));
+    }
+
+    @Test
+    public void everyMessageOfAStreamIsCompressedOnItsOwn() throws Exception {
+        Replier service = new Replier(2000, 3);
+        Call c = run(service, handler(service), "/gumdroptest.Echo/Watch",
+                new String[] {"grpc-accept-encoding", "gzip"}, frame(0, serialised("x")));
+        List<byte[]> frames = frames(c.state);
+        assertEquals(3, frames.size());
+        for (int i = 0; i < 3; i++) {
+            assertEquals(1, frames.get(i)[0]);
+            byte[] plain = payload(frames.get(i), Coding.GZIP);
+            assertTrue(new String(plain, StandardCharsets.UTF_8).contains("" + (char) ('a' + i)));
+        }
+        assertEquals("gzip", c.state.headers.getValue("grpc-encoding"));
+    }
+
+    @Test
+    public void anErrorWithoutMessagesNamesNoEncoding() throws Exception {
+        Service service = new Service();
+        Call c = run(service, handler(service), UNARY,
+                new String[] {"grpc-encoding", "snappy", "grpc-accept-encoding", "gzip"},
+                new byte[0]);
+        assertEquals("12", c.state.headers.getValue("grpc-status"));
+        assertNull(c.state.headers.getValue("grpc-encoding"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void theThresholdMayNotBeNegative() {
+        handler(new Service()).compressionThreshold(-1);
     }
 }

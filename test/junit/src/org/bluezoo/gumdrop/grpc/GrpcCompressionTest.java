@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.http.ContentEncoding.SizeLimitException;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -75,6 +76,31 @@ public class GrpcCompressionTest {
                 GrpcCompression.parseAcceptEncoding("identity, gzip,snappy,br,gzip"));
         assertTrue(GrpcCompression.parseAcceptEncoding(null).isEmpty());
         assertTrue(GrpcCompression.parseAcceptEncoding("").isEmpty());
+    }
+
+    @Test
+    public void theAlgorithmIsTheFirstOfferedThatThePeerAccepts() {
+        Coding[] offered = {Coding.GZIP, Coding.DEFLATE};
+        assertEquals(Coding.GZIP, GrpcCompression.select(offered, "deflate,gzip"));
+        assertEquals(Coding.DEFLATE, GrpcCompression.select(offered, "identity,deflate"));
+        assertEquals(Coding.DEFLATE,
+                GrpcCompression.select(new Coding[] {Coding.DEFLATE, Coding.GZIP}, "gzip,deflate"));
+        assertNull(GrpcCompression.select(offered, "br,snappy"));
+        assertNull(GrpcCompression.select(offered, "identity"));
+        assertNull(GrpcCompression.select(offered, null));
+    }
+
+    @Test
+    public void compressionReturnsTheSmallerFormOnly() throws Exception {
+        byte[] text = new byte[1000];
+        Arrays.fill(text, (byte) 'a');
+        byte[] packed = GrpcCompression.compress(Coding.GZIP, java.nio.ByteBuffer.wrap(text));
+        assertTrue(packed.length < 100);
+        assertArrayEquals(text, org.bluezoo.gumdrop.http.ContentEncoding.decompress(
+                Coding.GZIP, packed, 10000));
+
+        // a few bytes only grow, and are better sent as they are
+        assertNull(GrpcCompression.compress(Coding.GZIP, java.nio.ByteBuffer.wrap(new byte[] {1, 2, 3})));
     }
 
     @Test

@@ -104,7 +104,11 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private final GrpcMetadata trailingMetadata = new GrpcMetadata();
     private long timeoutNanos = -1L;
     private String requestEncoding;
+    private String requestAcceptEncoding;
     private Coding[] encodings = GrpcCompression.DEFAULT_ENCODINGS;
+    private boolean compressResponses = true;
+    private int compressionThreshold = GrpcRequestHandler.DEFAULT_COMPRESSION_THRESHOLD;
+    private Coding responseCoding;
     private Coding requestCoding;
     private Decoder decoder;
     private Instant deadline;
@@ -128,16 +132,28 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
     /**
      * Gives the handler the request headers it will need: the call metadata
-     * the {@code grpc-timeout} value, the {@code grpc-encoding} value (or
-     * {@code null} for either) and the algorithms the server decodes. Called before
+     * the {@code grpc-timeout}, {@code grpc-encoding} and
+     * {@code grpc-accept-encoding} values, any of which may be {@code null}.
+     * Called before
      * {@link #endHeaders()}.
      */
     void requestHeaders(GrpcMetadata metadata, String timeout, String encoding,
-            Coding[] encodings) {
+            String acceptEncoding) {
         requestMetadata = metadata != null ? metadata : new GrpcMetadata();
         timeoutNanos = timeout != null ? GrpcTimeout.parse(timeout) : -1L;
         requestEncoding = encoding;
+        requestAcceptEncoding = acceptEncoding;
+    }
+
+    /**
+     * Gives the handler its compression settings: the algorithms it decodes
+     * and offers, whether it compresses responses, and the size below which it
+     * does not.
+     */
+    void compression(Coding[] encodings, boolean compressResponses, int threshold) {
         this.encodings = encodings;
+        this.compressResponses = compressResponses;
+        this.compressionThreshold = threshold;
     }
 
     /** Starts the call; the header section has ended. */
@@ -171,6 +187,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 return;
             }
             requestCoding = coding;
+        }
+        if (compressResponses) {
+            responseCoding = GrpcCompression.select(encodings, requestAcceptEncoding);
         }
         if (timeoutNanos >= 0) {
             deadline = Instant.now().plusNanos(timeoutNanos);
@@ -628,6 +647,11 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 responseState.header("content-type", CONTENT_TYPE_GRPC);
                 responseState.header("grpc-accept-encoding",
                         GrpcCompression.acceptEncoding(encodings));
+                if (responseCoding != null) {
+                    // the messages that are big enough are compressed with it,
+                    // each flagged on its own
+                    responseState.header("grpc-encoding", responseCoding.token());
+                }
                 sendMetadata(responseMetadata);
             }
             responseState.bodyContent(framed);
@@ -671,6 +695,14 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 int payloadLength = channel.payloadLength();
                 ByteBuffer framed = channel.finishWithLeadingReserve();
                 GrpcFraming.writeHeader(framed, payloadLength);
+                if (responseCoding != null && payloadLength >= compressionThreshold) {
+                    ByteBuffer plain = framed.duplicate();
+                    plain.position(GrpcFraming.HEADER_SIZE);
+                    byte[] packed = GrpcCompression.compress(responseCoding, plain);
+                    if (packed != null) {
+                        framed = GrpcFraming.frame(ByteBuffer.wrap(packed), true);
+                    }
+                }
                 sendFramedBody(framed);
             }
 

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.grpc.client;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.ByteBuffer;
@@ -69,6 +70,7 @@ public class GrpcClientCompressionTest {
 
     private static final class StubRequest implements HttpRequest {
         final List<String> headers = new ArrayList<String>();
+        final List<byte[]> body = new ArrayList<byte[]>();
         HttpResponseHandler handler;
         boolean cancelled;
 
@@ -85,7 +87,9 @@ public class GrpcClientCompressionTest {
         @Override public void endHeaders() { }
         @Override public int bodyContent(ByteBuffer data) {
             int n = data.remaining();
-            data.position(data.limit());
+            byte[] b = new byte[n];
+            data.get(b);
+            body.add(b);
             return n;
         }
         @Override public void endMessage() { }
@@ -288,5 +292,90 @@ public class GrpcClientCompressionTest {
         client(Coding.GZIP, Coding.BR).call(http, WATCH, ByteBuffer.wrap(new byte[0]), handler);
         assertTrue(http.request.headers.toString(),
                 http.request.headers.contains("grpc-accept-encoding: identity,gzip,br"));
+    }
+
+    // ── Compressing requests ──
+
+    private static ByteBuffer text(int size, char c) {
+        byte[] data = new byte[size];
+        Arrays.fill(data, (byte) c);
+        return ByteBuffer.wrap(data);
+    }
+
+    /** The body of the request as it went out, joined. */
+    private byte[] requestBody() {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (int i = 0; i < http.request.body.size(); i++) {
+            byte[] b = http.request.body.get(i);
+            out.write(b, 0, b.length);
+        }
+        return out.toByteArray();
+    }
+
+    @Test
+    public void requestsAreNotCompressedUnlessItIsAskedFor() throws Exception {
+        client().call(http, WATCH, text(2000, 'a'), handler);
+        assertEquals(0, requestBody()[0]);
+        assertEquals(2000 + GrpcFraming.HEADER_SIZE, requestBody().length);
+        for (int i = 0; i < http.request.headers.size(); i++) {
+            assertFalse(http.request.headers.get(i), http.request.headers.get(i).startsWith("grpc-encoding"));
+        }
+    }
+
+    @Test
+    public void everyAlgorithmCompressesRequests() throws Exception {
+        Coding[] all = {Coding.GZIP, Coding.DEFLATE, Coding.BR};
+        for (int i = 0; i < all.length; i++) {
+            setUp();
+            client().compression(all[i]).call(http, WATCH, text(2000, 'a'), handler);
+            assertTrue(all[i].token(), http.request.headers.contains("grpc-encoding: " + all[i].token()));
+            byte[] body = requestBody();
+            assertEquals(1, body[0]);
+            assertTrue(body.length < 200);
+            byte[] plain = ContentEncoding.decompress(all[i],
+                    Arrays.copyOfRange(body, GrpcFraming.HEADER_SIZE, body.length), 10000);
+            assertEquals(2000, plain.length);
+        }
+    }
+
+    @Test
+    public void aMessageThatWouldNotShrinkIsSentAsItIsButTheEncodingIsStillNamed() throws Exception {
+        client().compression(Coding.GZIP).call(http, WATCH, ByteBuffer.wrap(new byte[] {1, 2, 3}), handler);
+        assertTrue(http.request.headers.contains("grpc-encoding: gzip"));
+        assertEquals(0, requestBody()[0]);
+    }
+
+    @Test
+    public void everyStreamedMessageIsCompressedOnItsOwn() throws Exception {
+        GrpcClientCall call = client().compression(Coding.GZIP).call(http, WATCH, handler);
+        assertTrue(http.request.headers.contains("grpc-encoding: gzip"));
+        call.send(text(2000, 'a'));
+        call.send(text(2000, 'b'));
+        assertEquals(2, http.request.body.size());
+        for (int i = 0; i < 2; i++) {
+            byte[] frame = http.request.body.get(i);
+            assertEquals(1, frame[0]);
+            byte[] plain = ContentEncoding.decompress(Coding.GZIP,
+                    Arrays.copyOfRange(frame, GrpcFraming.HEADER_SIZE, frame.length), 10000);
+            assertEquals((byte) ('a' + i), plain[0]);
+        }
+    }
+
+    @Test
+    public void compressionWorksWithCallOptions() throws Exception {
+        GrpcCallOptions options = new GrpcCallOptions();
+        options.getMetadata().add("x-a", "1");
+        client().compression(Coding.DEFLATE).call(http, WATCH, text(2000, 'a'), handler, options);
+        assertTrue(http.request.headers.contains("grpc-encoding: deflate"));
+        assertTrue(http.request.headers.contains("x-a: 1"));
+        assertEquals(1, requestBody()[0]);
+    }
+
+    @Test
+    public void compressionCanBeSwitchedOffAgain() throws Exception {
+        GrpcClient client = client().compression(Coding.GZIP).compression(null);
+        assertEquals(null, client.getCompression());
+        client.call(http, WATCH, text(2000, 'a'), handler);
+        assertEquals(0, requestBody()[0]);
     }
 }

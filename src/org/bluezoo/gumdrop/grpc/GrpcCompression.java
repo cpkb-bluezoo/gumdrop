@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.grpc;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -128,6 +129,46 @@ public final class GrpcCompression {
             start = end + 1;
         }
         return out;
+    }
+
+    /**
+     * Chooses the algorithm to compress with: the first of those on offer that
+     * the peer lists in its {@code grpc-accept-encoding}.
+     *
+     * @param offered the algorithms that can be used, most wanted first
+     * @param acceptEncoding the peer's {@code grpc-accept-encoding} value, or
+     *        {@code null}
+     * @return the algorithm, or {@code null} if there is none in common
+     */
+    public static Coding select(Coding[] offered, String acceptEncoding) {
+        List<Coding> accepted = parseAcceptEncoding(acceptEncoding);
+        for (int i = 0; i < offered.length; i++) {
+            if (accepted.contains(offered[i])) {
+                return offered[i];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Compresses a message.
+     *
+     * @param coding the algorithm
+     * @param message the serialised message
+     * @return the compressed message, or {@code null} if it would not be
+     *         smaller, in which case it is better sent as it is
+     * @throws GrpcException with {@code INTERNAL} if compression fails
+     */
+    public static byte[] compress(Coding coding, ByteBuffer message) {
+        byte[] plain = new byte[message.remaining()];
+        message.duplicate().get(plain);
+        byte[] packed;
+        try {
+            packed = ContentEncoding.compressFully(coding, plain);
+        } catch (ContentEncodingException e) {
+            throw new GrpcException(GrpcStatus.INTERNAL, "Compression failed", e);
+        }
+        return packed.length < plain.length ? packed : null;
     }
 
     /**

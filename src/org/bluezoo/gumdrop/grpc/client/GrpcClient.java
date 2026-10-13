@@ -62,9 +62,34 @@ public class GrpcClient {
 
     private final ProtoFile protoFile;
     private Coding[] encodings = GrpcCompression.DEFAULT_ENCODINGS;
+    private Coding compression;
 
     public GrpcClient(ProtoFile protoFile) {
         this.protoFile = protoFile;
+    }
+
+    /**
+     * Returns the algorithm request messages are compressed with.
+     *
+     * @return the algorithm, or {@code null} if they are not compressed
+     */
+    public Coding getCompression() {
+        return compression;
+    }
+
+    /**
+     * Sets the algorithm to compress request messages with, which is sent as
+     * {@code grpc-encoding}; the server must be able to decode it. A message
+     * that would not be smaller compressed is sent as it is. The default is no
+     * compression. {@link Coding#BR} (Brotli) is an extension that only works
+     * with a server that has it.
+     *
+     * @param compression the algorithm, or {@code null} for none
+     * @return this client
+     */
+    public GrpcClient compression(Coding compression) {
+        this.compression = compression;
+        return this;
     }
 
     /**
@@ -129,7 +154,7 @@ public class GrpcClient {
                                 GrpcResponseHandler handler,
                                 String responseTypeName,
                                 GrpcCallOptions options) {
-        ByteBuffer framed = GrpcFraming.frame(requestMessage);
+        ByteBuffer framed = frame(compression, requestMessage);
         CallHandle call = open(httpClient, path, handler, responseTypeName, options);
         call.request.bodyContent(framed);
         call.request.endMessage();
@@ -214,6 +239,20 @@ public class GrpcClient {
     }
 
     /**
+     * Frames a request message, compressing it if the call compresses and the
+     * message would be smaller.
+     */
+    private static ByteBuffer frame(Coding compression, ByteBuffer message) {
+        if (compression != null) {
+            byte[] packed = GrpcCompression.compress(compression, message);
+            if (packed != null) {
+                return GrpcFraming.frame(ByteBuffer.wrap(packed), true);
+            }
+        }
+        return GrpcFraming.frame(message);
+    }
+
+    /**
      * Opens the request of a call: the headers, the metadata and the
      * deadline. Nothing of the body has gone out.
      */
@@ -228,7 +267,11 @@ public class GrpcClient {
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
         request.header("grpc-accept-encoding", GrpcCompression.acceptEncoding(encodings));
+        if (compression != null) {
+            request.header("grpc-encoding", compression.token());
+        }
         call.request = request;
+        call.compression = compression;
         if (options == null) {
             return call;
         }
@@ -258,6 +301,7 @@ public class GrpcClient {
     private static final class CallHandle implements GrpcClientCall {
 
         HttpRequest request;
+        Coding compression;
         boolean requestEnded;
         /** The response has ended or failed: nothing more is sent. */
         boolean finished;
@@ -293,7 +337,7 @@ public class GrpcClient {
             if (cancelled || finished) {
                 return;
             }
-            ByteBuffer framed = GrpcFraming.frame(message);
+            ByteBuffer framed = frame(compression, message);
             if (pending != null && pending.hasRemaining()) {
                 ByteBuffer all = ByteBuffer.allocate(pending.remaining() + framed.remaining());
                 all.put(pending).put(framed).flip();
