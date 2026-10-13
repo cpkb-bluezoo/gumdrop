@@ -1,7 +1,9 @@
-// Minimal Echo service for gumdrop's gRPC client integration tests.
-// Deliberately simple (no google.protobuf.Any, no streaming) so it's a
-// clean test of gumdrop's schema-driven ProtoModelSerializer/Adapter
-// against a real, independent gRPC server (Python grpcio), rather than
+// Minimal Echo service for gumdrop's gRPC integration tests, which run
+// in both directions: gumdrop's client against server.py, and the Python
+// client (client.py) against a gumdrop server implementing the same
+// service. Deliberately simple (no google.protobuf.Any) so it's a clean
+// test of gumdrop's schema-driven ProtoModelSerializer/Adapter against a
+// real, independent gRPC implementation (Python grpcio), rather than
 // also exercising harder edge cases at the same time.
 syntax = "proto3";
 
@@ -26,4 +28,20 @@ service Echo {
   // Always returns a gRPC error (INVALID_ARGUMENT), for exercising the
   // client's error path against a real server's actual error framing.
   rpc AlwaysFail(FailRequest) returns (EchoResponse);
+
+  // Server streaming: repeat_count responses, message followed by 1..n.
+  // A request whose message is "fail" gets one response, "first", and then
+  // the status NOT_FOUND "gone".
+  rpc Watch(EchoRequest) returns (stream EchoResponse);
+  // Client streaming: the concatenation of the request messages.
+  rpc Collect(stream EchoRequest) returns (EchoResponse);
+  // Bidirectional: "re " and each request message, as it arrives.
+  rpc Chat(stream EchoRequest) returns (stream EchoResponse);
+  // Answers with the request metadata x-test, and sends it back as the
+  // initial metadata x-echo (and x-test-bin as x-echo-bin) and the
+  // trailing metadata x-trailer: done.
+  rpc Metadata(EchoRequest) returns (EchoResponse);
+  // Takes three seconds to answer, or until the call is cancelled, for
+  // exercising deadlines.
+  rpc Slow(EchoRequest) returns (EchoResponse);
 }

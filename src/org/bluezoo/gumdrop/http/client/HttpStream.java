@@ -525,6 +525,11 @@ class HttpStream implements HttpRequest {
     }
 
     @Override
+    public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return connection.scheduleTimer(delayMs, callback);
+    }
+
+    @Override
     public void cancel() {
         if (!cancelled) {
             cancelled = true;

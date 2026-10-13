@@ -120,6 +120,20 @@ public interface HttpRequestHandler extends HttpMessageHandler {
     @Override default void failed(Exception cause) { }
 
     /**
+     * Whether {@link #failed} is also to be called when the exchange is
+     * aborted after {@link #endMessage} has been delivered, for as long as the
+     * response is not complete. A handler that answers a finished request
+     * over a long period, such as a gRPC server streaming its replies, needs
+     * to learn that the peer reset the stream so that it can stop. Default
+     * {@code false}: {@code failed} is never called after {@code endMessage}.
+     *
+     * @return true to be told of an abort while the response is unfinished
+     */
+    default boolean failedAfterEndMessage() {
+        return false;
+    }
+
+    /**
      * Returns whether this request accepts HTTP Datagrams (RFC 9297).
      * Default {@code false}: an HTTP/3 Datagram with no known semantics
      * aborts the request stream with {@code H3_DATAGRAM_ERROR}.

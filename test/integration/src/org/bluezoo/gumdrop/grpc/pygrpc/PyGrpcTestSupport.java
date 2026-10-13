@@ -98,5 +98,10 @@ final class PyGrpcTestSupport {
             + "service Echo {\n"
             + "  rpc SayEcho(EchoRequest) returns (EchoResponse);\n"
             + "  rpc AlwaysFail(FailRequest) returns (EchoResponse);\n"
+            + "  rpc Watch(EchoRequest) returns (stream EchoResponse);\n"
+            + "  rpc Collect(stream EchoRequest) returns (EchoResponse);\n"
+            + "  rpc Chat(stream EchoRequest) returns (stream EchoResponse);\n"
+            + "  rpc Metadata(EchoRequest) returns (EchoResponse);\n"
+            + "  rpc Slow(EchoRequest) returns (EchoResponse);\n"
             + "}\n";
 }

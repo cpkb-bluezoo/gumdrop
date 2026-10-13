@@ -99,4 +99,16 @@ abstract class HttpClientConnectionOps {
      * is compressed if {@code Content-Encoding} is set to a supported coding.
      */
     abstract boolean isEncodeRequestBodyContentCoding();
+
+    /**
+     * Schedules a one-shot timer on this connection.
+     *
+     * @param delayMs the delay in milliseconds
+     * @param callback the callback to run after the delay
+     * @return a handle that can cancel the timer, or {@code null} if the
+     *         connection cannot schedule timers
+     */
+    org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return null;
+    }
 }

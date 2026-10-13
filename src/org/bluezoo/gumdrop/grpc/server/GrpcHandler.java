@@ -22,12 +22,19 @@
 package org.bluezoo.gumdrop.grpc.server;
 
 import java.io.IOException;
+import java.net.SocketAddress;
+import java.security.Principal;
+import java.time.Instant;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
+import org.bluezoo.gumdrop.grpc.GrpcMetadata;
+import org.bluezoo.gumdrop.grpc.GrpcTimeout;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.GrpcStatus;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
@@ -84,6 +91,16 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private ProtoModelAdapter protoAdapter;
     private ProtobufParser protobufParser;
     private GrpcFrameParser frameParser;
+    /** Bytes of the current message the protobuf parser has not consumed yet. */
+    private ByteBuffer pending;
+    private GrpcMetadata requestMetadata = new GrpcMetadata();
+    private final GrpcMetadata responseMetadata = new GrpcMetadata();
+    private final GrpcMetadata trailingMetadata = new GrpcMetadata();
+    private long timeoutNanos = -1L;
+    private Instant deadline;
+    private TimerHandle deadlineTimer;
+    private int requestMessages;
+    private boolean cancelledSent;
     private boolean bodyStarted;
     private boolean bodyRejected;
 
@@ -99,7 +116,17 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         this.responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
     }
 
-    /** Begins reading the request message; the header section has ended. */
+    /**
+     * Gives the handler the request headers it will need: the call metadata
+     * and the {@code grpc-timeout} value, or {@code null}. Called before
+     * {@link #endHeaders()}.
+     */
+    void requestHeaders(GrpcMetadata metadata, String timeout) {
+        requestMetadata = metadata != null ? metadata : new GrpcMetadata();
+        timeoutNanos = timeout != null ? GrpcTimeout.parse(timeout) : -1L;
+    }
+
+    /** Starts the call; the header section has ended. */
     @Override
     public void endHeaders() {
         bodyStarted = true;
@@ -109,15 +136,19 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        if (rpc.isClientStreaming() || rpc.isServerStreaming()) {
-            // Only unary RPCs are served for now; the caller is told so, in a
-            // trailers-only response, and the server never sees the call
-            new GrpcCallImpl(response).sendError(GrpcStatus.UNIMPLEMENTED,
+        responseSender = new GrpcCallImpl(response);
+        if ((rpc.isClientStreaming() || rpc.isServerStreaming())
+                && !server.isStreamingSupported()) {
+            // the caller is told so, in a trailers-only response, and the
+            // server never sees the call
+            responseSender.sendError(GrpcStatus.UNIMPLEMENTED,
                     "Streaming RPCs are not supported");
             bodyRejected = true;
             return;
         }
-        responseSender = new GrpcCallImpl(response);
+        if (timeoutNanos >= 0) {
+            deadline = Instant.now().plusNanos(timeoutNanos);
+        }
         requestHandler = server.startCall(path, responseSender);
         if (requestHandler == null) {
             responseSender.sendError(GrpcStatus.UNIMPLEMENTED, "Unimplemented");
@@ -125,18 +156,33 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        protoAdapter = new ProtoModelAdapter(protoFile, requestHandler);
-        try {
-            protoAdapter.startRootMessage(requestTypeName);
-        } catch (ProtoParseException e) {
-            events().warn("log.grpc_start_request_failed").thrown(e).emit();
-            reject(HttpStatus.BAD_REQUEST, "Invalid request type");
-            return;
-        }
-
-        protobufParser = new ProtobufParser(protoAdapter);
         frameParser = new GrpcFrameParser(new FrameToProtobufBridge());
         frameParser.setMaxMessageSize(maxMessageSize);
+        startDeadline();
+    }
+
+    /** Arms the timer for the client's deadline, if it set one. */
+    private void startDeadline() {
+        if (timeoutNanos < 0) {
+            return;
+        }
+        long millis = timeoutNanos / 1000000L;
+        if (timeoutNanos % 1000000L != 0) {
+            millis++;
+        }
+        deadlineTimer = response.scheduleTimer(millis, new Runnable() {
+            @Override
+            public void run() {
+                abort(GrpcStatus.DEADLINE_EXCEEDED, "Deadline exceeded");
+            }
+        });
+    }
+
+    private void stopDeadline() {
+        if (deadlineTimer != null) {
+            deadlineTimer.cancel();
+            deadlineTimer = null;
+        }
     }
 
     @Override
@@ -148,6 +194,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         frameParser.receive(data);
     }
 
+    /** The request has ended: the client sent its last message. */
     @Override
     public void endMessage() {
         if (bodyRejected || !bodyStarted) {
@@ -159,21 +206,85 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         if (frameParser == null) {
             return;
         }
-        if (frameParser.hasPartialFrame() || !frameParser.isMessageCompleted()) {
+        // a unary request is exactly one message; a client stream is any number
+        if (frameParser.hasPartialFrame()
+                || (!rpc.isClientStreaming() && !frameParser.isMessageCompleted())) {
             reject(HttpStatus.BAD_REQUEST, "Invalid gRPC frame");
+            return;
+        }
+        if (requestHandler instanceof GrpcCallHandler) {
+            ((GrpcCallHandler) requestHandler).endRequests();
         }
     }
 
+    /** The stream was reset or the connection failed before the call ended. */
+    @Override
+    public void failed(Exception cause) {
+        if (responseSender != null) {
+            responseSender.abandon();
+        }
+    }
+
+    /**
+     * A streaming call outlives its request, so a reset after the request
+     * ended must still reach the handler.
+     */
+    @Override
+    public boolean failedAfterEndMessage() {
+        return true;
+    }
+
+    /**
+     * Receives the request messages from the frame parser. Each message gets
+     * its own adapter and protobuf parser, so a stream of them is delivered to
+     * the handler as one {@code startMessage}/{@code endMessage} pair each.
+     */
     private final class FrameToProtobufBridge implements GrpcEventHandler {
 
         @Override
         public void startMessage(byte compressionFlag, int length) {
+            if (bodyRejected) {
+                return;
+            }
+            if (requestMessages > 0 && !rpc.isClientStreaming()) {
+                abort(GrpcStatus.INTERNAL, "Too many request messages");
+                return;
+            }
+            requestMessages++;
+            protoAdapter = new ProtoModelAdapter(protoFile, requestHandler);
+            try {
+                protoAdapter.startRootMessage(requestTypeName);
+            } catch (ProtoParseException e) {
+                events().warn("log.grpc_start_request_failed").thrown(e).emit();
+                reject(HttpStatus.BAD_REQUEST, "Invalid request type");
+                return;
+            }
+            protobufParser = new ProtobufParser(protoAdapter);
+            pending = null;
         }
 
         @Override
         public void messageData(ByteBuffer data) {
+            if (bodyRejected) {
+                return;
+            }
+            ByteBuffer input = data;
+            if (pending != null) {
+                // the parser stopped part-way through a field last time:
+                // its unconsumed tail goes ahead of the new bytes
+                input = ByteBuffer.allocate(pending.remaining() + data.remaining());
+                input.put(pending);
+                input.put(data);
+                input.flip();
+                pending = null;
+            }
             try {
-                protobufParser.receive(data);
+                protobufParser.receive(input);
+                if (input.hasRemaining()) {
+                    pending = ByteBuffer.allocate(input.remaining());
+                    pending.put(input);
+                    pending.flip();
+                }
             } catch (ProtobufParseException e) {
                 events().warn("log.grpc_protobuf_parse_error").thrown(e).emit();
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
@@ -182,6 +293,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
         @Override
         public void endMessage() {
+            if (bodyRejected) {
+                return;
+            }
             try {
                 protobufParser.close();
                 protoAdapter.endRootMessage();
@@ -198,12 +312,45 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         }
     }
 
+    /**
+     * Refuses the request as malformed. Before the response has started that
+     * is an HTTP error; once messages have gone out it is the call's status.
+     */
     private void reject(HttpStatus status, String message) {
         if (bodyRejected) {
             return;
         }
+        if (responseSender != null && responseSender.isStarted()) {
+            abort(GrpcStatus.INTERNAL, message);
+            return;
+        }
         bodyRejected = true;
-        sendError(response, status, message);
+        boolean open = responseSender != null && responseSender.abandon();
+        if (!open || !responseSender.isStarted()) {
+            sendError(response, status, message);
+        }
+    }
+
+    /** Ends the call with a gRPC status, telling the handler it is over. */
+    private void abort(int status, String message) {
+        if (bodyRejected) {
+            return;
+        }
+        bodyRejected = true;
+        if (responseSender != null) {
+            boolean open = !responseSender.isClosed();
+            responseSender.close(status, message);
+            if (open) {
+                notifyCancelled();
+            }
+        }
+    }
+
+    private void notifyCancelled() {
+        if (!cancelledSent && requestHandler instanceof GrpcCallHandler) {
+            cancelledSent = true;
+            ((GrpcCallHandler) requestHandler).cancelled();
+        }
     }
 
     private void sendError(HttpResponse response, HttpStatus status, String message) {
@@ -216,10 +363,36 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private final class GrpcCallImpl implements GrpcCall {
 
         private final HttpResponse responseState;
-        private boolean sent;
+        private boolean started;
+        private boolean closed;
 
         GrpcCallImpl(HttpResponse responseState) {
             this.responseState = responseState;
+        }
+
+        boolean isStarted() {
+            return started;
+        }
+
+        boolean isClosed() {
+            return closed;
+        }
+
+        /**
+         * Marks the call as over without sending anything more, because the
+         * stream is gone or has been answered otherwise, and tells the
+         * handler.
+         *
+         * @return true if the call was open
+         */
+        boolean abandon() {
+            if (closed) {
+                return false;
+            }
+            closed = true;
+            stopDeadline();
+            notifyCancelled();
+            return true;
         }
 
         @Override
@@ -229,7 +402,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
         @Override
         public GrpcResponseMessage openMessage(String messageTypeName) throws IOException {
-            if (sent) {
+            if (closed) {
                 throw new IOException("Response already sent");
             }
             String typeName = messageTypeName != null ? messageTypeName : responseTypeName;
@@ -241,19 +414,112 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
         @Override
         public void sendError(int status, String message) {
-            if (sent) {
+            close(status, message);
+        }
+
+        @Override
+        public void sendError(Throwable cause) {
+            if (closed) {
                 return;
             }
-            sent = true;
+            if (cause != null) {
+                events().error("log.grpc_internal_error").thrown(cause).emit();
+            }
+            close(GrpcStatus.INTERNAL, "Internal error");
+        }
 
-            responseState.status(HttpStatus.OK.code);
-            responseState.header("content-type", CONTENT_TYPE_GRPC);
+        @Override
+        public void close() {
+            close(GrpcStatus.OK, null);
+        }
+
+        @Override
+        public void close(int status, String message) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            stopDeadline();
+            boolean trailersOnly = !started;
+            if (trailersOnly) {
+                responseState.status(HttpStatus.OK.code);
+                responseState.header("content-type", CONTENT_TYPE_GRPC);
+                sendMetadata(responseMetadata);
+            }
+            sendMetadata(trailingMetadata);
+            // in the trailers when messages have been sent: the call's outcome
+            // is carried there, and a gRPC client that does not see grpc-status
+            // treats the call as failed
             responseState.header("grpc-status", String.valueOf(status));
-            responseState.header("grpc-message", encodeGrpcMessage(message));
+            if ((message != null && !message.isEmpty())
+                    || (trailersOnly && status != GrpcStatus.OK)) {
+                responseState.header("grpc-message", encodeGrpcMessage(message));
+            }
             responseState.endMessage();
         }
 
-        /**
+        @Override
+        public GrpcMetadata getRequestMetadata() {
+            return requestMetadata;
+        }
+
+        @Override
+        public GrpcMetadata getResponseMetadata() {
+            return responseMetadata;
+        }
+
+        @Override
+        public GrpcMetadata getTrailingMetadata() {
+            return trailingMetadata;
+        }
+
+        @Override
+        public Instant getDeadline() {
+            return deadline;
+        }
+
+        @Override
+        public SocketAddress getRemoteAddress() {
+            return responseState.getRemoteAddress();
+        }
+
+        @Override
+        public SecurityInfo getSecurityInfo() {
+            return responseState.getSecurityInfo();
+        }
+
+        @Override
+        public Principal getPrincipal() {
+            return responseState.getPrincipal();
+        }
+
+        private void sendMetadata(GrpcMetadata metadata) {
+            for (int i = 0; i < metadata.size(); i++) {
+                responseState.header(metadata.keyAt(i), metadata.wireValueAt(i));
+            }
+        }
+
+        @Override
+        public boolean isReady() {
+            return responseState.pendingResponseBytes() == 0;
+        }
+
+        @Override
+        public void onReady(Runnable callback) {
+            responseState.onWritable(callback);
+        }
+
+        @Override
+        public void pauseRequests() {
+            responseState.pauseRequestBody();
+        }
+
+        @Override
+        public void resumeRequests() {
+            responseState.resumeRequestBody();
+        }
+
+    /**
          * Percent-encodes a grpc-message value (gRPC HTTP/2 protocol spec
          * "Percent-Encoding"): printable ASCII other than '%' is sent as it
          * is, every other byte of the UTF-8 form as %XX.
@@ -277,30 +543,21 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             return out.toString();
         }
 
-        @Override
-        public void sendError(Throwable cause) {
-            if (sent) {
-                return;
-            }
-            if (cause != null) {
-                events().error("log.grpc_internal_error").thrown(cause).emit();
-            }
-            sendError(GrpcStatus.INTERNAL, "Internal error");
-        }
-
         private void sendFramedBody(ByteBuffer framed) {
-            if (sent) {
+            if (closed) {
                 return;
             }
-            sent = true;
-
-            responseState.status(HttpStatus.OK.code);
-            responseState.header("content-type", CONTENT_TYPE_GRPC);
+            if (!started) {
+                started = true;
+                responseState.status(HttpStatus.OK.code);
+                responseState.header("content-type", CONTENT_TYPE_GRPC);
+                sendMetadata(responseMetadata);
+            }
             responseState.bodyContent(framed);
-            // the call's outcome is carried in trailers; a gRPC client that
-            // does not see grpc-status treats the call as failed
-            responseState.header("grpc-status", "0");
-            responseState.endMessage();
+            if (!rpc.isServerStreaming()) {
+                // a single response message ends the call
+                close();
+            }
         }
 
         private final class GrpcResponseMessageImpl implements GrpcResponseMessage {

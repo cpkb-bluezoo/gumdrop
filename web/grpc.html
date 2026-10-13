@@ -54,15 +54,14 @@ schema from your <code>.proto</code> file, turning wire fields into named, typed
 </p>
 
 <p>
-Both the client and the server handle <b>unary</b> calls: one request message and
-one response message. Streaming RPCs, compression (a compressed message is
-rejected), call metadata and deadlines are not supported yet. A call to an RPC
-declared with <code>stream</code> in the <code>.proto</code> is refused: the server answers
-<code>UNIMPLEMENTED</code> (12) and the client throws a <code>GrpcException</code> with that status
-before sending anything. The interfaces are shaped so that these features can be added without
-changing them: the server has a single <code>startCall</code> method whatever the kind of RPC, and
-the <code>GrpcCall</code> and <code>GrpcClientCall</code> objects are where call-level features
-will appear.
+Both the client and the server handle unary and <b>streaming</b> calls (server, client and
+bidirectional), <b>call metadata</b> and <b>deadlines</b>. Compression is not supported yet: a
+compressed message is rejected. The server serves an RPC declared with <code>stream</code> in the
+<code>.proto</code> only if its <code>GrpcServer</code> says it can
+(<code>isStreamingSupported()</code>, <code>false</code> by default), so a service written for
+unary calls is never surprised: it answers such a call <code>UNIMPLEMENTED</code> (12) without the
+service seeing it. See <a href="#streaming">Streaming RPCs</a>, <a href="#metadata">Call metadata</a>
+and <a href="#deadlines">Deadlines</a>.
 </p>
 
 <h3>Contents</h3>
@@ -72,6 +71,9 @@ will appear.
 <li><a href="#event-oriented">Event-oriented message handling</a></li>
 <li><a href="#server">gRPC server</a></li>
 <li><a href="#client">gRPC client</a></li>
+<li><a href="#streaming">Streaming RPCs</a></li>
+<li><a href="#metadata">Call metadata</a></li>
+<li><a href="#deadlines">Deadlines</a></li>
 <li><a href="#serialization">Serialisation and parsing</a></li>
 <li><a href="#integration">Integration with HTTP services</a></li>
 </ul>
@@ -275,14 +277,18 @@ whether either side streams</li>
 <li><code>sendError(int status, String message)</code> &ndash; finish the call with a gRPC status
 (constants are in <code>GrpcStatus</code>: <code>INVALID_ARGUMENT</code> 3, <code>NOT_FOUND</code> 5,
 <code>UNIMPLEMENTED</code> 12, <code>INTERNAL</code> 13 and so on); the message is percent-encoded as
-the protocol requires</li>
+the protocol requires. <code>close(int status, String message)</code> does the same, and
+<code>close()</code> finishes with <code>OK</code></li>
 <li><code>sendError(Throwable cause)</code> &ndash; finish with INTERNAL (13), logging the cause</li>
+<li>the metadata, deadline and peer of the call, and flow control: see the sections below</li>
 </ul>
 
 <p>
 A successful call is an HTTP 200 whose response carries the framed message followed by a
-<code>grpc-status: 0</code> trailer. An error is a "trailers-only" response: HTTP 200 with
-<code>grpc-status</code> and <code>grpc-message</code> and no body. Requests that are not valid gRPC
+<code>grpc-status: 0</code> trailer; a call that answers with one message ends itself after it. An
+error before any message has been sent is a "trailers-only" response: HTTP 200 with
+<code>grpc-status</code> and <code>grpc-message</code> and no body; after messages have been sent it
+is the status in the trailers. Requests that are not valid gRPC
 (an unknown RPC, a malformed frame, a message larger than the limit) get an ordinary HTTP 404 or
 400.
 </p>
@@ -365,12 +371,16 @@ grpcClient.call(httpClient, "/example.v1.UserService/GetUser",
 
 <p>
 <code>call</code> returns a <code>GrpcClientCall</code>; <code>cancel()</code> resets the request
-stream. The response is parsed as it arrives, without buffering the body. A non-success
+stream, and <code>send</code> and <code>halfClose()</code> stream requests (see
+<a href="#streaming">below</a>). The response is parsed as it arrives, without buffering the body. A non-success
 <code>grpc-status</code> from the server, a non-200 HTTP status or a truncated message is reported to
 <code>onError</code> as a <code>GrpcException</code>, whose <code>getStatus()</code> is the gRPC status
 (an HTTP status with no <code>grpc-status</code> is mapped as the gRPC specification says, so a 503 is
 <code>UNAVAILABLE</code>); the server's <code>grpc-message</code> is percent-decoded into its text.
-Calling an RPC that streams throws a <code>GrpcException</code> with <code>UNIMPLEMENTED</code>.
+The handler's <code>onComplete(int status, String message)</code> is called once when the call ends
+with a gRPC status, whether <code>OK</code> or not (after <code>onError</code>, for a status other
+than <code>OK</code>); a call that fails without a status, such as a lost connection, is reported to
+<code>onError</code> alone.
 </p>
 
 <p>
@@ -382,6 +392,118 @@ host advertises it in a DNS HTTPS record or <code>Alt-Svc</code> (see
 <code>httpClient.versions(HttpVersion.HTTP_3)</code> only to force it. For gRPC over cleartext HTTP/2,
 permit only <code>HTTP_2_0</code> and use <code>h2WithPriorKnowledge(true)</code>.
 </p>
+
+<h3 id="streaming">Streaming RPCs</h3>
+
+<p>
+<b>Server.</b> A <code>GrpcServer</code> that returns <code>true</code> from
+<code>isStreamingSupported()</code> receives calls to every RPC in <code>startCall</code>;
+<code>call.getRpc()</code> says which kind. Each request message is delivered to the returned handler
+as its own <code>startMessage</code> &hellip; <code>endMessage</code> sequence, so a client or
+bidirectional stream delivers many. If the handler also implements <code>GrpcCallHandler</code>, the
+framework calls its <code>endRequests()</code> when the client has sent its last message (the
+half-close, which also happens for a call that sent none) and <code>cancelled()</code> when the call
+is over without the handler having ended it: the client reset the stream, the connection failed, the
+deadline passed or the request was malformed. After <code>cancelled()</code> nothing sent reaches the
+client.
+</p>
+
+<p>
+A handler can send any number of response messages with <code>openMessage</code> and
+<code>complete()</code>; the response headers go out with the first, and <code>grpc-status</code> goes
+in the trailers when the call ends. A call to an RPC with a single response message ends by itself
+after it; a call that streams its responses stays open until the handler calls <code>close()</code>
+or <code>close(status, message)</code> (or <code>sendError</code>), including to end with an error
+after some messages. For flow control, <code>isReady()</code> says whether the transport has drained
+what was sent, <code>onReady(Runnable)</code> registers a one-shot callback for when it can take more,
+and <code>pauseRequests()</code> and <code>resumeRequests()</code> slow a client that sends faster than
+the handler can work.
+</p>
+
+<pre>
+// Watch(WatchRequest) returns (stream Event)
+class WatchHandler extends ProtoDefaultHandler implements GrpcCallHandler {
+    private final GrpcCall call;
+    WatchHandler(GrpcCall call) { this.call = call; }
+
+    public void endMessage() {                   // the request message is complete
+        sendEvent(call, "first");
+        sendEvent(call, "second");
+        call.close();                            // OK, in the trailers
+    }
+
+    public void cancelled() {
+        // the client went away or the deadline passed: stop producing events
+    }
+}
+</pre>
+
+<p>
+<b>Client.</b> The <code>call</code> form that takes one request message sends it and half-closes, and
+delivers a stream of response messages if the RPC has one: <code>startMessage</code> of the handler is
+called for each, and <code>onComplete</code> ends the call. For an RPC that streams its requests, use
+the form that takes no message, and send them through the call:
+</p>
+
+<pre>
+GrpcClientCall call = grpcClient.call(httpClient, "/example.v1.Chat/Talk", responseHandler);
+call.send(ByteBuffer.wrap(firstMessage));      // serialised, as for a unary call
+call.send(ByteBuffer.wrap(secondMessage));
+call.halfClose();                              // no more requests; the response goes on
+</pre>
+
+<p>
+The header section is sent at once, so the first message is not held back. <code>send</code> throws
+<code>IllegalStateException</code> once the request has ended (after <code>halfClose()</code>, or on a
+call made with its one message) and does nothing once the call has ended or been cancelled.
+</p>
+
+<h3 id="metadata">Call metadata</h3>
+
+<p>
+Metadata is the custom headers and trailers of a call, as <code>GrpcMetadata</code>: an ordered
+multimap whose keys are lower case letters, digits, <code>-</code>, <code>_</code> and <code>.</code>,
+and whose values are printable ASCII. A key ending <code>-bin</code> carries bytes, which travel
+base64 encoded: use <code>addBinary</code> and <code>getBinary</code> for those. Keys beginning
+<code>grpc-</code>, <code>content-type</code> and <code>te</code> belong to the protocol and cannot be
+set.
+</p>
+
+<ul>
+<li><b>Server:</b> <code>call.getRequestMetadata()</code> is what the client sent.
+<code>getResponseMetadata()</code> is sent with the response headers (with the first message, or with
+the status of a call that sends none) and <code>getTrailingMetadata()</code> with the status; add to
+them before then, as later changes are not sent. <code>getRemoteAddress()</code>,
+<code>getSecurityInfo()</code> and <code>getPrincipal()</code> describe the peer.</li>
+<li><b>Client:</b> create a <code>GrpcCallOptions</code>, add to its <code>getMetadata()</code>, and pass
+it to the <code>call</code> form that takes it. The response handler's
+<code>onInitialMetadata</code> is called before the first message, and
+<code>onTrailingMetadata</code> before <code>onError</code> and <code>onComplete</code>. A response
+with no messages carries its status in its one header block, and its metadata goes to
+<code>onTrailingMetadata</code>.</li>
+</ul>
+
+<h3 id="deadlines">Deadlines</h3>
+
+<p>
+<b>Server.</b> <code>call.getDeadline()</code> is the <code>Instant</code> from the client's
+<code>grpc-timeout</code>, or <code>null</code>. When it passes the framework ends the call with
+<code>DEADLINE_EXCEEDED</code> (4) and tells a <code>GrpcCallHandler</code> that it is cancelled.
+</p>
+
+<p>
+<b>Client.</b> <code>GrpcCallOptions.timeout(amount, unit)</code> or <code>deadline(Instant)</code>
+sets how long the call may take, from when it starts. It is sent as <code>grpc-timeout</code>, and the
+client enforces it too: when it passes, the handler gets a <code>GrpcException</code> with
+<code>DEADLINE_EXCEEDED</code> and <code>onComplete(4, ...)</code>, and the stream is cancelled, so the
+server is told to stop. On a transport that cannot schedule timers only the server enforces it.
+</p>
+
+<pre>
+GrpcCallOptions options = new GrpcCallOptions().timeout(5, TimeUnit.SECONDS);
+options.getMetadata().add("x-request-id", "abc123");
+grpcClient.call(httpClient, path, requestMessage, handler, options);
+</pre>
 
 <h3 id="serialization">Serialisation and parsing</h3>
 

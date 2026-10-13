@@ -6,6 +6,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **gRPC streaming RPCs, call metadata and deadlines**, on both the server and
+  the client, additions to the 3.0 interfaces. A `GrpcServer` that returns true
+  from `isStreamingSupported()` is given calls to server-streaming,
+  client-streaming and bidirectional RPCs; a `GrpcCallHandler` is told of the
+  half-close (`endRequests()`) and of cancellation (`cancelled()`), and
+  `GrpcCall` gains `close()`, `close(status, message)`, `isReady()`,
+  `onReady(Runnable)`, `pauseRequests()` and `resumeRequests()`. On the client,
+  `GrpcClient.call(httpClient, path, handler)` starts a call whose request is
+  streamed with `GrpcClientCall.send` and `halfClose()`, and
+  `GrpcResponseHandler.onComplete` reports the final status. `GrpcMetadata`
+  carries request and response metadata, including `-bin` values, through
+  `GrpcCall` and `GrpcCallOptions`, with the peer's address, TLS details and
+  principal on `GrpcCall`. `grpc-timeout` is honoured on the server
+  (`GrpcCall.getDeadline()`, `DEADLINE_EXCEEDED`) and set on the client with
+  `GrpcCallOptions.timeout` or `deadline`, which is enforced locally too.
+  `HttpRequest.scheduleTimer` lets a client caller run a timer on a request's
+  connection. `web/grpc.html` describes it, and the Python interoperability
+  tests cover every kind of RPC, metadata and deadlines in both directions.
+
+- **`HttpRequestHandler.failedAfterEndMessage()`**: a handler that answers a
+  finished request over time, as a streaming gRPC call does, can ask to be told
+  by `failed` that the peer reset the stream while its response is unfinished.
+  The default is false, and other handlers are unaffected.
+
+### Fixed
+
+- **A protobuf field split across two chunks of a gRPC message lost its tail**
+  on the server and in the client, because the bytes the parser had not
+  consumed were discarded instead of being carried to the next chunk.
+- **A unary gRPC call with a second request message** is answered with
+  `INTERNAL` (13) instead of being handed to the handler as a second message.
+
 ## [3.0.0] - 2026-10-10
 
 Major version: Java 25 baseline, in-tree TLS, Jakarta Servlet 6.1, and a

@@ -203,7 +203,7 @@ public class PyGrpcClientIntegrationTest {
         // trailers-only response regardless of what the trailers said.
         String message = grpcError.get().getMessage();
         assertTrue("expected the real gRPC status in the error, got: " + message,
-                message != null && message.contains("gRPC error 3")
+                message != null && message.contains("INVALID_ARGUMENT")
                         && message.contains("always fails: integration test"));
     }
 

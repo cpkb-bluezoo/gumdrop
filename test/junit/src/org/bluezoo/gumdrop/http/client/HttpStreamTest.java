@@ -345,6 +345,19 @@ public class HttpStreamTest {
         assertNull(stream.getInboundResponseDecoder());
     }
 
+    @Test
+    public void scheduleTimerIsScheduledOnTheConnection() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "GET", "/");
+        Runnable task = new Runnable() {
+            public void run() { }
+        };
+        org.bluezoo.gumdrop.TimerHandle handle = stream.scheduleTimer(250L, task);
+        assertNotNull(handle);
+        assertEquals(250L, ops.timerDelay);
+        assertSame(task, ops.timerTask);
+    }
+
     private static boolean eventsContainPrefix(List<String> events, String prefix) {
         for (int i = 0; i < events.size(); i++) {
             if (events.get(i).startsWith(prefix)) {
@@ -356,6 +369,8 @@ public class HttpStreamTest {
 
     private static final class RecordingOps extends HttpClientConnectionOps {
         boolean encodeRequestBody = true;
+        long timerDelay = -1;
+        Runnable timerTask;
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -397,6 +412,16 @@ public class HttpStreamTest {
         @Override
         public void cancelRequest(HttpStream request) {
             events.add("cancel");
+        }
+
+        @Override
+        org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+            timerDelay = delayMs;
+            timerTask = callback;
+            return new org.bluezoo.gumdrop.TimerHandle() {
+                public void cancel() { }
+                public boolean isCancelled() { return false; }
+            };
         }
 
         @Override

@@ -24,7 +24,7 @@
  *
  * <p>{@link org.bluezoo.gumdrop.grpc.client.GrpcClient} takes a proto
  * schema ({@link org.bluezoo.gumdrop.grpc.proto.ProtoFile}) and makes
- * unary calls through the generic {@link
+ * calls, unary and streaming, through the generic {@link
  * org.bluezoo.gumdrop.http.client.HttpRequest}/{@link
  * org.bluezoo.gumdrop.http.client.HttpResponseHandler} API, framing and
  * deframing request/response messages per the gRPC wire format ({@link

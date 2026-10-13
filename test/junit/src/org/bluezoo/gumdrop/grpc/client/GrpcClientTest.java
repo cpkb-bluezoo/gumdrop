@@ -248,7 +248,7 @@ public class GrpcClientTest {
     public void unknownPathStartsMessageWithoutType() {
         client.call(http, "/unknown.Service/Method", request(), handler);
         http.request.handler.endHeaders();
-        http.request.handler.bodyContent(ByteBuffer.allocate(0));
+        http.request.handler.bodyContent(GrpcFraming.frame(ByteBuffer.allocate(0)));
         assertEquals(1, handler.requestedTypes.size());
         assertNull(handler.requestedTypes.get(0));
     }
@@ -365,38 +365,6 @@ public class GrpcClientTest {
         assertFalse(http.request.cancelled);
         call.cancel();
         assertTrue(http.request.cancelled);
-    }
-
-    @Test
-    public void streamingRpcIsRefusedBeforeAnythingIsSent() throws Exception {
-        ProtoFile streaming = ProtoFileParser.parse(""
-                + "syntax = \"proto3\";\n"
-                + "package example.v1;\n"
-                + "message Req { string name = 1; }\n"
-                + "message Res { int32 code = 1; }\n"
-                + "service Feed {\n"
-                + "  rpc Watch (Req) returns (stream Res);\n"
-                + "  rpc Collect (stream Req) returns (Res);\n"
-                + "  rpc Chat (stream Req) returns (stream Res);\n"
-                + "}\n");
-        GrpcClient streamingClient = new GrpcClient(streaming);
-        String[] paths = {"/example.v1.Feed/Watch", "/example.v1.Feed/Collect",
-            "/example.v1.Feed/Chat"};
-        for (int i = 0; i < paths.length; i++) {
-            try {
-                streamingClient.call(http, paths[i], request(), handler);
-                fail(paths[i]);
-            } catch (GrpcException e) {
-                assertEquals(paths[i], GrpcStatus.UNIMPLEMENTED, e.getStatus());
-            }
-            try {
-                streamingClient.call(http, paths[i], request(), "example.v1.Res", new Recorder());
-                fail(paths[i]);
-            } catch (GrpcException e) {
-                assertEquals(paths[i], GrpcStatus.UNIMPLEMENTED, e.getStatus());
-            }
-        }
-        assertNull(http.postedPath);
     }
 
     @Test
