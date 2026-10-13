@@ -121,6 +121,7 @@ public class HttpProtocolHandlerH2WireTest {
         boolean push;
         boolean informational;
         boolean failedSeen;
+        boolean failedAfterEnd;
         boolean pushResult;
         Script script;
         HttpResponse lastState;
@@ -178,6 +179,11 @@ public class HttpProtocolHandlerH2WireTest {
                             if (!a.respondInHeaders) {
                                 respond(s);
                             }
+                        }
+
+                        @Override
+                        public boolean failedAfterEndMessage() {
+                            return a.failedAfterEnd;
                         }
 
                         @Override
@@ -1149,6 +1155,52 @@ public class HttpProtocolHandlerH2WireTest {
         assertTrue(c.app.events.contains("complete"));
         byte[] rst = frame(3, 0, 1, ints(8));
         c.send(rst);
+        c.handler.disconnected();
+        assertEquals(0, failedCount(c));
+    }
+
+    /** A reset after the request ended is reported when the handler asked for it and the response is unfinished. */
+    @Test
+    public void testResetDuringOpenResponseFailsOptedInHandler() {
+        Conn c = new Conn();
+        c.app.failedAfterEnd = true;
+        c.app.script = new Script() {
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+            }
+        };
+        c.handshake();
+        c.request(1, "GET", "/x", true);
+        assertTrue(c.app.events.contains("complete"));
+        c.send(frame(3, 0, 1, ints(8)));
+        assertEquals(1, failedCount(c));
+        c.handler.disconnected();
+        assertEquals(1, failedCount(c));
+    }
+
+    @Test
+    public void testResetDuringOpenResponseDoesNotFailOtherHandlers() {
+        Conn c = new Conn();
+        c.app.script = new Script() {
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+            }
+        };
+        c.handshake();
+        c.request(1, "GET", "/x", true);
+        c.send(frame(3, 0, 1, ints(8)));
+        assertEquals(0, failedCount(c));
+    }
+
+    @Test
+    public void testResetAfterCompleteResponseIsNeverFailedEvenIfOptedIn() {
+        Conn c = new Conn();
+        c.app.failedAfterEnd = true;
+        c.handshake();
+        c.request(1, "GET", "/x", true);
+        c.send(frame(3, 0, 1, ints(8)));
         c.handler.disconnected();
         assertEquals(0, failedCount(c));
     }

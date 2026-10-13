@@ -124,6 +124,18 @@ public class GrpcRequestHandler implements HttpStreamHandler {
             }
         }
 
+        @Override
+        public boolean failedAfterEndMessage() {
+            return true;
+        }
+
+        @Override
+        public void failed(Exception cause) {
+            if (delegate != null) {
+                delegate.failed(cause);
+            }
+        }
+
         private HttpRequestHandler createDelegate() {
             if (path == null || !path.startsWith("/") || path.length() < 2) {
                 return null;

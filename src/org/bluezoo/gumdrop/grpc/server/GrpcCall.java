@@ -73,4 +73,47 @@ public interface GrpcCall {
      * @param cause the exception
      */
     void sendError(Throwable cause);
+
+    /**
+     * Ends the call successfully, with status {@code OK} (0). A call to an RPC
+     * whose response is a single message ends by itself once that message is
+     * complete; a call that streams its response stays open until this or
+     * {@link #close(int, String)} is called.
+     */
+    void close();
+
+    /**
+     * Ends the call with a status, in the trailers if response messages have
+     * been sent already. Does nothing if the call has ended.
+     *
+     * @param status the gRPC status code
+     * @param message the status message, or {@code null}
+     */
+    void close(int status, String message);
+
+    /**
+     * Whether the response can take more messages without queueing them.
+     * A handler that sends many messages checks this, and when it is
+     * {@code false} waits for {@link #onReady(Runnable)}.
+     *
+     * @return true if the transport has drained what was sent
+     */
+    boolean isReady();
+
+    /**
+     * Registers a one-shot callback for when the transport can take more
+     * response data. Replaces any callback pending; {@code null} clears it.
+     *
+     * @param callback the callback, run on the connection's thread
+     */
+    void onReady(Runnable callback);
+
+    /**
+     * Stops request messages being delivered until {@link #resumeRequests()},
+     * so that a client sending faster than the handler can work is slowed.
+     */
+    void pauseRequests();
+
+    /** Resumes delivery of request messages after {@link #pauseRequests()}. */
+    void resumeRequests();
 }

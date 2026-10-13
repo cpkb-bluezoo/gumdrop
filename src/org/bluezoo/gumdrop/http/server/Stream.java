@@ -248,6 +248,9 @@ class Stream implements HttpResponse {
      */
     private boolean handlerFinished = false;
 
+    /** True once {@link HttpRequestHandler#failed} has been called. */
+    private boolean handlerFailed = false;
+
     private boolean capsuleMode;
     private final CapsuleParser capsuleParser = new CapsuleParser();
 
@@ -2266,7 +2269,9 @@ class Stream implements HttpResponse {
      * {@link HttpRequestHandler#failed} callback. The callback is delivered
      * at most once, and not at all for a stream the framework itself
      * rejected, whose handler never saw the request, or one whose handler
-     * already received {@code endMessage}.
+     * already received {@code endMessage} (unless it asked, with
+     * {@link HttpRequestHandler#failedAfterEndMessage()}, to be told of an
+     * abort while its response is unfinished).
      *
      * @param cause the reason the stream was aborted
      */
@@ -2277,9 +2282,13 @@ class Stream implements HttpResponse {
             // closed abnormally without a Close frame, as in the H3 path.
             webSocketAdapter.notifyTransportClosed(1006, cause.getMessage());
         }
-        if (handler != null && !rejectedByFramework && !handlerFinished
-                && webSocketAdapter == null) {
+        if (handler != null && !rejectedByFramework && !handlerFailed
+                && webSocketAdapter == null
+                && (!handlerFinished
+                    || (responseState != ResponseState.COMPLETE
+                        && handler.failedAfterEndMessage()))) {
             handlerFinished = true;
+            handlerFailed = true;
             handler.failed(cause);
         }
     }

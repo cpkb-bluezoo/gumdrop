@@ -36,15 +36,17 @@ public interface GrpcServer {
     /**
      * Called when a call to an RPC of the {@code .proto} file begins.
      *
-     * <p>Only unary RPCs reach this method for now: the framework answers a
-     * call to an RPC that streams with {@code UNIMPLEMENTED} (12) itself. Other
-     * kinds of RPC will be delivered here too once they are supported, and the
-     * RPC's kind is available from {@link GrpcCall#getRpc()}; dispatch on the
-     * path as you do now and you will only ever see the RPCs you implement.
+     * <p>A call to an RPC that streams reaches this method only if
+     * {@link #isStreamingSupported()} is {@code true}; otherwise the framework
+     * answers it with {@code UNIMPLEMENTED} (12) itself, so a service written
+     * for unary calls is never surprised. The RPC's kind is available from
+     * {@link GrpcCall#getRpc()}.
      *
-     * <p>The request message is delivered to the returned handler as events,
-     * {@code endMessage()} marking the end of the whole message. Answer through
-     * the call.
+     * <p>Each request message is delivered to the returned handler as events,
+     * {@code endMessage()} marking the end of that message; a streaming call
+     * delivers one such sequence for each message. If the handler is a
+     * {@link GrpcCallHandler} it is also told when the client has sent its
+     * last message and when the call is cancelled. Answer through the call.
      *
      * @param path the gRPC path ({@code /package.Service/Method})
      * @param call the call, to answer through
@@ -52,4 +54,13 @@ public interface GrpcServer {
      *         RPC you do not implement, which the caller is told is unimplemented
      */
     ProtoMessageHandler startCall(String path, GrpcCall call);
+
+    /**
+     * Whether this server serves RPCs that stream. Default {@code false}.
+     *
+     * @return true if {@link #startCall} is to be called for every RPC
+     */
+    default boolean isStreamingSupported() {
+        return false;
+    }
 }
