@@ -23,8 +23,9 @@ This is gumdrop, a multipurpose Java networking framework for servers, clients, 
 
 - HTTP/3 and QUIC support
     - one of very few Java frameworks with HTTP/3 server support
-      (only Netty offers comparable capability; JDK 26's JEP 517 is
-      client-only)
+      - Netty provides it only via native code libraries
+      - Flupke provides it in 100% Java but is HTTP/3 only
+      - JDK 26's JEP 517 is client-only
     - pure Java (25+) implementation, no native code unlike Netty
     - servlet container runs transparently on top of HTTP/3
 - high performance
