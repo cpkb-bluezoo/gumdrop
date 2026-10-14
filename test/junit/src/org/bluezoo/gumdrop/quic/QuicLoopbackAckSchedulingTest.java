@@ -25,11 +25,13 @@ package org.bluezoo.gumdrop.quic;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
+import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
@@ -166,6 +168,15 @@ public class QuicLoopbackAckSchedulingTest {
         stream.send(ByteBuffer.wrap(new byte[] {1}));
         lb.pump();
         long sentPacket = ((long[]) QuicForger.field(client.conn, "sendPacketNumber"))[2] - 1;
+        // Pin the estimate the handshake left behind: on a slow host it is
+        // a few milliseconds rather than the near-zero a fast one gives,
+        // and the expected value below assumes it is zero.
+        RttEstimator rtt = ((LossDetector) QuicForger.field(client.conn, "lossDetector")).getRttEstimator();
+        for (String name : new String[] { "smoothedRtt", "minRtt", "rttvar" }) {
+            Field f = RttEstimator.class.getDeclaredField(name);
+            f.setAccessible(true);
+            f.setLong(rtt, 0L);
+        }
         // the server holds its ACK back; the one forged here arrives 100 ms
         // after the packet was sent and says it waited 20 ms (2500 x 8 us)
         client.conn.clockOffsetMillis += 100;
@@ -175,9 +186,8 @@ public class QuicLoopbackAckSchedulingTest {
         long pn = ((long[]) QuicForger.field(client.conn, "largestReceived"))[2] + 1;
         lb.injectToClient(QuicForger.forge(server.conn, client.conn, pn, frames));
         lb.pump();
-        long smoothedMicros = ((LossDetector) QuicForger.field(client.conn, "lossDetector"))
-                .getRttEstimator().getSmoothedRtt();
-        // (7 x ~0 + (100 - 20) ms) / 8 = 10 ms; ignoring the delay gives 12.5 ms
-        assertTrue("smoothed RTT " + smoothedMicros, smoothedMicros > 9500 && smoothedMicros < 11500);
+        long smoothedMicros = rtt.getSmoothedRtt();
+        // (7 x 0 + (100 - 20) ms) / 8 = 10 ms; ignoring the delay gives 12.5 ms
+        assertEquals(10000, smoothedMicros);
     }
 }
