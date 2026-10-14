@@ -243,6 +243,8 @@ public class QuicLoopbackQlogTest {
         assertTrue(data.containsKey("rtt_variance"));
         assertTrue(Long.parseLong(data.get("congestion_window")) > 0);
         assertTrue(data.containsKey("bytes_in_flight"));
+        // qlog quic:recovery_metrics_updated: bits per second, once there is an RTT estimate to pace by
+        assertTrue(Long.parseLong(data.get("pacing_rate")) > 0);
     }
 
     @Test

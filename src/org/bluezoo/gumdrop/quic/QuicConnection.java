@@ -138,10 +138,13 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  * frame doesn't double-count), rejects a peer that exceeds the currently
  * advertised limit (RFC 9000 section 11: FLOW_CONTROL_ERROR), and, once
  * consumption passes half of the current window, grows the limit and
- * queues a MAX_DATA/MAX_STREAM_DATA update -- a fixed-size window, not
- * RTT-tuned (matches how {@code quic.recovery}'s congestion control is
- * NewReno-only for now: correctness first, performance tuning later).
- * DATA_BLOCKED/STREAM_DATA_BLOCKED trigger the same growth proactively.
+ * queues a MAX_DATA/MAX_STREAM_DATA update. The window is tuned to the
+ * round-trip time (RFC 9000 section 4.2): it starts at the initial
+ * limit and doubles, up to the factory's ceiling, each time the peer
+ * fills half of it within two round trips, since then the window and
+ * not the path was what limited the peer; raises further apart leave
+ * it as it is. DATA_BLOCKED/STREAM_DATA_BLOCKED trigger the same growth
+ * proactively.
  * One known, deliberately unaddressed gap: unlike CRYPTO/STREAM chunks,
  * a lost MAX_DATA/MAX_STREAM_DATA frame is not explicitly retransmitted --
  * recovery relies on the peer re-sending a BLOCKED frame while still
@@ -523,6 +526,13 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // STREAM frame covering already-counted bytes doesn't double-count.
     private long localMaxData;
     private final Map<Long, Long> localMaxStreamData = new HashMap<Long, Long>();
+    // The amount each limit above is raised by, tuned to the round-trip
+    // time (see the class documentation), and when it was last raised.
+    // Times have an arbitrary origin, so "never" is null rather than 0.
+    private long connectionReceiveWindow;
+    private Long connectionWindowRaisedMicros;
+    private final Map<Long, Long> streamReceiveWindow = new HashMap<Long, Long>();
+    private final Map<Long, Long> streamWindowRaisedMicros = new HashMap<Long, Long>();
     private long connectionBytesReceived;
     private final Map<Long, Long> streamBytesReceived = new HashMap<Long, Long>();
 
@@ -683,6 +693,17 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
+
+    // Issue #561: bulk stream data waits here for pacing credit (RFC 9002
+    // section 7.7). streamBudget notes how long the wait is, flush arms a
+    // timer for it, and an acknowledgement's own flush may get there first.
+    private TimerHandle pacingTimerHandle;
+    private long pacingWaitMicros;
+    // Whether the last flush stopped because the congestion window or the
+    // pacer held queued stream data back, as opposed to running out of
+    // data (or hitting only the peer's flow control), which must not grow
+    // the window (RFC 9002 section 7.8).
+    private boolean sendBlocked;
     private boolean established;
 
     /**
@@ -807,6 +828,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey,
                 isServer ? engine.getQuicLbConfig() : null);
         this.localMaxData = localTransportParameters.getInitialMaxData();
+        this.connectionReceiveWindow = localMaxData;
         this.localMaxStreamsBidi = localTransportParameters.getInitialMaxStreamsBidi();
         this.localMaxStreamsUni = localTransportParameters.getInitialMaxStreamsUni();
         this.metrics = isServer ? engine.getMetrics() : null;
@@ -1008,6 +1030,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         data.put(QlogEvents.BYTES_IN_FLIGHT, now[5]);
         if (ssthresh < Long.MAX_VALUE / 2) {
             data.put(QlogEvents.SSTHRESH, ssthresh);
+        }
+        long pacingRate = lossDetector.getPacingRateBitsPerSecond();
+        if (pacingRate > 0) {
+            data.put(QlogEvents.PACING_RATE, pacingRate);
         }
         qlog.emit(QlogEvents.RECOVERY_METRICS_UPDATED, nowNanos(), data);
     }
@@ -1930,6 +1956,8 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
             streamSendPriority.remove(key);
+            streamReceiveWindow.remove(key);
+            streamWindowRaisedMicros.remove(key);
             // Deliberately NOT touching pendingStream/pendingStreamOrder
             // here: isFullyClosed() (both directions logically closed)
             // can be true before this stream's queued data has actually
@@ -2249,6 +2277,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         QuicVersionNegotiationException failure = new QuicVersionNegotiationException();
         tearDownStreams(failure);
@@ -2272,6 +2301,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         engine.onConnectionClosed(this);
     }
@@ -3335,10 +3365,49 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // one more may be eligible; the congestion window and the peer's
         // flow control stop it, and each acknowledgement received flushes
         // again. The cap bounds how long one call can hold the loop.
+        sendBlocked = false;
+        pacingWaitMicros = 0;
+        boolean more = false;
         for (int datagrams = 0; datagrams < MAX_DATAGRAMS_PER_FLUSH; datagrams++) {
-            if (!flushOneDatagram()) {
-                return;
+            more = flushOneDatagram();
+            if (!more) {
+                break;
             }
+        }
+        // Stopping at the cap with data still queued is not running out of data.
+        lossDetector.setAppLimited(!sendBlocked && !more);
+        armPacingTimer();
+    }
+
+    // Wakes the connection when the pacer will next allow a datagram. The
+    // delay is rounded up to the timer's millisecond: credit accrues from
+    // the time the timer actually fires, so rounding only makes the next
+    // burst a little larger.
+    private void armPacingTimer() {
+        long wait = pacingWaitMicros;
+        pacingWaitMicros = 0;
+        if (wait <= 0 || closed || pacingTimerHandle != null) {
+            return;
+        }
+        pacingTimerHandle = engine.scheduleTimer(Math.max(1, microsToMillisCeil(wait)), new Runnable() {
+            @Override
+            public void run() {
+                onPacingTimeout();
+            }
+        });
+    }
+
+    void onPacingTimeout() {
+        pacingTimerHandle = null;
+        if (!closed) {
+            flush();
+        }
+    }
+
+    private void cancelPacingTimer() {
+        if (pacingTimerHandle != null) {
+            pacingTimerHandle.cancel();
+            pacingTimerHandle = null;
         }
     }
 
@@ -4137,24 +4206,65 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     /**
      * Grows a stream's advertised receive limit and queues a
      * MAX_STREAM_DATA update, once consumption has passed half of the
-     * current window -- see the class documentation for why this is a
-     * fixed-size window rather than RTT-tuned. Called as data is
-     * received; see {@link #growStreamLimitOnBlocked} for the
+     * current window -- a window tuned to the round-trip time, see the
+     * class documentation. Called as data is received; see {@link #growStreamLimitOnBlocked} for the
      * complementary trigger used when the peer reports it is blocked.
      *
      * @param streamId the stream
      * @param highestOffset the highest offset+length seen on this stream so far
      */
     private void maybeGrowStreamLimit(long streamId, Long key, long highestOffset) {
-        long windowSize = initialLocalStreamLimit(streamId);
+        long windowSize = currentStreamReceiveWindow(streamId, key);
         if (windowSize <= 0) {
             return;
         }
         long currentLimit = currentLocalStreamLimit(streamId, key);
         // A full window ahead, for the reason maybeGrowConnectionLimit gives.
         if (highestOffset > currentLimit - windowSize / 2) {
-            growStreamLimit(streamId, key, highestOffset + windowSize);
+            growStreamLimit(streamId, key, highestOffset + nextStreamReceiveWindow(streamId, key));
         }
+    }
+
+    private long currentStreamReceiveWindow(long streamId, Long key) {
+        Long window = streamReceiveWindow.get(key);
+        return window != null ? window.longValue() : initialLocalStreamLimit(streamId);
+    }
+
+    // The window to raise a stream's limit by now, recording the raise:
+    // doubled if the previous raise was recent (see tunedWindow).
+    private long nextStreamReceiveWindow(long streamId, Long key) {
+        long now = nowMicros();
+        long window = tunedWindow(currentStreamReceiveWindow(streamId, key),
+                engine.getFactory().getStreamReceiveWindowCeiling(), streamWindowRaisedMicros.get(key), now);
+        streamReceiveWindow.put(key, Long.valueOf(window));
+        streamWindowRaisedMicros.put(key, Long.valueOf(now));
+        return window;
+    }
+
+    // The connection-level counterpart of nextStreamReceiveWindow.
+    private long nextConnectionReceiveWindow() {
+        long now = nowMicros();
+        connectionReceiveWindow = tunedWindow(connectionReceiveWindow,
+                engine.getFactory().getConnectionReceiveWindowCeiling(), connectionWindowRaisedMicros, now);
+        connectionWindowRaisedMicros = Long.valueOf(now);
+        return connectionReceiveWindow;
+    }
+
+    // RFC 9000 section 4.2: a receiver that raises its limit within two
+    // round trips of the previous raise was itself the peer's bottleneck,
+    // so the window doubles, up to the ceiling. The floor on "recent"
+    // covers a round-trip time too small to measure. A window that
+    // already exceeds the ceiling (an initial limit configured above it)
+    // is left alone, never shrunk.
+    private long tunedWindow(long window, long ceiling, Long raisedMicros, long now) {
+        if (raisedMicros == null) {
+            return window;
+        }
+        long recent = Math.max(2 * lossDetector.getRttEstimator().getSmoothedRtt(), LossDetector.K_GRANULARITY);
+        if (now - raisedMicros.longValue() < recent) {
+            return Math.max(window, Math.min(2 * window, ceiling));
+        }
+        return window;
     }
 
     /**
@@ -4170,21 +4280,20 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
      * data point to re-run the same threshold check against.
      */
     private void growStreamLimitOnBlocked(long streamId) {
-        long windowSize = initialLocalStreamLimit(streamId);
-        if (windowSize <= 0) {
+        Long key = Long.valueOf(streamId);
+        if (currentStreamReceiveWindow(streamId, key) <= 0) {
             return;
         }
-        Long key = Long.valueOf(streamId);
-        growStreamLimit(streamId, key, currentLocalStreamLimit(streamId, key) + windowSize);
+        growStreamLimit(streamId, key, currentLocalStreamLimit(streamId, key) + nextStreamReceiveWindow(streamId, key));
     }
 
     /**
      * Grows the connection-level advertised receive limit and queues a
-     * MAX_DATA update, using the same fixed-window heuristic as
-     * {@link #maybeGrowStreamLimit}.
+     * MAX_DATA update, using the same half-window heuristic and
+     * round-trip tuning as {@link #maybeGrowStreamLimit}.
      */
     private void maybeGrowConnectionLimit() {
-        long windowSize = localTransportParameters.getInitialMaxData();
+        long windowSize = connectionReceiveWindow;
         if (windowSize <= 0) {
             return;
         }
@@ -4192,7 +4301,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // window ahead would leave the very next packet under the same
         // half-window threshold, and every packet would cost an update.
         if (connectionBytesReceived > localMaxData - windowSize / 2) {
-            localMaxData = connectionBytesReceived + windowSize;
+            localMaxData = connectionBytesReceived + nextConnectionReceiveWindow();
             maxDataOwed = true;
         }
     }
@@ -4204,11 +4313,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
      * section 19.12).
      */
     private void growConnectionLimitOnBlocked() {
-        long windowSize = localTransportParameters.getInitialMaxData();
-        if (windowSize <= 0) {
+        if (connectionReceiveWindow <= 0) {
             return;
         }
-        localMaxData += windowSize;
+        localMaxData += nextConnectionReceiveWindow();
         maxDataOwed = true;
     }
 
@@ -4407,6 +4515,19 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // room for a full datagram (RFC 9002 section 7).
     private int streamBudget(int headerBytes, int otherFrameBytes) {
         if (!lossDetector.getCongestionController().canSend(MAX_DATAGRAM_SIZE)) {
+            if (!pendingStream.isEmpty()) {
+                sendBlocked = true;
+            }
+            return 0;
+        }
+        // RFC 9002 section 7.7: spread the window over the round trip. Only
+        // bulk data waits here; ACKs, probes and close are built elsewhere.
+        long wait = lossDetector.getPacingDelayMicros(MAX_DATAGRAM_SIZE, nowMicros());
+        if (wait > 0) {
+            if (!pendingStream.isEmpty()) {
+                sendBlocked = true;
+                pacingWaitMicros = pacingWaitMicros == 0 ? wait : Math.min(pacingWaitMicros, wait);
+            }
             return 0;
         }
         return MAX_DATAGRAM_SIZE - coalescedBytes - headerBytes - QuicAeadAlgorithm.TAG_LENGTH - otherFrameBytes;
@@ -5172,6 +5293,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         // RFC 9000 section 10.2.1: send at only the highest available
         // level -- EncryptionLevel.values() is declared in ascending
@@ -5217,6 +5339,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         tearDownStreams();
         engine.onConnectionClosed(this);
@@ -5237,6 +5360,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         engine.onConnectionClosed(this);
     }
@@ -5252,6 +5376,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         tearDownStreams(new QuicStatelessResetException());
         engine.onConnectionClosed(this);

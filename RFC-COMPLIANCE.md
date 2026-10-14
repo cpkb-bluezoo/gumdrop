@@ -1102,7 +1102,9 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | initial_max_stream_data_uni | 18.2 | Compliant | `DEFAULT_MAX_STREAM_DATA = 1_000_000` |
 | initial_max_streams_bidi | 18.2 | Compliant | `DEFAULT_MAX_STREAMS_BIDI = 100` |
 | initial_max_streams_uni | 18.2 | Compliant | `DEFAULT_MAX_STREAMS_UNI = 100` |
-| Congestion control algorithm | — | Compliant | Reno, CUBIC (default), BBR selectable via `setCongestionControl()` |
+| Congestion control algorithm | — | Compliant | NewReno (RFC 9002 section 7); `setCongestionControl()` is accepted but has no effect until CUBIC lands (issue 562) |
+| Pacing | RFC 9002 7.7 | Compliant | Stream data paced at 1.25 windows per RTT (2 in slow start), bursts capped at the initial window or one millisecond of credit; ACKs, probes and close unpaced |
+| Receive window tuning | 4.2 | Compliant | Window doubles, up to a configurable ceiling, when half of it is filled within two round trips |
 
 ### QUIC Unreliable Datagrams — RFC 9221
 

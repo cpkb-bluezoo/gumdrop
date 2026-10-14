@@ -41,6 +41,15 @@
  * connection (a later stage of the QUIC transport rewire) drains the
  * computed PTO/loss deadlines and newly-lost packets and acts on them.
  *
+ * <p>{@link org.bluezoo.gumdrop.quic.recovery.Pacer} implements RFC 9002
+ * section 7.7: a token bucket that spreads the congestion window over the
+ * round trip and caps bursts at the initial window. {@link
+ * org.bluezoo.gumdrop.quic.recovery.LossDetector#getPacingDelayMicros}
+ * tells the connection how long bulk data must wait. It needs no timer
+ * finer than a millisecond: credit accrues from the time the connection's
+ * timer actually fires, so a late or rounded-up timer makes the next burst
+ * larger but never lowers the average rate.
+ *
  * <p>Persistent congestion (RFC 9002 section 7.6) is implemented: {@link
  * org.bluezoo.gumdrop.quic.recovery.LossDetector} detects it (a
  * deliberately conservative, packet-number-adjacency-based approximation
