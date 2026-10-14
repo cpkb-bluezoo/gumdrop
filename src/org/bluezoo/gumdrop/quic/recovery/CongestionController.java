@@ -33,7 +33,8 @@ package org.bluezoo.gumdrop.quic.recovery;
  *
  * <p>Three states, exactly as RFC 9002 section 7.3 describes: slow
  * start ({@code congestionWindow < ssthresh}, exponential growth on
- * every acknowledgment), recovery (immediately after a congestion
+ * every acknowledgment, ended early by HyStart++ when the round-trip
+ * time starts to rise, see below), recovery (immediately after a congestion
  * event, until a packet sent during recovery is itself acknowledged),
  * and congestion avoidance. {@link #onCongestionEvent} moves from either
  * slow start or congestion avoidance into recovery; {@link
@@ -50,12 +51,24 @@ package org.bluezoo.gumdrop.quic.recovery;
  * used instead. A loss before the window is back at {@code W_max} lowers
  * {@code W_max} further (fast convergence, section 4.7).
  *
+ * <p>Slow start runs HyStart++ (RFC 9406) for both algorithms. Each
+ * round trip's minimum RTT is compared with the previous round's: a rise
+ * of at least an eighth (bounded to between 4 and 16 ms), seen in at
+ * least eight samples, means queues are building, and slow start turns
+ * conservative, growing at a quarter of the normal rate. Five such
+ * rounds end slow start without waiting for a loss ({@code ssthresh =
+ * congestionWindow}); an RTT that falls back below the level that
+ * triggered the change returns to normal slow start instead. The
+ * per-acknowledgment growth limit the RFC applies to unpaced senders
+ * is not needed, since the owning connection paces.
+ *
  * <p>Not thread-safe: one instance per connection.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LossDetector
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9002#section-7">RFC 9002 section 7</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9438">RFC 9438</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9406">RFC 9406</a>
  */
 public final class CongestionController {
 
@@ -73,6 +86,14 @@ public final class CongestionController {
 
     /** RFC 9002 section 7.2: the floor on the initial window, regardless of {@code maxDatagramSize}. */
     private static final long INITIAL_WINDOW_FLOOR = 14720;
+
+    // HyStart++ (RFC 9406 section 4.2) parameters.
+    private static final long HYSTART_MIN_RTT_THRESH = 4_000;
+    private static final long HYSTART_MAX_RTT_THRESH = 16_000;
+    private static final int HYSTART_MIN_RTT_DIVISOR = 8;
+    private static final int HYSTART_N_RTT_SAMPLE = 8;
+    private static final int HYSTART_CSS_GROWTH_DIVISOR = 4;
+    private static final int HYSTART_CSS_ROUNDS = 5;
 
     private final CongestionAlgorithm algorithm;
     private final int maxDatagramSize;
@@ -99,6 +120,18 @@ public final class CongestionController {
     private long cubicEpochStartMicros;
     private double cubicK;             // seconds from epoch start to W_max
     private double cubicWindowEstimate; // W_est, bytes
+
+    // HyStart++ state (RFC 9406 section 4.2). A round is one window's
+    // worth of acknowledgements: it starts when a packet sent after the
+    // previous round started is acknowledged.
+    private boolean hystartRoundStarted;
+    private long hystartRoundStartMicros;
+    private long hystartLastRoundMinRtt = Long.MAX_VALUE;
+    private long hystartCurrentRoundMinRtt = Long.MAX_VALUE;
+    private int hystartRttSampleCount;
+    private boolean hystartConservative;
+    private long hystartConservativeBaselineMinRtt;
+    private int hystartConservativeRounds;
 
     /**
      * Creates a NewReno congestion controller with the RFC 9002 section
@@ -211,7 +244,7 @@ public final class CongestionController {
             return;
         }
         if (congestionWindow < ssthresh) {
-            congestionWindow += sentBytes; // slow start
+            slowStart(sentTimeMicros, sentBytes, nowMicros);
             return;
         }
         if (algorithm == CongestionAlgorithm.CUBIC) {
@@ -219,6 +252,75 @@ public final class CongestionController {
         } else {
             congestionWindow += ((long) maxDatagramSize * sentBytes) / congestionWindow; // congestion avoidance
         }
+    }
+
+    /**
+     * Records a round-trip time sample (one per acknowledgement frame that
+     * yields one, RFC 9002 section 5.1), which HyStart++ watches for the
+     * rise that marks the end of slow start.
+     *
+     * @param latestRttMicros the sample
+     */
+    public void onRttSample(long latestRttMicros) {
+        hystartCurrentRoundMinRtt = Math.min(hystartCurrentRoundMinRtt, latestRttMicros);
+        hystartRttSampleCount++;
+    }
+
+    // Slow start with HyStart++ (RFC 9406 section 4.2).
+    private void slowStart(long sentTimeMicros, int sentBytes, long nowMicros) {
+        if (!hystartRoundStarted || sentTimeMicros >= hystartRoundStartMicros) {
+            if (!startHystartRound(nowMicros)) {
+                return; // slow start just ended; this acknowledgement grows nothing
+            }
+        }
+        boolean enoughSamples = hystartRttSampleCount >= HYSTART_N_RTT_SAMPLE
+                && hystartCurrentRoundMinRtt != Long.MAX_VALUE;
+        if (!hystartConservative) {
+            congestionWindow += sentBytes;
+            if (enoughSamples && hystartLastRoundMinRtt != Long.MAX_VALUE) {
+                long threshold = Math.min(HYSTART_MAX_RTT_THRESH,
+                        Math.max(HYSTART_MIN_RTT_THRESH, hystartLastRoundMinRtt / HYSTART_MIN_RTT_DIVISOR));
+                if (hystartCurrentRoundMinRtt >= hystartLastRoundMinRtt + threshold) {
+                    hystartConservative = true;
+                    hystartConservativeBaselineMinRtt = hystartCurrentRoundMinRtt;
+                    hystartConservativeRounds = 0;
+                }
+            }
+            return;
+        }
+        congestionWindow += sentBytes / HYSTART_CSS_GROWTH_DIVISOR;
+        if (enoughSamples && hystartCurrentRoundMinRtt < hystartConservativeBaselineMinRtt) {
+            // The rise did not last: back to normal slow start.
+            hystartConservative = false;
+        }
+    }
+
+    // Returns false if, instead of a new round starting, slow start ended.
+    private boolean startHystartRound(long nowMicros) {
+        if (hystartConservative && hystartRoundStarted) {
+            hystartConservativeRounds++;
+            if (hystartConservativeRounds >= HYSTART_CSS_ROUNDS) {
+                // Slow start is over without a loss.
+                ssthresh = congestionWindow;
+                resetHystart();
+                return false;
+            }
+        }
+        hystartRoundStarted = true;
+        hystartRoundStartMicros = nowMicros;
+        hystartLastRoundMinRtt = hystartCurrentRoundMinRtt;
+        hystartCurrentRoundMinRtt = Long.MAX_VALUE;
+        hystartRttSampleCount = 0;
+        return true;
+    }
+
+    private void resetHystart() {
+        hystartRoundStarted = false;
+        hystartLastRoundMinRtt = Long.MAX_VALUE;
+        hystartCurrentRoundMinRtt = Long.MAX_VALUE;
+        hystartRttSampleCount = 0;
+        hystartConservative = false;
+        hystartConservativeRounds = 0;
     }
 
     // RFC 9438 sections 4.2 to 4.5, in bytes rather than segments.
@@ -283,6 +385,7 @@ public final class CongestionController {
         }
         ssthresh = (long) (congestionWindow * getLossReductionFactor());
         congestionWindow = Math.max(ssthresh, minimumWindow);
+        resetHystart();
     }
 
     private boolean inCongestionRecovery(long sentTimeMicros) {
@@ -305,6 +408,7 @@ public final class CongestionController {
         congestionWindow = minimumWindow;
         congestionRecoveryStartTime = 0;
         cubicEpochStarted = false;
+        resetHystart();
     }
 
     /**
@@ -324,6 +428,7 @@ public final class CongestionController {
         cubicWindowMax = 0;
         cubicWindowPrior = 0;
         cubicEpochStarted = false;
+        resetHystart();
     }
 
     /**

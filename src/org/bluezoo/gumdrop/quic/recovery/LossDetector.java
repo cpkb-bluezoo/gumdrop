@@ -364,6 +364,7 @@ public final class LossDetector {
         if (largestNewlyAcked.getPacketNumber() == largestAcked && includesAckEliciting(newlyAcked)) {
             rttEstimator.onRttSample(nowMicros - largestNewlyAcked.getTimeSentMicros(), ackDelayMicros,
                     maxAckDelayMicros, handshakeConfirmed);
+            congestionController.onRttSample(rttEstimator.getLatestRtt());
             if (firstRttSampleTime == 0) {
                 firstRttSampleTime = nowMicros;
             }

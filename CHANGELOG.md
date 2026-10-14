@@ -16,6 +16,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   maximum is regained. NewReno remains the default. `CC_BBR`, which never
   selected anything, is gone, and an unknown value is now rejected rather
   than logged and ignored.
+- **HyStart++ for QUIC slow start** (RFC 9406), with either controller. A
+  round trip whose minimum RTT has risen by an eighth over the previous
+  round's, seen in at least eight samples, turns slow start conservative at a
+  quarter of the growth, and five such rounds end it without waiting for a
+  loss; an RTT that falls back resumes normal slow start. Slow start no
+  longer has to overrun a queue to find out where the path's capacity is.
 
 - **QUIC send pacing** (RFC 9002 section 7.7). Bulk stream data no longer
   leaves in one burst of up to the whole congestion window: it is spread over
