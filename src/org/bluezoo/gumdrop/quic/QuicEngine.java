@@ -279,7 +279,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         DatagramChannel dc = DatagramChannel.open(remote instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
-        dc.configureBlocking(false);
+        factory.configureSocket(dc);
         dc.bind(null);
         addListeningChannel(dc);
         selectorLoop.registerDatagram(dc, this);

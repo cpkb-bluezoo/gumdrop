@@ -26,6 +26,7 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
+import java.net.StandardSocketOptions;
 import java.nio.channels.DatagramChannel;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -49,6 +50,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.quic.recovery.CongestionAlgorithm;
 import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.AckFrequencyDraft;
@@ -88,8 +90,8 @@ import org.bluezoo.gumdrop.util.Tokens;
  * The named-group list is what a client offers and what a server
  * accepts, each in its own preference order: a server negotiates the
  * first group in its list that the client also supports.
- * {@link #setCongestionControl} is accepted but ignored
- * -- {@code quic.recovery}'s {@code CongestionController} is NewReno only.
+ * {@link #setCongestionControl} chooses CUBIC (the default) or NewReno
+ * for every connection the factory creates.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -103,18 +105,17 @@ public class QuicTransportFactory extends TransportFactory {
     private static final long DEFAULT_MAX_DATA = 10_000_000;
     private static final long DEFAULT_MAX_STREAM_DATA = 1_000_000;
     private static final long DEFAULT_STREAM_RECEIVE_WINDOW_CEILING = 16_000_000;
+    private static final int DEFAULT_SOCKET_BUFFER_SIZE = 4_000_000;
     private static final long DEFAULT_CONNECTION_RECEIVE_WINDOW_CEILING = 24_000_000;
     private static final long DEFAULT_MAX_STREAMS_BIDI = 100;
     private static final long DEFAULT_MAX_STREAMS_UNI = 100;
     private static final long DEFAULT_MAX_DATAGRAM_FRAME_SIZE =
             TransportParameters.DEFAULT_MAX_UDP_PAYLOAD_SIZE;
 
-    /** Reno congestion control -- accepted but not implemented; see the class documentation. */
+    /** NewReno congestion control (RFC 9002 section 7). */
     public static final int CC_RENO = 0;
-    /** Cubic congestion control -- accepted but not implemented; see the class documentation. */
+    /** CUBIC congestion control (RFC 9438), the default. */
     public static final int CC_CUBIC = 1;
-    /** BBR congestion control -- accepted but not implemented; see the class documentation. */
-    public static final int CC_BBR = 2;
 
     private String applicationProtocols;
     private Path caFile;
@@ -130,6 +131,8 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamsBidi = DEFAULT_MAX_STREAMS_BIDI;
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
     private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
+    private int congestionControl = CC_CUBIC;
+    private int socketBufferSize = DEFAULT_SOCKET_BUFFER_SIZE;
     private long streamReceiveWindowCeiling = DEFAULT_STREAM_RECEIVE_WINDOW_CEILING;
     private long connectionReceiveWindowCeiling = DEFAULT_CONNECTION_RECEIVE_WINDOW_CEILING;
 
@@ -562,13 +565,69 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
-     * Sets the congestion control algorithm. Accepted but not
-     * implemented -- see the class documentation.
+     * Sets the congestion control algorithm for connections this factory
+     * creates. CUBIC is the default: it is what the QUIC stacks this one
+     * interoperates with run, and with pacing and HyStart++ its faster
+     * growth is kept in check.
      *
-     * @param algorithm one of {@link #CC_RENO}, {@link #CC_CUBIC}, {@link #CC_BBR}
+     * @param algorithm {@link #CC_RENO} or {@link #CC_CUBIC}
+     * @throws IllegalArgumentException for any other value
      */
     public void setCongestionControl(int algorithm) {
-        LOGGER.fine(L10N.getString("fine.congestion_control_not_implemented"));
+        if (algorithm != CC_RENO && algorithm != CC_CUBIC) {
+            throw new IllegalArgumentException(String.valueOf(algorithm));
+        }
+        this.congestionControl = algorithm;
+    }
+
+    /**
+     * Returns the congestion control algorithm.
+     *
+     * @return {@link #CC_RENO} or {@link #CC_CUBIC}
+     */
+    public int getCongestionControl() {
+        return congestionControl;
+    }
+
+    /**
+     * Sets the size requested for the send and receive buffers of every
+     * UDP socket this factory opens, in bytes. The operating system caps
+     * the value, and its default is often under a megabyte, which bounds
+     * the burst a receiver can absorb between two reads of the socket.
+     *
+     * @param bytes the requested buffer size
+     */
+    public void setSocketBufferSize(int bytes) {
+        this.socketBufferSize = bytes;
+    }
+
+    /**
+     * Returns the requested socket buffer size.
+     *
+     * @return the requested size, in bytes
+     */
+    public int getSocketBufferSize() {
+        return socketBufferSize;
+    }
+
+    /**
+     * Applies this factory's socket settings to a freshly opened channel:
+     * non-blocking, and the requested send and receive buffer sizes. What
+     * the OS actually granted is logged at fine level.
+     */
+    void configureSocket(DatagramChannel dc) throws IOException {
+        dc.configureBlocking(false);
+        dc.setOption(StandardSocketOptions.SO_RCVBUF, Integer.valueOf(socketBufferSize));
+        dc.setOption(StandardSocketOptions.SO_SNDBUF, Integer.valueOf(socketBufferSize));
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(MessageFormat.format(L10N.getString("fine.socket_buffers"),
+                    Integer.valueOf(socketBufferSize), dc.getOption(StandardSocketOptions.SO_RCVBUF),
+                    dc.getOption(StandardSocketOptions.SO_SNDBUF)));
+        }
+    }
+
+    CongestionAlgorithm getCongestionAlgorithm() {
+        return congestionControl == CC_CUBIC ? CongestionAlgorithm.CUBIC : CongestionAlgorithm.NEW_RENO;
     }
 
     /**
@@ -952,7 +1011,7 @@ public class QuicTransportFactory extends TransportFactory {
     private QuicEngine newBoundServerEngine(InetAddress bindAddress, int port, SelectorLoop loop) throws IOException {
         DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
-        dc.configureBlocking(false);
+        configureSocket(dc);
         dc.bind(new InetSocketAddress(bindAddress, port));
         QuicEngine engine = new QuicEngine(this, true);
         engine.init(dc);
@@ -982,7 +1041,7 @@ public class QuicTransportFactory extends TransportFactory {
             }
             DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
                     ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
-            dc.configureBlocking(false);
+            configureSocket(dc);
             dc.bind(new InetSocketAddress(bindAddress, port.intValue()));
             engine.addListeningChannel(dc);
             loop.registerDatagram(dc, engine);
@@ -1122,7 +1181,7 @@ public class QuicTransportFactory extends TransportFactory {
     private QuicEngine newClientEngine(InetAddress host, SelectorLoop loop) throws IOException {
         DatagramChannel dc = DatagramChannel.open(host instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
-        dc.configureBlocking(false);
+        configureSocket(dc);
         dc.bind(null);
         QuicEngine engine = new QuicEngine(this, false);
         engine.init(dc);

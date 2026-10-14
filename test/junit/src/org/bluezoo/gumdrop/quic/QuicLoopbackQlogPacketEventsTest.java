@@ -226,7 +226,8 @@ public class QuicLoopbackQlogPacketEventsTest {
         assertEquals(333.0, Double.parseDouble(p.get("initial_rtt")), 1e-9);
         assertTrue(Long.parseLong(p.get("initial_congestion_window")) > 0);
         assertTrue(Long.parseLong(p.get("max_datagram_size")) > 0);
-        assertEquals(0.5, Double.parseDouble(p.get("loss_reduction_factor")), 1e-9);
+        // CUBIC, the default: beta 0.7 (RFC 9438 section 4.6)
+        assertEquals(0.7, Double.parseDouble(p.get("loss_reduction_factor")), 1e-9);
         assertEquals("3", p.get("persistent_congestion_threshold"));
 
         List<Map<String, String>> states = events("client", "quic:congestion_state_updated");

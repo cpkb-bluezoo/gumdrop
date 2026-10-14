@@ -1102,7 +1102,8 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | initial_max_stream_data_uni | 18.2 | Compliant | `DEFAULT_MAX_STREAM_DATA = 1_000_000` |
 | initial_max_streams_bidi | 18.2 | Compliant | `DEFAULT_MAX_STREAMS_BIDI = 100` |
 | initial_max_streams_uni | 18.2 | Compliant | `DEFAULT_MAX_STREAMS_UNI = 100` |
-| Congestion control algorithm | — | Compliant | NewReno (RFC 9002 section 7); `setCongestionControl()` is accepted but has no effect until CUBIC lands (issue 562) |
+| Congestion control algorithm | — | Compliant | CUBIC (RFC 9438: beta 0.7, cubic window function with the Reno-friendly region and fast convergence), the default, or NewReno (RFC 9002 section 7), chosen per factory with `setCongestionControl()` |
+| Slow start exit | RFC 9406 | Compliant | HyStart++: conservative slow start on a sustained RTT rise of an eighth (4 to 16 ms) over eight or more samples, exit after five conservative rounds, resume on a fall back; no per-ACK growth limit since sends are paced |
 | Pacing | RFC 9002 7.7 | Compliant | Stream data paced at 1.25 windows per RTT (2 in slow start), bursts capped at the initial window or one millisecond of credit; ACKs, probes and close unpaced |
 | Receive window tuning | 4.2 | Compliant | Window doubles, up to a configurable ceiling, when half of it is filled within two round trips |
 

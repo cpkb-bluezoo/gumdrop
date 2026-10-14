@@ -824,7 +824,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             nextPeerUniStreamId = 3;
         }
 
-        this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE);
+        this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE, engine.getFactory().getCongestionAlgorithm());
         this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey,
                 isServer ? engine.getQuicLbConfig() : null);
         this.localMaxData = localTransportParameters.getInitialMaxData();
@@ -1134,7 +1134,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         data.put(QlogEvents.MAX_DATAGRAM_SIZE, MIN_DATAGRAM_SIZE);
         data.put(QlogEvents.INITIAL_CONGESTION_WINDOW, cc.getCongestionWindow());
         data.put(QlogEvents.MINIMUM_CONGESTION_WINDOW, 2L * MIN_DATAGRAM_SIZE);
-        data.put(QlogEvents.LOSS_REDUCTION_FACTOR, CongestionController.K_LOSS_REDUCTION_FACTOR);
+        data.put(QlogEvents.LOSS_REDUCTION_FACTOR, cc.getLossReductionFactor());
         data.put(QlogEvents.PERSISTENT_CONGESTION_THRESHOLD, LossDetector.K_PERSISTENT_CONGESTION_THRESHOLD);
         qlog.emit(QlogEvents.RECOVERY_PARAMETERS_SET, nowNanos(), data);
     }

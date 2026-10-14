@@ -44,6 +44,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
+import org.bluezoo.gumdrop.quic.recovery.CongestionAlgorithm;
+import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
@@ -199,7 +201,14 @@ public class QuicMiscUnitTest {
         f.setMaxStreamsBidi(15);
         f.setMaxStreamsUni(16);
         f.setMaxDatagramFrameSize(17);
-        f.setCongestionControl(QuicTransportFactory.CC_CUBIC);
+        assertEquals("CUBIC is the default", QuicTransportFactory.CC_CUBIC, f.getCongestionControl());
+        f.setCongestionControl(QuicTransportFactory.CC_RENO);
+        assertEquals(QuicTransportFactory.CC_RENO, f.getCongestionControl());
+        try {
+            f.setCongestionControl(2); // BBR is not offered
+            fail("unknown algorithm accepted");
+        } catch (IllegalArgumentException expected) {
+        }
         f.setApplicationProtocols("h3,doq");
         assertEquals("h3,doq", f.getApplicationProtocols());
         assertEquals(1234, f.getMaxIdleTimeout());
@@ -469,5 +478,54 @@ public class QuicMiscUnitTest {
         assertTrue(c.getHandshakeDurationMs() >= 0);
         assertFalse(c.isSessionResumed());
         assertFalse(c.isEarlyDataAccepted());
+    }
+
+    @Test
+    public void congestionControlChoiceReachesEveryConnection() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setCongestionControl(QuicTransportFactory.CC_RENO);
+        lb.startFactories();
+        QuicLoopbackScenariosTest.ConnCapture server = new QuicLoopbackScenariosTest.ConnCapture();
+        QuicLoopbackScenariosTest.ConnCapture client = new QuicLoopbackScenariosTest.ConnCapture();
+        lb.startServer(server);
+        lb.startClient(null, client);
+        lb.pump();
+        LossDetector serverDetector =
+                (LossDetector) QuicForger.field(server.conn, "lossDetector");
+        LossDetector clientDetector =
+                (LossDetector) QuicForger.field(client.conn, "lossDetector");
+        assertEquals(CongestionAlgorithm.NEW_RENO,
+                serverDetector.getCongestionController().getAlgorithm());
+        assertEquals("CUBIC without any setting", CongestionAlgorithm.CUBIC,
+                clientDetector.getCongestionController().getAlgorithm());
+    }
+
+    /**
+     * Issue 562: the datagram socket's buffers bound how large a burst
+     * can be absorbed between two reads, and the OS default is under a
+     * megabyte on some platforms. The factory asks for more on every
+     * channel it opens, within whatever the OS allows.
+     */
+    @Test
+    public void socketBuffersAreRaisedOnEveryChannel() throws Exception {
+        QuicTransportFactory f = new QuicTransportFactory();
+        assertEquals(4_000_000, f.getSocketBufferSize());
+        f.setSocketBufferSize(2_000_000);
+        java.nio.channels.DatagramChannel dc = java.nio.channels.DatagramChannel.open();
+        try {
+            int receiveBefore = dc.getOption(java.net.StandardSocketOptions.SO_RCVBUF).intValue();
+            int sendBefore = dc.getOption(java.net.StandardSocketOptions.SO_SNDBUF).intValue();
+            f.configureSocket(dc);
+            int receive = dc.getOption(java.net.StandardSocketOptions.SO_RCVBUF).intValue();
+            int send = dc.getOption(java.net.StandardSocketOptions.SO_SNDBUF).intValue();
+            // The OS caps the value; it must not be below what it gave by default.
+            assertTrue("receive " + receive + " before " + receiveBefore, receive >= receiveBefore);
+            assertTrue("send " + send + " before " + sendBefore, send >= sendBefore);
+            // ...and where the default was below the request, it was raised.
+            assertTrue("receive " + receive + " before " + receiveBefore,
+                    receiveBefore >= 2_000_000 || receive > receiveBefore);
+        } finally {
+            dc.close();
+        }
     }
 }

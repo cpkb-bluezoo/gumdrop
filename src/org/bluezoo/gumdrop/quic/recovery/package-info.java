@@ -31,7 +31,8 @@
  * threshold, section 6.1.2), and Probe Timeout computation (section
  * 6.2). It owns one {@link org.bluezoo.gumdrop.quic.recovery.RttEstimator}
  * (section 5) and one {@link org.bluezoo.gumdrop.quic.recovery.CongestionController}
- * (NewReno, section 7, Appendix B).
+ * (NewReno, section 7, Appendix B, or CUBIC, RFC 9438, per {@link
+ * org.bluezoo.gumdrop.quic.recovery.CongestionAlgorithm}).
  *
  * <p>Every class here is transport/frame-agnostic and takes time
  * explicitly as a {@code long} microseconds parameter rather than
