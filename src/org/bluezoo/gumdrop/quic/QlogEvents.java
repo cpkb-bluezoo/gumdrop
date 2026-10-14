@@ -113,6 +113,7 @@ final class QlogEvents {
     static final String CONGESTION_WINDOW = "congestion_window";
     static final String BYTES_IN_FLIGHT = "bytes_in_flight";
     static final String SSTHRESH = "ssthresh";
+    static final String PACING_RATE = "pacing_rate";
 
     // packet_lost
     static final String HEADER = "header";

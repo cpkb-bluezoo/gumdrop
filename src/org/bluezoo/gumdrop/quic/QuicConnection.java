@@ -683,6 +683,17 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
+
+    // Issue #561: bulk stream data waits here for pacing credit (RFC 9002
+    // section 7.7). streamBudget notes how long the wait is, flush arms a
+    // timer for it, and an acknowledgement's own flush may get there first.
+    private TimerHandle pacingTimerHandle;
+    private long pacingWaitMicros;
+    // Whether the last flush stopped because the congestion window or the
+    // pacer held queued stream data back, as opposed to running out of
+    // data (or hitting only the peer's flow control), which must not grow
+    // the window (RFC 9002 section 7.8).
+    private boolean sendBlocked;
     private boolean established;
 
     /**
@@ -1008,6 +1019,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         data.put(QlogEvents.BYTES_IN_FLIGHT, now[5]);
         if (ssthresh < Long.MAX_VALUE / 2) {
             data.put(QlogEvents.SSTHRESH, ssthresh);
+        }
+        long pacingRate = lossDetector.getPacingRateBitsPerSecond();
+        if (pacingRate > 0) {
+            data.put(QlogEvents.PACING_RATE, pacingRate);
         }
         qlog.emit(QlogEvents.RECOVERY_METRICS_UPDATED, nowNanos(), data);
     }
@@ -2249,6 +2264,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         QuicVersionNegotiationException failure = new QuicVersionNegotiationException();
         tearDownStreams(failure);
@@ -2272,6 +2288,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         engine.onConnectionClosed(this);
     }
@@ -3335,10 +3352,49 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // one more may be eligible; the congestion window and the peer's
         // flow control stop it, and each acknowledgement received flushes
         // again. The cap bounds how long one call can hold the loop.
+        sendBlocked = false;
+        pacingWaitMicros = 0;
+        boolean more = false;
         for (int datagrams = 0; datagrams < MAX_DATAGRAMS_PER_FLUSH; datagrams++) {
-            if (!flushOneDatagram()) {
-                return;
+            more = flushOneDatagram();
+            if (!more) {
+                break;
             }
+        }
+        // Stopping at the cap with data still queued is not running out of data.
+        lossDetector.setAppLimited(!sendBlocked && !more);
+        armPacingTimer();
+    }
+
+    // Wakes the connection when the pacer will next allow a datagram. The
+    // delay is rounded up to the timer's millisecond: credit accrues from
+    // the time the timer actually fires, so rounding only makes the next
+    // burst a little larger.
+    private void armPacingTimer() {
+        long wait = pacingWaitMicros;
+        pacingWaitMicros = 0;
+        if (wait <= 0 || closed || pacingTimerHandle != null) {
+            return;
+        }
+        pacingTimerHandle = engine.scheduleTimer(Math.max(1, microsToMillisCeil(wait)), new Runnable() {
+            @Override
+            public void run() {
+                onPacingTimeout();
+            }
+        });
+    }
+
+    void onPacingTimeout() {
+        pacingTimerHandle = null;
+        if (!closed) {
+            flush();
+        }
+    }
+
+    private void cancelPacingTimer() {
+        if (pacingTimerHandle != null) {
+            pacingTimerHandle.cancel();
+            pacingTimerHandle = null;
         }
     }
 
@@ -4407,6 +4463,19 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // room for a full datagram (RFC 9002 section 7).
     private int streamBudget(int headerBytes, int otherFrameBytes) {
         if (!lossDetector.getCongestionController().canSend(MAX_DATAGRAM_SIZE)) {
+            if (!pendingStream.isEmpty()) {
+                sendBlocked = true;
+            }
+            return 0;
+        }
+        // RFC 9002 section 7.7: spread the window over the round trip. Only
+        // bulk data waits here; ACKs, probes and close are built elsewhere.
+        long wait = lossDetector.getPacingDelayMicros(MAX_DATAGRAM_SIZE, nowMicros());
+        if (wait > 0) {
+            if (!pendingStream.isEmpty()) {
+                sendBlocked = true;
+                pacingWaitMicros = pacingWaitMicros == 0 ? wait : Math.min(pacingWaitMicros, wait);
+            }
             return 0;
         }
         return MAX_DATAGRAM_SIZE - coalescedBytes - headerBytes - QuicAeadAlgorithm.TAG_LENGTH - otherFrameBytes;
@@ -5172,6 +5241,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         // RFC 9000 section 10.2.1: send at only the highest available
         // level -- EncryptionLevel.values() is declared in ascending
@@ -5217,6 +5287,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         tearDownStreams();
         engine.onConnectionClosed(this);
@@ -5237,6 +5308,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         engine.onConnectionClosed(this);
     }
@@ -5252,6 +5324,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             timerHandle.cancel();
             timerHandle = null;
         }
+        cancelPacingTimer();
         cancelAllPathValidationAttempts();
         tearDownStreams(new QuicStatelessResetException());
         engine.onConnectionClosed(this);

@@ -170,6 +170,8 @@ public final class LossDetector {
 
     private final RttEstimator rttEstimator = new RttEstimator();
     private final CongestionController congestionController;
+    private final Pacer pacer;
+    private boolean appLimited;
 
     private int ptoCount;
     private boolean handshakeConfirmed;
@@ -192,6 +194,8 @@ public final class LossDetector {
      */
     public LossDetector(int maxDatagramSize) {
         this.congestionController = new CongestionController(maxDatagramSize);
+        // RFC 9002 section 7.7: limit bursts to the initial congestion window.
+        this.pacer = new Pacer(congestionController.getCongestionWindow(), 0);
         for (EncryptionLevel level : EncryptionLevel.values()) {
             sentPackets.put(level, new TreeMap<Long, SentPacket>());
             ackElicitingInFlightCount.put(level, 0);
@@ -265,7 +269,59 @@ public final class LossDetector {
                 timeOfLastAckEliciting.put(level, nowMicros);
             }
             congestionController.onPacketSent(sentBytes);
+            pacer.onPacketSent(sentBytes, nowMicros, pacingRate());
         }
+    }
+
+    /**
+     * Returns how long to wait before {@code bytes} of congestion-controlled
+     * data may be sent, so that sending is spread over the round trip rather
+     * than done in one burst (RFC 9002 section 7.7). Callers apply this only
+     * to data they are free to delay; ACKs, probes and connection close are
+     * not paced. Nothing is paced until the first RTT sample, since before
+     * that the rate would rest on the guessed initial RTT.
+     *
+     * @param bytes the size of the next send
+     * @param nowMicros the current time
+     * @return 0 if it may be sent now, otherwise the wait in microseconds
+     */
+    public long getPacingDelayMicros(int bytes, long nowMicros) {
+        return pacer.delayMicros(bytes, nowMicros, pacingRate());
+    }
+
+    /**
+     * Records whether the sender is currently limited by its application
+     * (or the peer's flow control) rather than by the congestion window,
+     * in which case acknowledgements do not grow the window (RFC 9002
+     * section 7.8). Starts false: a sender is assumed window-limited
+     * until its owner says otherwise.
+     *
+     * @param appLimited true if the sender ran out of data to send before
+     *                   it ran out of congestion window
+     */
+    public void setAppLimited(boolean appLimited) {
+        this.appLimited = appLimited;
+    }
+
+    /**
+     * Returns the current pacing rate, for diagnostics.
+     *
+     * @return bits per second, or 0 while sending is not paced (no RTT sample yet)
+     */
+    public long getPacingRateBitsPerSecond() {
+        double rate = pacingRate();
+        if (rate == Double.POSITIVE_INFINITY) {
+            return 0;
+        }
+        return (long) (rate * 8_000_000.0);
+    }
+
+    private double pacingRate() {
+        if (!rttEstimator.hasRttSample()) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return Pacer.rate(congestionController.getCongestionWindow(), congestionController.getSsthresh(),
+                rttEstimator.getSmoothedRtt());
     }
 
     /**
@@ -307,7 +363,7 @@ public final class LossDetector {
 
         for (SentPacket acked : newlyAcked) {
             if (acked.isInFlight()) {
-                congestionController.onPacketAcked(acked.getTimeSentMicros(), acked.getSentBytes(), false);
+                congestionController.onPacketAcked(acked.getTimeSentMicros(), acked.getSentBytes(), appLimited);
             }
         }
 

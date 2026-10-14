@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **QUIC send pacing** (RFC 9002 section 7.7). Bulk stream data no longer
+  leaves in one burst of up to the whole congestion window: it is spread over
+  the round trip at 1.25 windows per RTT (2 in slow start) with bursts capped
+  at the initial window, and a timer wakes the connection when the next
+  datagram is due. Nothing finer than a millisecond is needed, because credit
+  accrues from the time the timer actually fires. ACKs, probes and connection
+  close are not paced. The congestion window now also stops growing while the
+  sender is limited by its application or the peer's flow control rather than
+  by the window, and qlog `recovery:metrics_updated` reports `pacing_rate`.
+
 - **gRPC message compression**, on both the server and the client. Messages
   flagged as compressed are decoded as they stream in, with `gzip` and
   `deflate` by default and `br` (Brotli, an extension that is not in the gRPC
