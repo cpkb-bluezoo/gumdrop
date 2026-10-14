@@ -498,4 +498,33 @@ public class QuicMiscUnitTest {
         assertEquals(CongestionAlgorithm.NEW_RENO,
                 clientDetector.getCongestionController().getAlgorithm());
     }
+
+    /**
+     * Issue 562: the datagram socket's buffers bound how large a burst
+     * can be absorbed between two reads, and the OS default is under a
+     * megabyte on some platforms. The factory asks for more on every
+     * channel it opens, within whatever the OS allows.
+     */
+    @Test
+    public void socketBuffersAreRaisedOnEveryChannel() throws Exception {
+        QuicTransportFactory f = new QuicTransportFactory();
+        assertEquals(4_000_000, f.getSocketBufferSize());
+        f.setSocketBufferSize(2_000_000);
+        java.nio.channels.DatagramChannel dc = java.nio.channels.DatagramChannel.open();
+        try {
+            int receiveBefore = dc.getOption(java.net.StandardSocketOptions.SO_RCVBUF).intValue();
+            int sendBefore = dc.getOption(java.net.StandardSocketOptions.SO_SNDBUF).intValue();
+            f.configureSocket(dc);
+            int receive = dc.getOption(java.net.StandardSocketOptions.SO_RCVBUF).intValue();
+            int send = dc.getOption(java.net.StandardSocketOptions.SO_SNDBUF).intValue();
+            // The OS caps the value; it must not be below what it gave by default.
+            assertTrue("receive " + receive + " before " + receiveBefore, receive >= receiveBefore);
+            assertTrue("send " + send + " before " + sendBefore, send >= sendBefore);
+            // ...and where the default was below the request, it was raised.
+            assertTrue("receive " + receive + " before " + receiveBefore,
+                    receiveBefore >= 2_000_000 || receive > receiveBefore);
+        } finally {
+            dc.close();
+        }
+    }
 }

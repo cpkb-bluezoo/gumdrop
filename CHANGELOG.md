@@ -22,6 +22,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   quarter of the growth, and five such rounds end it without waiting for a
   loss; an RTT that falls back resumes normal slow start. Slow start no
   longer has to overrun a queue to find out where the path's capacity is.
+- **QUIC socket buffers are requested explicitly.** Every UDP socket a
+  `QuicTransportFactory` opens asks for `setSocketBufferSize` (4 MB) for both
+  its send and receive buffers, within what the OS allows, and logs what it
+  was granted at fine level. The OS default is under a megabyte on some
+  platforms, which bounded the burst a receiver could absorb between reads.
 
 - **QUIC send pacing** (RFC 9002 section 7.7). Bulk stream data no longer
   leaves in one burst of up to the whole congestion window: it is spread over
