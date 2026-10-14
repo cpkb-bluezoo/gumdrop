@@ -84,7 +84,7 @@ public class CubicCongestionControllerTest {
     }
 
     @Test
-    public void testNewRenoIsTheDefaultAndStillHalves() {
+    public void testSingleArgumentConstructorIsNewRenoAndStillHalves() {
         CongestionController cc = new CongestionController(MSS);
         assertEquals(CongestionAlgorithm.NEW_RENO, cc.getAlgorithm());
         assertEquals(0.5, cc.getLossReductionFactor(), 0.0);

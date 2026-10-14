@@ -90,7 +90,7 @@ import org.bluezoo.gumdrop.util.Tokens;
  * The named-group list is what a client offers and what a server
  * accepts, each in its own preference order: a server negotiates the
  * first group in its list that the client also supports.
- * {@link #setCongestionControl} chooses NewReno (the default) or CUBIC
+ * {@link #setCongestionControl} chooses CUBIC (the default) or NewReno
  * for every connection the factory creates.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -112,9 +112,9 @@ public class QuicTransportFactory extends TransportFactory {
     private static final long DEFAULT_MAX_DATAGRAM_FRAME_SIZE =
             TransportParameters.DEFAULT_MAX_UDP_PAYLOAD_SIZE;
 
-    /** NewReno congestion control (RFC 9002 section 7), the default. */
+    /** NewReno congestion control (RFC 9002 section 7). */
     public static final int CC_RENO = 0;
-    /** CUBIC congestion control (RFC 9438). */
+    /** CUBIC congestion control (RFC 9438), the default. */
     public static final int CC_CUBIC = 1;
 
     private String applicationProtocols;
@@ -131,7 +131,7 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamsBidi = DEFAULT_MAX_STREAMS_BIDI;
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
     private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
-    private int congestionControl = CC_RENO;
+    private int congestionControl = CC_CUBIC;
     private int socketBufferSize = DEFAULT_SOCKET_BUFFER_SIZE;
     private long streamReceiveWindowCeiling = DEFAULT_STREAM_RECEIVE_WINDOW_CEILING;
     private long connectionReceiveWindowCeiling = DEFAULT_CONNECTION_RECEIVE_WINDOW_CEILING;
@@ -566,7 +566,9 @@ public class QuicTransportFactory extends TransportFactory {
 
     /**
      * Sets the congestion control algorithm for connections this factory
-     * creates.
+     * creates. CUBIC is the default: it is what the QUIC stacks this one
+     * interoperates with run, and with pacing and HyStart++ its faster
+     * growth is kept in check.
      *
      * @param algorithm {@link #CC_RENO} or {@link #CC_CUBIC}
      * @throws IllegalArgumentException for any other value

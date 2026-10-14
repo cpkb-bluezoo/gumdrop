@@ -201,8 +201,9 @@ public class QuicMiscUnitTest {
         f.setMaxStreamsBidi(15);
         f.setMaxStreamsUni(16);
         f.setMaxDatagramFrameSize(17);
-        f.setCongestionControl(QuicTransportFactory.CC_CUBIC);
-        assertEquals(QuicTransportFactory.CC_CUBIC, f.getCongestionControl());
+        assertEquals("CUBIC is the default", QuicTransportFactory.CC_CUBIC, f.getCongestionControl());
+        f.setCongestionControl(QuicTransportFactory.CC_RENO);
+        assertEquals(QuicTransportFactory.CC_RENO, f.getCongestionControl());
         try {
             f.setCongestionControl(2); // BBR is not offered
             fail("unknown algorithm accepted");
@@ -482,7 +483,7 @@ public class QuicMiscUnitTest {
     @Test
     public void congestionControlChoiceReachesEveryConnection() throws Exception {
         QuicLoopback lb = new QuicLoopback();
-        lb.serverFactory.setCongestionControl(QuicTransportFactory.CC_CUBIC);
+        lb.serverFactory.setCongestionControl(QuicTransportFactory.CC_RENO);
         lb.startFactories();
         QuicLoopbackScenariosTest.ConnCapture server = new QuicLoopbackScenariosTest.ConnCapture();
         QuicLoopbackScenariosTest.ConnCapture client = new QuicLoopbackScenariosTest.ConnCapture();
@@ -493,9 +494,9 @@ public class QuicMiscUnitTest {
                 (LossDetector) QuicForger.field(server.conn, "lossDetector");
         LossDetector clientDetector =
                 (LossDetector) QuicForger.field(client.conn, "lossDetector");
-        assertEquals(CongestionAlgorithm.CUBIC,
-                serverDetector.getCongestionController().getAlgorithm());
         assertEquals(CongestionAlgorithm.NEW_RENO,
+                serverDetector.getCongestionController().getAlgorithm());
+        assertEquals("CUBIC without any setting", CongestionAlgorithm.CUBIC,
                 clientDetector.getCongestionController().getAlgorithm());
     }
 
