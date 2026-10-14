@@ -102,6 +102,8 @@ public class QuicTransportFactory extends TransportFactory {
     private static final long DEFAULT_MAX_IDLE_TIMEOUT = 30000;
     private static final long DEFAULT_MAX_DATA = 10_000_000;
     private static final long DEFAULT_MAX_STREAM_DATA = 1_000_000;
+    private static final long DEFAULT_STREAM_RECEIVE_WINDOW_CEILING = 16_000_000;
+    private static final long DEFAULT_CONNECTION_RECEIVE_WINDOW_CEILING = 24_000_000;
     private static final long DEFAULT_MAX_STREAMS_BIDI = 100;
     private static final long DEFAULT_MAX_STREAMS_UNI = 100;
     private static final long DEFAULT_MAX_DATAGRAM_FRAME_SIZE =
@@ -128,6 +130,8 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamsBidi = DEFAULT_MAX_STREAMS_BIDI;
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
     private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
+    private long streamReceiveWindowCeiling = DEFAULT_STREAM_RECEIVE_WINDOW_CEILING;
+    private long connectionReceiveWindowCeiling = DEFAULT_CONNECTION_RECEIVE_WINDOW_CEILING;
 
     private ServerCredentials serverCredentials;
     private ServerCredentialsResolver serverCredentialsResolver;
@@ -483,6 +487,36 @@ public class QuicTransportFactory extends TransportFactory {
      */
     public void setMaxStreamDataUni(long bytes) {
         this.maxStreamDataUni = bytes;
+    }
+
+    /**
+     * Sets the most a stream's receive window may grow to, in bytes. A
+     * window starts at the {@code initial_max_stream_data_*} value and
+     * doubles each time the peer fills half of it within two round
+     * trips, up to this ceiling (RFC 9000 section 4.2).
+     *
+     * @param bytes the per-stream receive window ceiling
+     */
+    public void setStreamReceiveWindowCeiling(long bytes) {
+        this.streamReceiveWindowCeiling = bytes;
+    }
+
+    /**
+     * Sets the most the connection's receive window may grow to, in
+     * bytes; see {@link #setStreamReceiveWindowCeiling}.
+     *
+     * @param bytes the connection-level receive window ceiling
+     */
+    public void setConnectionReceiveWindowCeiling(long bytes) {
+        this.connectionReceiveWindowCeiling = bytes;
+    }
+
+    long getStreamReceiveWindowCeiling() {
+        return streamReceiveWindowCeiling;
+    }
+
+    long getConnectionReceiveWindowCeiling() {
+        return connectionReceiveWindowCeiling;
     }
 
     /**

@@ -27,11 +27,15 @@ package org.bluezoo.gumdrop.quic.recovery;
  * all of it back to back.
  *
  * <p>Credit, in bytes, accrues at the pacing rate from the time of
- * each check, up to a burst cap. Because it accrues from the time the
- * check actually runs rather than the time it was scheduled for, a
- * timer that fires late or whose delay was rounded up to a whole
- * millisecond only makes the next burst larger, never lowers the
- * average rate. No timer finer than a millisecond is needed.
+ * each check, up to a cap: the burst size, or one timer tick's worth
+ * of credit at the current rate, whichever is larger. Because credit
+ * accrues from the time the check actually runs rather than the time
+ * it was scheduled for, a timer that fires late or whose delay was
+ * rounded up to a whole millisecond only makes the next burst larger,
+ * never lowers the average rate. And because a tick's worth is always
+ * allowed, a millisecond timer can sustain any rate: at 1 Gbit/s a tick
+ * releases about 104 full datagrams. No timer finer than a millisecond
+ * is needed.
  *
  * <p>Rates are in bytes per microsecond. {@link Double#POSITIVE_INFINITY}
  * means "do not pace".
@@ -53,8 +57,18 @@ public final class Pacer {
      */
     static final double SLOW_START_GAIN = 2.0;
 
+    /**
+     * The coarsest timer the owning connection relies on, in
+     * microseconds: a tick's worth of credit at the pacing rate is
+     * always allowed to accrue, so the timer never caps the rate.
+     */
+    static final long TIMER_GRANULARITY_MICROS = 1000;
+
     private final double burstBytes;
     private double credit;
+    // Set on the first check; times have an arbitrary origin (they may
+    // be negative), so no value can mean "not yet".
+    private boolean started;
     private long lastUpdateMicros;
 
     /**
@@ -62,12 +76,10 @@ public final class Pacer {
      *
      * @param burstBytes the most that may be sent back to back; RFC 9002
      *                   section 7.7 suggests the initial congestion window
-     * @param nowMicros the current time
      */
-    public Pacer(long burstBytes, long nowMicros) {
+    public Pacer(long burstBytes) {
         this.burstBytes = burstBytes;
         this.credit = burstBytes;
-        this.lastUpdateMicros = nowMicros;
     }
 
     /**
@@ -119,6 +131,11 @@ public final class Pacer {
     }
 
     private void refill(long nowMicros, double rate) {
+        if (!started) {
+            started = true;
+            lastUpdateMicros = nowMicros;
+            return;
+        }
         long elapsed = nowMicros - lastUpdateMicros;
         if (elapsed <= 0) {
             return;
@@ -128,6 +145,7 @@ public final class Pacer {
             credit = burstBytes;
             return;
         }
-        credit = Math.min(burstBytes, credit + elapsed * rate);
+        double cap = Math.max(burstBytes, rate * TIMER_GRANULARITY_MICROS);
+        credit = Math.min(cap, credit + elapsed * rate);
     }
 }

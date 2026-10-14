@@ -26,11 +26,14 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
+import org.bluezoo.gumdrop.quic.recovery.LossDetector;
+import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.junit.Test;
 
 /**
@@ -71,6 +74,13 @@ public class QuicLoopbackPacingTest {
         long now = System.nanoTime();
         client.conn.frozenNanos = now;
         server.conn.frozenNanos = now;
+        // Pin the server's round-trip estimate at 100 ms: the pacing rate
+        // (and so the credit a millisecond tick may release) depends on
+        // it, and the real handshake's round trip varies with the host.
+        Object rtt = ((LossDetector) QuicForger.field(server.conn, "lossDetector")).getRttEstimator();
+        Field smoothed = RttEstimator.class.getDeclaredField("smoothedRtt");
+        smoothed.setAccessible(true);
+        smoothed.setLong(rtt, 100_000L);
     }
 
     @Test
@@ -83,22 +93,34 @@ public class QuicLoopbackPacingTest {
         assertTrue("first burst of " + firstBurst + " datagrams", firstBurst <= BURST_DATAGRAMS + 2);
         assertNotNull("a timer is armed for the rest", QuicForger.field(server.conn, "pacingTimerHandle"));
 
-        // Time passes, the timer fires, and more goes out; repeat until done.
+        // Time passes a millisecond at a time, the timer fires, and more
+        // goes out: each tick may release one millisecond of credit at
+        // the pacing rate, never less than the initial window, and no
+        // more however the round-trip time came out.
+        LossDetector detector = (LossDetector) QuicForger.field(server.conn, "lossDetector");
         int rounds = 0;
+        int idleTicks = 0;
         int last = lb.sentToClient;
-        while (rounds++ < 200) {
-            server.conn.clockOffsetMillis += 1000;
-            client.conn.clockOffsetMillis += 1000;
+        while (rounds++ < 5000) {
+            long bytesPerMilli = detector.getPacingRateBitsPerSecond() / 8000;
+            long allowed = Math.max(BURST_DATAGRAMS, (bytesPerMilli + 1199) / 1200) + 2;
+            server.conn.clockOffsetMillis += 1;
+            client.conn.clockOffsetMillis += 1;
             QuicForger.invoke(server.conn, "onPacingTimeout");
             lb.pump();
-            if (lb.sentToClient == last) {
+            int released = lb.sentToClient - last;
+            assertTrue("round " + rounds + " released " + released + ", allowed " + allowed, released <= allowed);
+            // At a low rate a single tick may not accrue a datagram's
+            // worth of credit; only a long run of empty ticks means done.
+            idleTicks = released == 0 ? idleTicks + 1 : 0;
+            if (idleTicks > 50) {
                 break;
             }
             last = lb.sentToClient;
         }
         int total = lb.sentToClient - before;
         assertTrue("all " + PAYLOAD + " bytes left: " + total + " datagrams", total >= PAYLOAD / 1200);
-        assertTrue("took several bursts: " + rounds, rounds > 3);
+        assertTrue("took more than the first flush: " + rounds, rounds >= 2);
         assertNull("no timer left once nothing is waiting", QuicForger.field(server.conn, "pacingTimerHandle"));
     }
 }

@@ -41,7 +41,7 @@ public class PacerTest {
 
     @Test
     public void testBurstIsAllowedUpToTheBucketSize() {
-        Pacer pacer = new Pacer(12000, 1000);
+        Pacer pacer = new Pacer(12000);
         for (int i = 0; i < 10; i++) {
             assertEquals(0, pacer.delayMicros(1200, 1000, RATE));
             pacer.onPacketSent(1200, 1000, RATE);
@@ -52,7 +52,7 @@ public class PacerTest {
 
     @Test
     public void testCreditAccruesFromTheTimeOfTheCheckNotTheScheduledTime() {
-        Pacer pacer = new Pacer(12000, 1000);
+        Pacer pacer = new Pacer(12000);
         pacer.onPacketSent(12000, 1000, RATE);
         // Checked 4000 us later: 480 bytes of credit, 720 short, 6000 us to wait.
         assertEquals(6000, pacer.delayMicros(1200, 5000, RATE));
@@ -61,9 +61,10 @@ public class PacerTest {
     }
 
     @Test
-    public void testCreditNeverExceedsTheBurstCap() {
-        Pacer pacer = new Pacer(12000, 1000);
-        // Idle for a whole second: still only the 12000-byte burst.
+    public void testCreditNeverExceedsTheBurstCapAtLowRates() {
+        Pacer pacer = new Pacer(12000);
+        pacer.onPacketSent(12000, 1000, RATE);
+        // Idle for a whole second at 0.12 bytes/us: still only the 12000-byte burst.
         for (int i = 0; i < 10; i++) {
             pacer.onPacketSent(1200, 1000001, RATE);
         }
@@ -71,8 +72,41 @@ public class PacerTest {
     }
 
     @Test
+    public void testOneTimerTickOfCreditIsAllowedAtHighRates() {
+        // 1 Gbit/s is 125 bytes/us: a millisecond timer that could release
+        // only the 12000-byte burst per tick would cap sending at 96 Mbit/s.
+        double rate = 125.0;
+        Pacer pacer = new Pacer(12000);
+        pacer.onPacketSent(12000, 1000, rate);
+        assertTrue(pacer.delayMicros(1200, 1000, rate) > 0);
+        // One tick later there is a millisecond of credit: 125000 bytes, 104 datagrams.
+        int sent = 0;
+        while (pacer.delayMicros(1200, 2000, rate) == 0 && sent < 200) {
+            pacer.onPacketSent(1200, 2000, rate);
+            sent++;
+        }
+        assertEquals(104, sent);
+        // ...but never more than that, however long the idle period.
+        sent = 0;
+        while (pacer.delayMicros(1200, 5000000, rate) == 0 && sent < 200) {
+            pacer.onPacketSent(1200, 5000000, rate);
+            sent++;
+        }
+        assertEquals(104, sent);
+    }
+
+    @Test
+    public void testClockMayBeNegative() {
+        // System.nanoTime has an arbitrary origin and may be negative.
+        Pacer pacer = new Pacer(12000);
+        pacer.onPacketSent(12000, -5000000, RATE);
+        assertEquals(10000, pacer.delayMicros(1200, -5000000, RATE));
+        assertEquals(0, pacer.delayMicros(1200, -4990000, RATE));
+    }
+
+    @Test
     public void testAnInfiniteRateNeverDelays() {
-        Pacer pacer = new Pacer(12000, 1000);
+        Pacer pacer = new Pacer(12000);
         for (int i = 0; i < 100; i++) {
             pacer.onPacketSent(1200, 1000, Double.POSITIVE_INFINITY);
         }

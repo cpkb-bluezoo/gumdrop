@@ -195,7 +195,7 @@ public final class LossDetector {
     public LossDetector(int maxDatagramSize) {
         this.congestionController = new CongestionController(maxDatagramSize);
         // RFC 9002 section 7.7: limit bursts to the initial congestion window.
-        this.pacer = new Pacer(congestionController.getCongestionWindow(), 0);
+        this.pacer = new Pacer(congestionController.getCongestionWindow());
         for (EncryptionLevel level : EncryptionLevel.values()) {
             sentPackets.put(level, new TreeMap<Long, SentPacket>());
             ackElicitingInFlightCount.put(level, 0);
