@@ -187,13 +187,24 @@ public final class LossDetector {
     private long firstRttSampleTime;
 
     /**
-     * Creates a loss detector.
+     * Creates a NewReno loss detector.
      *
      * @param maxDatagramSize the sender's current maximum UDP payload
      *                        size, passed through to a new {@link CongestionController}
      */
     public LossDetector(int maxDatagramSize) {
-        this.congestionController = new CongestionController(maxDatagramSize);
+        this(maxDatagramSize, CongestionAlgorithm.NEW_RENO);
+    }
+
+    /**
+     * Creates a loss detector.
+     *
+     * @param maxDatagramSize the sender's current maximum UDP payload
+     *                        size, passed through to a new {@link CongestionController}
+     * @param algorithm the congestion control algorithm to run
+     */
+    public LossDetector(int maxDatagramSize, CongestionAlgorithm algorithm) {
+        this.congestionController = new CongestionController(maxDatagramSize, algorithm);
         // RFC 9002 section 7.7: limit bursts to the initial congestion window.
         this.pacer = new Pacer(congestionController.getCongestionWindow());
         for (EncryptionLevel level : EncryptionLevel.values()) {
@@ -363,7 +374,8 @@ public final class LossDetector {
 
         for (SentPacket acked : newlyAcked) {
             if (acked.isInFlight()) {
-                congestionController.onPacketAcked(acked.getTimeSentMicros(), acked.getSentBytes(), appLimited);
+                congestionController.onPacketAcked(acked.getTimeSentMicros(), acked.getSentBytes(), appLimited,
+                        nowMicros, rttEstimator.getSmoothedRtt());
             }
         }
 

@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **CUBIC congestion control for QUIC** (RFC 9438), selected per factory with
+  `QuicTransportFactory.setCongestionControl(CC_CUBIC)`: the window drops to
+  0.7 on loss rather than half, grows along the cubic curve through the window
+  the loss happened at and beyond, never more slowly than Reno would on the
+  same path, and aims lower after a loss that comes before the previous
+  maximum is regained. NewReno remains the default. `CC_BBR`, which never
+  selected anything, is gone, and an unknown value is now rejected rather
+  than logged and ignored.
+
 - **QUIC send pacing** (RFC 9002 section 7.7). Bulk stream data no longer
   leaves in one burst of up to the whole congestion window: it is spread over
   the round trip at 1.25 windows per RTT (2 in slow start) with bursts capped

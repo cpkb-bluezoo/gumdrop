@@ -64,7 +64,7 @@ public class CongestionControllerTest {
     public void testSlowStartGrowsByAckedBytes() {
         CongestionController cc = new CongestionController(1200); // window 12000
         cc.onPacketSent(1000);
-        cc.onPacketAcked(100, 1000, false);
+        cc.onPacketAcked(100, 1000, false, 100, 100000);
 
         assertEquals(13000, cc.getCongestionWindow());
         assertEquals(0, cc.getBytesInFlight());
@@ -76,7 +76,7 @@ public class CongestionControllerTest {
         cc.onCongestionEvent(100, 200); // ssthresh=6000, window=6000, recoveryStart=200
 
         cc.onPacketSent(1000);
-        cc.onPacketAcked(300, 1000, false); // sentTime(300) > recoveryStart(200): not in recovery
+        cc.onPacketAcked(300, 1000, false, 300, 100000); // sentTime(300) > recoveryStart(200): not in recovery
         // window(6000) not < ssthresh(6000) -> congestion avoidance:
         // window += maxDatagramSize*sentBytes/window = 1200*1000/6000 = 200
         assertEquals(6200, cc.getCongestionWindow());
@@ -88,7 +88,7 @@ public class CongestionControllerTest {
         cc.onPacketSent(1000);
         cc.onCongestionEvent(100, 200); // window=6000, recoveryStart=200
 
-        cc.onPacketAcked(150, 1000, false); // sent before recovery started: still in recovery
+        cc.onPacketAcked(150, 1000, false, 150, 100000); // sent before recovery started: still in recovery
         assertEquals(6000, cc.getCongestionWindow());
         assertEquals(0, cc.getBytesInFlight());
     }
@@ -97,7 +97,7 @@ public class CongestionControllerTest {
     public void testAppOrFlowControlLimitedDoesNotGrowWindow() {
         CongestionController cc = new CongestionController(1200); // window 12000
         cc.onPacketSent(1000);
-        cc.onPacketAcked(100, 1000, true);
+        cc.onPacketAcked(100, 1000, true, 100, 100000);
 
         assertEquals(12000, cc.getCongestionWindow());
         assertEquals(0, cc.getBytesInFlight());
@@ -151,7 +151,7 @@ public class CongestionControllerTest {
         // Sent at time 50, before the *old* recoveryStart(200) -- would
         // have been treated as still-in-recovery and not grown the
         // window, if onPersistentCongestion hadn't cleared it.
-        cc.onPacketAcked(50, 1000, false);
+        cc.onPacketAcked(50, 1000, false, 50, 100000);
         assertEquals(3400, cc.getCongestionWindow()); // slow start: 2400 + 1000
     }
 }

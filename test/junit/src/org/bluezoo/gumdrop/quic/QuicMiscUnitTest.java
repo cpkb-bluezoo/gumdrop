@@ -44,6 +44,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
+import org.bluezoo.gumdrop.quic.recovery.CongestionAlgorithm;
+import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
@@ -200,6 +202,12 @@ public class QuicMiscUnitTest {
         f.setMaxStreamsUni(16);
         f.setMaxDatagramFrameSize(17);
         f.setCongestionControl(QuicTransportFactory.CC_CUBIC);
+        assertEquals(QuicTransportFactory.CC_CUBIC, f.getCongestionControl());
+        try {
+            f.setCongestionControl(2); // BBR is not offered
+            fail("unknown algorithm accepted");
+        } catch (IllegalArgumentException expected) {
+        }
         f.setApplicationProtocols("h3,doq");
         assertEquals("h3,doq", f.getApplicationProtocols());
         assertEquals(1234, f.getMaxIdleTimeout());
@@ -469,5 +477,25 @@ public class QuicMiscUnitTest {
         assertTrue(c.getHandshakeDurationMs() >= 0);
         assertFalse(c.isSessionResumed());
         assertFalse(c.isEarlyDataAccepted());
+    }
+
+    @Test
+    public void congestionControlChoiceReachesEveryConnection() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setCongestionControl(QuicTransportFactory.CC_CUBIC);
+        lb.startFactories();
+        QuicLoopbackScenariosTest.ConnCapture server = new QuicLoopbackScenariosTest.ConnCapture();
+        QuicLoopbackScenariosTest.ConnCapture client = new QuicLoopbackScenariosTest.ConnCapture();
+        lb.startServer(server);
+        lb.startClient(null, client);
+        lb.pump();
+        LossDetector serverDetector =
+                (LossDetector) QuicForger.field(server.conn, "lossDetector");
+        LossDetector clientDetector =
+                (LossDetector) QuicForger.field(client.conn, "lossDetector");
+        assertEquals(CongestionAlgorithm.CUBIC,
+                serverDetector.getCongestionController().getAlgorithm());
+        assertEquals(CongestionAlgorithm.NEW_RENO,
+                clientDetector.getCongestionController().getAlgorithm());
     }
 }

@@ -49,6 +49,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.quic.recovery.CongestionAlgorithm;
 import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.AckFrequencyDraft;
@@ -88,8 +89,8 @@ import org.bluezoo.gumdrop.util.Tokens;
  * The named-group list is what a client offers and what a server
  * accepts, each in its own preference order: a server negotiates the
  * first group in its list that the client also supports.
- * {@link #setCongestionControl} is accepted but ignored
- * -- {@code quic.recovery}'s {@code CongestionController} is NewReno only.
+ * {@link #setCongestionControl} chooses NewReno (the default) or CUBIC
+ * for every connection the factory creates.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -109,12 +110,10 @@ public class QuicTransportFactory extends TransportFactory {
     private static final long DEFAULT_MAX_DATAGRAM_FRAME_SIZE =
             TransportParameters.DEFAULT_MAX_UDP_PAYLOAD_SIZE;
 
-    /** Reno congestion control -- accepted but not implemented; see the class documentation. */
+    /** NewReno congestion control (RFC 9002 section 7), the default. */
     public static final int CC_RENO = 0;
-    /** Cubic congestion control -- accepted but not implemented; see the class documentation. */
+    /** CUBIC congestion control (RFC 9438). */
     public static final int CC_CUBIC = 1;
-    /** BBR congestion control -- accepted but not implemented; see the class documentation. */
-    public static final int CC_BBR = 2;
 
     private String applicationProtocols;
     private Path caFile;
@@ -130,6 +129,7 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamsBidi = DEFAULT_MAX_STREAMS_BIDI;
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
     private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
+    private int congestionControl = CC_RENO;
     private long streamReceiveWindowCeiling = DEFAULT_STREAM_RECEIVE_WINDOW_CEILING;
     private long connectionReceiveWindowCeiling = DEFAULT_CONNECTION_RECEIVE_WINDOW_CEILING;
 
@@ -562,13 +562,30 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
-     * Sets the congestion control algorithm. Accepted but not
-     * implemented -- see the class documentation.
+     * Sets the congestion control algorithm for connections this factory
+     * creates.
      *
-     * @param algorithm one of {@link #CC_RENO}, {@link #CC_CUBIC}, {@link #CC_BBR}
+     * @param algorithm {@link #CC_RENO} or {@link #CC_CUBIC}
+     * @throws IllegalArgumentException for any other value
      */
     public void setCongestionControl(int algorithm) {
-        LOGGER.fine(L10N.getString("fine.congestion_control_not_implemented"));
+        if (algorithm != CC_RENO && algorithm != CC_CUBIC) {
+            throw new IllegalArgumentException(String.valueOf(algorithm));
+        }
+        this.congestionControl = algorithm;
+    }
+
+    /**
+     * Returns the congestion control algorithm.
+     *
+     * @return {@link #CC_RENO} or {@link #CC_CUBIC}
+     */
+    public int getCongestionControl() {
+        return congestionControl;
+    }
+
+    CongestionAlgorithm getCongestionAlgorithm() {
+        return congestionControl == CC_CUBIC ? CongestionAlgorithm.CUBIC : CongestionAlgorithm.NEW_RENO;
     }
 
     /**
