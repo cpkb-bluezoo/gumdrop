@@ -286,6 +286,23 @@ public final class LossDetector {
     }
 
     /**
+     * Returns when the oldest ack-eliciting packet still in flight in a
+     * packet number space was sent: how long the peer has had something
+     * to acknowledge.
+     *
+     * @param level the packet number space
+     * @return the send time in microseconds, or -1 if nothing ack-eliciting is in flight
+     */
+    public long getOldestAckElicitingInFlightTime(EncryptionLevel level) {
+        for (SentPacket packet : sentPackets.get(level).values()) {
+            if (packet.isAckEliciting() && packet.isInFlight()) {
+                return packet.getTimeSentMicros();
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Returns the packet numbers of the ack-eliciting packets still in
      * flight in a packet number space, oldest first: the candidates for
      * the data a Probe Timeout probe repeats (RFC 9002 section 6.2.4).

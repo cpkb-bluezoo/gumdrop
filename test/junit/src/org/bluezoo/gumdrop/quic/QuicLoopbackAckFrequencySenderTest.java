@@ -224,13 +224,54 @@ public class QuicLoopbackAckFrequencySenderTest {
         e.send(ByteBuffer.wrap(new byte[] {1}));
         f.lb.pump();
         assertEquals("the first packet is held back", before, f.lb.toClientLog.size());
-        // more than a smoothed round trip of silence
-        f.client.conn.clockOffsetMillis += 10 + ((LossDetector) QuicForger.field(f.client.conn, "lossDetector"))
+        // the first packet has now waited more than a smoothed round trip
+        // plus the 25 ms acknowledgement delay the client asked for
+        f.client.conn.clockOffsetMillis += 35 + ((LossDetector) QuicForger.field(f.client.conn, "lossDetector"))
                 .getRttEstimator().getSmoothedRtt() / 1000;
         e.send(ByteBuffer.wrap(new byte[] {2}));
         f.lb.pump();
         assertEquals("the second came after more than a round trip of silence", before + 1,
                 f.lb.toClientLog.size());
+    }
+
+    /**
+     * Issue 558: silence is measured from the oldest ack-eliciting packet
+     * still waiting, not from the last ACK that happened to arrive. A peer
+     * that receives little from us acknowledges rarely, so the last ACK is
+     * always long ago; that must not make every fresh ack-eliciting packet
+     * drag an IMMEDIATE_ACK behind it, which is what gumdrop did to picoquic
+     * dozens of times a transfer.
+     */
+    @Test
+    public void aFreshPacketAfterALongQuietSpellDoesNotAskForAnImmediateAck() throws Exception {
+        Fixture f = Fixture.create();
+        exchange(f, 0);
+        settle(f);
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeAckFrequency(b, 1000, 100, 25000, 0);
+        f.pn = ((long[]) QuicForger.field(f.server.conn, "largestReceived"))[2] + 1;
+        f.toServer(b);
+        settle(f);
+
+        // Nothing in flight for five seconds: no ACK arrives because none is owed.
+        f.client.conn.clockOffsetMillis += 5000;
+        f.server.conn.clockOffsetMillis += 5000;
+        Rec c = new Rec();
+        Endpoint e = f.client.conn.openStream(c);
+        int before = f.lb.toClientLog.size();
+        e.send(ByteBuffer.wrap(new byte[] {1}));
+        f.lb.pump();
+        // A second packet right behind the first: the first has waited no
+        // time at all, so there is nothing to hurry the peer about.
+        e.send(ByteBuffer.wrap(new byte[] {2}));
+        f.lb.pump();
+        assertEquals("no immediate ACK asked for while the peer is within its delay", before, f.lb.toClientLog.size());
+        // Once the first has waited a round trip plus the requested delay, there is.
+        f.client.conn.clockOffsetMillis += 35 + ((LossDetector) QuicForger.field(f.client.conn, "lossDetector"))
+                .getRttEstimator().getSmoothedRtt() / 1000;
+        e.send(ByteBuffer.wrap(new byte[] {3}));
+        f.lb.pump();
+        assertEquals("the peer was asked to acknowledge at once", before + 1, f.lb.toClientLog.size());
     }
 
     @Test

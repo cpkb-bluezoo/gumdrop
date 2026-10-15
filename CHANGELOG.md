@@ -61,6 +61,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **QUIC no longer asks picoquic for an immediate acknowledgement dozens of
+  times a transfer.** The "silence" that makes an endpoint add IMMEDIATE_ACK
+  is now the time the oldest unacknowledged ack-eliciting packet has waited,
+  against a round trip plus the acknowledgement delay asked of the peer,
+  rather than the time since the last ACK arrived; a peer that receives
+  little acknowledges rarely, so that was always long ago.
+
 - **A lost QUIC HANDSHAKE_DONE frame is sent again** until it is
   acknowledged (RFC 9000 section 13.3). It was queued once, so a client whose
   copy was lost never confirmed the handshake, kept its Handshake keys and
