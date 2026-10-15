@@ -411,10 +411,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // acknowledged frame), and that of the latest frame still unacknowledged
     private long ackFrequencyAckedDelayMicros = -1;
     private long ackFrequencyPendingDelayMicros = -1;
-    // IMMEDIATE_ACK: owed to a probe packet, or for ACK silence beyond a round trip
+    // IMMEDIATE_ACK: owed to a probe packet, or for an ack-eliciting packet
+    // left unacknowledged beyond a round trip and the peer's delay
     private boolean immediateAckOwed;
     private boolean immediateAckSinceLastAck;
-    private long lastAckReceivedMicros = Long.MIN_VALUE;
     private TimerHandle ackTimerHandle;
     // Packet numbers received (ack-eliciting) but not yet *confirmed
     // received by the peer* -- RFC 9000 section 13.2.1 requires an ACK
@@ -3273,7 +3273,6 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         if (result.getNewlyAcked().isEmpty()) {
             return;
         }
-        lastAckReceivedMicros = nowMicros();
         immediateAckSinceLastAck = false;
         for (SentPacket acked : result.getNewlyAcked()) {
             if (acked.getPacketNumber() == handshakeDonePacketNumber) {
@@ -3289,14 +3288,23 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
     }
 
-    // draft section 6.3: no ACK has arrived for more than a round trip
-    // although ack-eliciting data is in flight
+    // draft section 6.3: an ack-eliciting packet has gone unacknowledged
+    // for longer than the peer can account for, a round trip plus the
+    // acknowledgement delay this endpoint asked it to use. Issue 558:
+    // measured from that packet's send time, not from the last ACK that
+    // arrived -- a peer that receives little from us acknowledges rarely,
+    // so the last ACK is always long ago, and measuring from it made every
+    // fresh ack-eliciting packet drag an IMMEDIATE_ACK behind it.
     private boolean ackSilenceCallsForImmediateAck() {
-        if (immediateAckSinceLastAck || lastAckReceivedMicros == Long.MIN_VALUE
-                || !lossDetector.hasAckElicitingInFlight()) {
+        if (immediateAckSinceLastAck) {
             return false;
         }
-        return nowMicros() - lastAckReceivedMicros > lossDetector.getRttEstimator().getSmoothedRtt();
+        long oldestSent = lossDetector.getOldestAckElicitingInFlightTime(EncryptionLevel.ONE_RTT);
+        if (oldestSent < 0) {
+            return false;
+        }
+        long allowance = lossDetector.getRttEstimator().getSmoothedRtt() + maxAckDelayNanos() / 1000L;
+        return nowMicros() - oldestSent > allowance;
     }
 
     // RFC 9000 section 19.3: the ACK Delay field is in units of
