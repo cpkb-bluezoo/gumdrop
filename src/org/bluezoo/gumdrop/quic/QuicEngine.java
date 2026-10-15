@@ -157,6 +157,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private static final long RESET_RATE_LIMIT_WINDOW_MS = 1_000;
 
     private final QuicTransportFactory factory;
+
+    // Test seam: a server is free to choose a connection ID of its own
+    // for the Initial that follows a Retry rather than reusing the
+    // Retry's, and some do; a client must adopt whichever it sends (RFC
+    // 9000 section 7.2). Off by default, which keeps the behaviour the
+    // comment in acceptConnection describes.
+    boolean freshConnectionIdAfterRetry;
     private final boolean serverMode;
     private final byte[] connectionIdStaticKey;
 
@@ -582,16 +589,17 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private QuicConnection acceptConnection(byte[] clientDcid, byte[] clientScid, InetSocketAddress source,
             byte[] originalDcidForParams, byte[] retrySourceConnectionId, boolean addressValidated,
             QuicVersion version) {
-        // Following a Retry, this connection's own connection ID must be
-        // the one already committed to in the Retry packet's Source
-        // Connection ID field (== clientDcid, since the client echoes it
+        // Following a Retry, this connection's own connection ID is kept
+        // as the one in the Retry packet's Source Connection ID field
+        // (== clientDcid, since the client echoes it
         // back as its post-Retry Initial's own DCID) -- the client
         // learned that ID as its peer's connection ID from the Retry
         // itself and, being stateless, won't be told a different one
         // now, so minting a fresh random ID here would leave the client
         // addressing every future packet to an ID this connection was
         // never actually registered under.
-        byte[] serverScid = retrySourceConnectionId != null ? retrySourceConnectionId : generateServerConnectionId();
+        byte[] serverScid = retrySourceConnectionId != null && !freshConnectionIdAfterRetry
+                ? retrySourceConnectionId : generateServerConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
         TransportParameters localParams = factory.buildTransportParameters(serverScid, true);
         localParams.setOriginalDestinationConnectionId(originalDcidForParams);

@@ -61,6 +61,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A QUIC client now addresses the server by the Source Connection ID of
+  the server's Initial packet**, as RFC 9000 section 7.2 requires, rather
+  than the first long-header packet it happened to see. A Retry's connection
+  ID is provisional, since the server may choose another for the connection
+  proper, and so is an acknowledgement-only Initial, which a server holding
+  half a ClientHello has been seen to send with the client's own first choice
+  echoed back. Either left the client sending every later packet to an ID the
+  server no longer routed: the `retry` interop case against ngtcp2 and
+  picoquic, and transfers against msquic and ngtcp2 whenever the first of the
+  two ClientHello datagrams was lost. The server's
+  `initial_source_connection_id` is now also checked against that Initial
+  (section 7.3).
+
 - **A call that the gRPC client fails itself, on a message it cannot decode,
   now also completes** with its status through `onComplete`, as one that
   passes its deadline does.

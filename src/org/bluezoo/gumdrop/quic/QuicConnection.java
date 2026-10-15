@@ -262,17 +262,35 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private final byte[] ourConnectionId;
 
     /**
-     * The connection ID currently used to address the peer. Learned once
-     * during the handshake (from the peer's first long-header response's
-     * Source Connection ID for a client; known immediately at accept time
-     * for a server), and thereafter changed only on a validated
-     * connection migration (see {@link #completeMigration}), which
-     * rotates it to a fresh entry from the connection ID manager's peer
-     * pool so the two paths aren't linkable by connection ID alone
-     * (RFC 9000 section 9.5).
+     * The connection ID currently used to address the peer. A server
+     * knows it at accept time. A client starts with its own random
+     * choice, moves to a Retry's Source Connection ID if one arrives,
+     * and settles on the Source Connection ID of the server's first
+     * Initial packet that carries CRYPTO data (RFC 9000 section 7.2;
+     * see {@link #serverInitialSourceConnectionId}). After the handshake
+     * it changes only on a validated connection migration (see {@link
+     * #completeMigration}), which rotates it to a fresh entry from the
+     * connection ID manager's peer pool so the two paths aren't linkable
+     * by connection ID alone (RFC 9000 section 9.5).
      */
     private byte[] peerConnectionId;
-    private boolean peerConnectionIdLearned;
+    /**
+     * Client-only. Null until the first server Initial carrying CRYPTO
+     * data has been processed; then that Initial's Source Connection ID,
+     * which {@link #peerConnectionId} is settled on and which the server's
+     * {@code initial_source_connection_id} must repeat (RFC 9000 section
+     * 7.3). Until then every Initial that decrypts may move the peer
+     * connection ID (issue 565): a Retry is provisional, since the
+     * server may well choose another connection ID for the connection
+     * proper, and so is an acknowledgement-only Initial, which a server
+     * holding only part of a ClientHello has been seen to send with the
+     * client's own first Destination Connection ID echoed as its source.
+     */
+    private byte[] serverInitialSourceConnectionId;
+    // Client-only: the Source Connection ID of the Initial now being
+    // processed, adopted once the packet decrypts (an unauthenticated
+    // packet must not redirect the connection), see processPacket.
+    private byte[] candidatePeerConnectionId;
     // The sequence number (within connectionIdManager's peer pool) that
     // peerConnectionId currently corresponds to -- needed to retire it via
     // connectionIdManager.retirePeerConnectionId when rotating to a new one.
@@ -2218,9 +2236,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // indexing once it's sliced out below.
             pnOffset = prefix.getPacketNumberOffset() - offset;
             packetLength = pnOffset + (int) prefix.getRemainingLength();
-            if (!peerConnectionIdLearned) {
-                learnPeerConnectionId(prefix.getSourceConnectionId());
-            }
+            candidatePeerConnectionId = !isServer && serverInitialSourceConnectionId == null
+                    && prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL
+                    ? prefix.getSourceConnectionId() : null;
         } else {
             level = EncryptionLevel.ONE_RTT;
             pnOffset = ShortHeaderCodec.packetNumberOffset(ourConnectionId.length);
@@ -2238,14 +2256,12 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     }
 
     // Client-only: the server's connection ID isn't known until its
-    // first long-header response arrives (see the class documentation
-    // on why this never changes again after that).
+    // Initial arrives (see peerConnectionId and serverInitialSourceConnectionId).
     private void learnPeerConnectionId(byte[] scid) {
         if (qlog != null) {
             qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, scid);
         }
         peerConnectionId = scid;
-        peerConnectionIdLearned = true;
     }
 
     // Client-only: handles a received Version Negotiation packet (RFC 9000
@@ -2374,8 +2390,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         if (qlog != null) {
             qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, retry.getSourceConnectionId());
         }
+        // Provisional: the server's Initial may carry another (see
+        // serverInitialSourceConnectionId).
         peerConnectionId = retry.getSourceConnectionId();
-        peerConnectionIdLearned = true;
 
         // RFC 9001 section 5.2: Initial secrets are derived from the
         // Destination Connection ID the client addresses the server with.
@@ -2569,6 +2586,16 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 sawValidOneRttThisReceive = true;
             }
 
+            if (candidatePeerConnectionId != null) {
+                // RFC 9000 section 7.2: the Initial decrypted, so its
+                // Source Connection ID is the server's word on how to
+                // address it, until one carrying CRYPTO data settles the
+                // matter (see serverInitialSourceConnectionId).
+                if (!Arrays.equals(candidatePeerConnectionId, peerConnectionId)) {
+                    learnPeerConnectionId(candidatePeerConnectionId);
+                }
+                candidatePeerConnectionId = null;
+            }
             FrameDispatcher dispatcher = new FrameDispatcher(level, isZeroRtt);
             new QuicFrameParser(dispatcher).receive(ByteBuffer.wrap(plaintext));
             if (metrics != null) {
@@ -2786,6 +2813,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 qlogFrames.crypto(offset, data.remaining());
             }
             ackEliciting = true;
+            if (!isServer && level == EncryptionLevel.INITIAL && serverInitialSourceConnectionId == null) {
+                // The server's ServerHello: its Initial Source Connection
+                // ID is now final (RFC 9000 section 7.2).
+                serverInitialSourceConnectionId = peerConnectionId;
+            }
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
             try {
@@ -5601,6 +5633,16 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                     : retryScid != null;
             if (mismatch) {
                 closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "retry_source_connection_id mismatch");
+                return;
+            }
+            // RFC 9000 section 7.3: initial_source_connection_id must
+            // repeat the Source Connection ID of the server's Initial
+            // packets, the one this client settled on -- the check that
+            // catches an on-path attacker rewriting that field.
+            byte[] initialScid = transportParameters.getInitialSourceConnectionId();
+            if (serverInitialSourceConnectionId != null
+                    && (initialScid == null || !Arrays.equals(initialScid, serverInitialSourceConnectionId))) {
+                closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "initial_source_connection_id mismatch");
                 return;
             }
             // RFC 9000 section 7.4.1: a server accepting 0-RTT "MUST NOT
