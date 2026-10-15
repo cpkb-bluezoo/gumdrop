@@ -2750,6 +2750,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged,
                     ackDelayMicros(ackDelay), ranges, peerMaxAckDelayMicros(), nowMicros(), peerAddressValidated());
             retireAcknowledgedRanges(level, result.getNewlyAcked());
+            releaseSentRecords(level, result.getNewlyAcked());
             if (level == EncryptionLevel.ONE_RTT) {
                 noteOneRttAckReceived(result);
             }
@@ -3332,6 +3333,26 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // receivedUnacked. Called from ackFrameReceived for every level on
     // every incoming ACK; a level with no ACK-carrying packets among
     // newlyAcked, or none acked at all, is a cheap no-op.
+    // Issue 573: the record of what a packet carried exists so that a lost
+    // packet's frames can be queued again (requeueLostPacket). Once the
+    // packet is acknowledged there is nothing to queue, and the record,
+    // which holds the data itself, goes; it used to be kept for the life
+    // of the connection.
+    private void releaseSentRecords(EncryptionLevel level, List<SentPacket> newlyAcked) {
+        if (newlyAcked.isEmpty()) {
+            return;
+        }
+        Map<Long, List<PendingChunk>> crypto = sentCrypto.get(level);
+        for (SentPacket acked : newlyAcked) {
+            Long key = Long.valueOf(acked.getPacketNumber());
+            crypto.remove(key);
+            if (level == EncryptionLevel.ONE_RTT) {
+                sentStream.remove(key);
+                sentZeroRttStream.remove(key);
+            }
+        }
+    }
+
     private void retireAcknowledgedRanges(EncryptionLevel level, List<SentPacket> newlyAcked) {
         if (newlyAcked.isEmpty()) {
             return;

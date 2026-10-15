@@ -61,6 +61,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A QUIC connection no longer retains every byte it has sent.** The record
+  of the STREAM and CRYPTO data each packet carried, kept so that a lost
+  packet's frames can be queued again, is now released when the packet is
+  acknowledged; it used to go only on loss, so a long-lived connection grew
+  without bound.
+
 - **QUIC no longer asks picoquic for an immediate acknowledgement dozens of
   times a transfer.** The "silence" that makes an endpoint add IMMEDIATE_ACK
   is now the time the oldest unacknowledged ack-eliciting packet has waited,
