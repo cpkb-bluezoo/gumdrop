@@ -1873,6 +1873,12 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private void removePendingStream(Long streamKey) {
         pendingStream.remove(streamKey);
         pendingStreamOrder.remove(streamKey);
+        if (!streams.containsKey(streamKey)) {
+            // Retired while its data was still queued (see
+            // retireStreamIfFullyClosed): the priority was kept until now
+            // so the ordered set stayed consistent, and goes with the queue.
+            streamSendPriority.remove(streamKey);
+        }
     }
 
     /**
@@ -1955,9 +1961,20 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             streams.remove(key);
             streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
-            streamSendPriority.remove(key);
             streamReceiveWindow.remove(key);
             streamWindowRaisedMicros.remove(key);
+            // Issue 566: the priority must outlive the stream while its
+            // data is still queued. pendingStreamOrder's comparator reads
+            // streamSendPriority, so dropping the priority of a stream that
+            // is still a member corrupts the set's ordering (see the
+            // field's comment): the later removePendingStream could no
+            // longer find the key, the queue map lost the entry while the
+            // order kept it, and the next flush dereferenced a stream with
+            // no queue. removePendingStream drops the priority instead,
+            // once the data has gone.
+            if (!pendingStreamOrder.contains(key)) {
+                streamSendPriority.remove(key);
+            }
             // Deliberately NOT touching pendingStream/pendingStreamOrder
             // here: isFullyClosed() (both directions logically closed)
             // can be true before this stream's queued data has actually
