@@ -1904,7 +1904,58 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // retireStreamIfFullyClosed): the priority was kept until now
             // so the ordered set stayed consistent, and goes with the queue.
             streamSendPriority.remove(streamKey);
+            releaseStreamSendRecordsIfDone(streamKey);
         }
+    }
+
+    // Issue 574: a retired stream's send-side records (its next offset,
+    // the peer's limit, the highest offset sent, a BLOCKED frame owed or
+    // signalled) outlive the stream for as long as any of its data might
+    // be sent again: flow control charges only bytes beyond the highest
+    // offset sent, so a retransmission needs that record and the peer's
+    // limit to pass. Once the stream is gone, nothing of it is queued and
+    // no packet in flight carries any of it, they go.
+    private void releaseStreamSendRecordsIfDone(Long key) {
+        if (streams.containsKey(key) || pendingStream.containsKey(key) || sentStreamReferences(key)) {
+            return;
+        }
+        streamSendOffset.remove(key);
+        peerMaxStreamData.remove(key);
+        streamBytesSent.remove(key);
+        streamDataBlockedOwed.remove(key);
+        streamDataBlockedSignalled.remove(key);
+    }
+
+    // Whether any packet in flight carries data of the stream; the sent
+    // records are bounded by the packets in flight (issue 573).
+    private boolean sentStreamReferences(Long key) {
+        for (Map<Long, List<PendingChunk>> perStream : sentStream.values()) {
+            if (perStream.containsKey(key)) {
+                return true;
+            }
+        }
+        for (Map<Long, List<PendingChunk>> perStream : sentZeroRttStream.values()) {
+            if (perStream.containsKey(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Whether a stream has been opened and has since been retired: not
+    // tracked, below the next stream ID of its kind, and (for the peer's)
+    // not merely one whose first frame has yet to arrive.
+    private boolean streamRetired(long streamId, Long key) {
+        if (streams.containsKey(key)) {
+            return false;
+        }
+        boolean unidirectional = isUnidirectional(streamId);
+        if (isPeerInitiated(streamId)) {
+            long nextPeer = unidirectional ? nextPeerUniStreamId : nextPeerBidiStreamId;
+            return streamId < nextPeer && !peerStreamsNotYetSeen.contains(key);
+        }
+        long next = unidirectional ? nextLocalUniStreamId : nextLocalBidiStreamId;
+        return streamId < next;
     }
 
     /**
@@ -1989,6 +2040,14 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             pendingFinOffset.remove(key);
             streamReceiveWindow.remove(key);
             streamWindowRaisedMicros.remove(key);
+            // Issue 574: the receive side is finished with. A late frame
+            // for this stream is discarded by acceptStream before any
+            // flow-control accounting, so the limit advertised, the bytes
+            // seen and any update owed are no longer needed.
+            localMaxStreamData.remove(key);
+            streamBytesReceived.remove(key);
+            maxStreamDataOwed.remove(key);
+            releaseStreamSendRecordsIfDone(key);
             // Issue 566: the priority must outlive the stream while its
             // data is still queued. pendingStreamOrder's comparator reads
             // streamSendPriority, so dropping the priority of a stream that
@@ -2936,6 +2995,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             }
             ackEliciting = true;
             Long key = Long.valueOf(streamId);
+            if (streamRetired(streamId, key) && !pendingStream.containsKey(key) && !sentStreamReferences(key)) {
+                return; // issue 574: nothing of this stream will be sent again
+            }
             Long current = peerMaxStreamData.get(key);
             if (current == null || maximumStreamData > current.longValue()) {
                 peerMaxStreamData.put(key, Long.valueOf(maximumStreamData));
@@ -2994,6 +3056,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 closeWithError(TRANSPORT_ERROR_STREAM_LIMIT_ERROR,
                         "STREAM_DATA_BLOCKED would open a stream beyond the advertised MAX_STREAMS limit");
                 return;
+            }
+            if (streamRetired(streamId, Long.valueOf(streamId))) {
+                return; // issue 574: a closed stream needs no more credit
             }
             growStreamLimitOnBlocked(streamId);
         }
@@ -3347,8 +3412,24 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             Long key = Long.valueOf(acked.getPacketNumber());
             crypto.remove(key);
             if (level == EncryptionLevel.ONE_RTT) {
-                sentStream.remove(key);
-                sentZeroRttStream.remove(key);
+                Map<Long, List<PendingChunk>> streamsCarried = sentStream.remove(key);
+                Map<Long, List<PendingChunk>> zeroRttCarried = sentZeroRttStream.remove(key);
+                // Issue 574: the last in-flight data of a retired stream
+                // may just have been acknowledged.
+                if (streamsCarried != null) {
+                    for (Long streamKey : streamsCarried.keySet()) {
+                        if (!streams.containsKey(streamKey)) {
+                            releaseStreamSendRecordsIfDone(streamKey);
+                        }
+                    }
+                }
+                if (zeroRttCarried != null) {
+                    for (Long streamKey : zeroRttCarried.keySet()) {
+                        if (!streams.containsKey(streamKey)) {
+                            releaseStreamSendRecordsIfDone(streamKey);
+                        }
+                    }
+                }
             }
         }
     }

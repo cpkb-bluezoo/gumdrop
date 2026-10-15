@@ -61,6 +61,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A closed QUIC stream leaves no records behind.** Its advertised limit,
+  bytes received and updates owed go when the stream is retired, and its
+  send offset, the peer's limit and the highest offset sent go once nothing
+  of it can be sent again; a late MAX_STREAM_DATA or STREAM_DATA_BLOCKED for a
+  retired stream no longer recreates them. A connection that had carried many
+  streams kept a handful of entries for every one of them.
+
 - **A QUIC connection no longer retains every byte it has sent.** The record
   of the STREAM and CRYPTO data each packet carried, kept so that a lost
   packet's frames can be queued again, is now released when the packet is
