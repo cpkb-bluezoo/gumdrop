@@ -61,6 +61,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A lost QUIC HANDSHAKE_DONE frame is sent again** until it is
+  acknowledged (RFC 9000 section 13.3). It was queued once, so a client whose
+  copy was lost never confirmed the handshake, kept its Handshake keys and
+  timers, and had every Handshake retransmission dropped by a server that had
+  already discarded those keys.
+
 - **QUIC pacing releases datagrams singly at contended rates.** Credit used
   to accumulate up to the initial window while the sender waited on its
   congestion window, so each acknowledgement released a pair or more back to

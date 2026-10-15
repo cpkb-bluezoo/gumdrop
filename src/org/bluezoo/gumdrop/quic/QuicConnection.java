@@ -769,6 +769,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     private boolean handshakeConfirmed;
     private boolean handshakeDoneOwed;
+    // Issue 571: the 1-RTT packet that last carried HANDSHAKE_DONE, or -1,
+    // so that the frame is queued again if that packet is declared lost
+    // (RFC 9000 section 13.3: sent until acknowledged).
+    private long handshakeDonePacketNumber = -1;
     private boolean closed;
     private String deferredCloseReason;
     private long deferredCloseErrorCode;
@@ -3272,6 +3276,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         lastAckReceivedMicros = nowMicros();
         immediateAckSinceLastAck = false;
         for (SentPacket acked : result.getNewlyAcked()) {
+            if (acked.getPacketNumber() == handshakeDonePacketNumber) {
+                handshakeDonePacketNumber = -1; // acknowledged: no longer needs sending again
+            }
             long[] sent = sentAckFrequency.remove(Long.valueOf(acked.getPacketNumber()));
             if (sent != null) {
                 ackFrequencyAcknowledged(sent);
@@ -3357,6 +3364,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             pendingCrypto.get(level).addAll(0, lostCrypto);
         }
         if (level == EncryptionLevel.ONE_RTT) {
+            if (packetNumber == handshakeDonePacketNumber) {
+                // RFC 9000 section 13.3: HANDSHAKE_DONE is sent until acknowledged.
+                handshakeDonePacketNumber = -1;
+                handshakeDoneOwed = true;
+            }
             long[] lostAckFrequency = sentAckFrequency.remove(Long.valueOf(packetNumber));
             if (lostAckFrequency != null && lostAckFrequency[0] == latestAckFrequencySequenceSent) {
                 // draft section 6.4: sent again with the current values
@@ -4905,6 +4917,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 qf.handshakeDone();
             }
             handshakeDoneOwed = false;
+            handshakeDonePacketNumber = packetNumber;
         }
         if (includePing) {
             QuicFrameWriter.writePing(payload);
