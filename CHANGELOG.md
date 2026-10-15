@@ -61,6 +61,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **QUIC pacing releases datagrams singly at contended rates.** Credit used
+  to accumulate up to the initial window while the sender waited on its
+  congestion window, so each acknowledgement released a pair or more back to
+  back; on a bottleneck shared with TCP that cost gumdrop eight times the
+  loss of peers that send one at a time, and with it most of its share of
+  the link. While data is in flight the pacer now holds at most one datagram
+  plus one timer tick of credit; the initial-window burst remains available
+  from idle.
+
 - **QUIC Probe Timeout probes repeat the oldest unacknowledged data** in
   their packet number space (RFC 9002 section 6.2.4), with a PING only when
   there is nothing to repeat, and a 1-RTT probe may do so beyond the

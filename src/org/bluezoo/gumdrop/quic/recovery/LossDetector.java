@@ -206,7 +206,7 @@ public final class LossDetector {
     public LossDetector(int maxDatagramSize, CongestionAlgorithm algorithm) {
         this.congestionController = new CongestionController(maxDatagramSize, algorithm);
         // RFC 9002 section 7.7: limit bursts to the initial congestion window.
-        this.pacer = new Pacer(congestionController.getCongestionWindow());
+        this.pacer = new Pacer(congestionController.getCongestionWindow(), maxDatagramSize);
         for (EncryptionLevel level : EncryptionLevel.values()) {
             sentPackets.put(level, new TreeMap<Long, SentPacket>());
             ackElicitingInFlightCount.put(level, 0);
@@ -279,8 +279,9 @@ public final class LossDetector {
             if (ackEliciting) {
                 timeOfLastAckEliciting.put(level, nowMicros);
             }
+            boolean idle = congestionController.getBytesInFlight() == 0;
             congestionController.onPacketSent(sentBytes);
-            pacer.onPacketSent(sentBytes, nowMicros, pacingRate());
+            pacer.onPacketSent(sentBytes, nowMicros, pacingRate(), idle);
         }
     }
 
@@ -315,7 +316,7 @@ public final class LossDetector {
      * @return 0 if it may be sent now, otherwise the wait in microseconds
      */
     public long getPacingDelayMicros(int bytes, long nowMicros) {
-        return pacer.delayMicros(bytes, nowMicros, pacingRate());
+        return pacer.delayMicros(bytes, nowMicros, pacingRate(), congestionController.getBytesInFlight() == 0);
     }
 
     /**
