@@ -716,6 +716,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // section 7.7). streamBudget notes how long the wait is, flush arms a
     // timer for it, and an acknowledgement's own flush may get there first.
     private TimerHandle pacingTimerHandle;
+    // Issue 568: set by a 1-RTT Probe Timeout whose probe repeats data,
+    // so that streamBudget lets that one packet past the congestion
+    // window and the pacer (RFC 9002 section 7.5).
+    private boolean probeExemptFromWindow;
     private long pacingWaitMicros;
     // Whether the last flush stopped because the congestion window or the
     // pacer held queued stream data back, as opposed to running out of
@@ -4563,6 +4567,13 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // header and the other frames it holds, and none at all while the congestion window has no
     // room for a full datagram (RFC 9002 section 7).
     private int streamBudget(int headerBytes, int otherFrameBytes) {
+        if (probeExemptFromWindow) {
+            // RFC 9002 section 7.5: the one packet a Probe Timeout sends
+            // may exceed the congestion window, and it does not wait for
+            // pacing credit either; the data it repeats was, after all,
+            // already sent once. Cleared when the probe's PING is written.
+            return MAX_DATAGRAM_SIZE - coalescedBytes - headerBytes - QuicAeadAlgorithm.TAG_LENGTH - otherFrameBytes;
+        }
         if (!lossDetector.getCongestionController().canSend(MAX_DATAGRAM_SIZE)) {
             if (!pendingStream.isEmpty()) {
                 sendBlocked = true;
@@ -4901,6 +4912,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 qf.ping();
             }
             pendingPing[level.ordinal()] = false;
+            if (level == EncryptionLevel.ONE_RTT) {
+                probeExemptFromWindow = false;
+            }
         }
         if (includeAckFrequency) {
             long sequence = nextAckFrequencySequence++;
@@ -5238,6 +5252,28 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         });
     }
 
+    // Issue 568: moves the frames of the oldest in-flight packet that
+    // still has any to repeat (CRYPTO or STREAM data; a probe or an
+    // acknowledgement-only packet has none) back onto the pending queues,
+    // so that the probe being built carries them. Returns false if there
+    // was nothing to repeat. The packet itself stays in flight: if its
+    // acknowledgement does arrive, nothing further happens; if it is
+    // later declared lost, there is nothing left to requeue for it.
+    private boolean repeatOldestUnacknowledgedData(EncryptionLevel space) {
+        for (Long packetNumber : lossDetector.getAckElicitingInFlight(space)) {
+            boolean hasData = sentCrypto.get(space).containsKey(packetNumber);
+            if (space == EncryptionLevel.ONE_RTT) {
+                hasData = hasData || sentStream.containsKey(packetNumber)
+                        || (zeroRttSendKeys != null && sentZeroRttStream.containsKey(packetNumber));
+            }
+            if (hasData) {
+                requeueLostPacket(space, packetNumber.longValue());
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void onLossDetectionTimeout() {
         if (closed) {
             return;
@@ -5260,12 +5296,19 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 qlogRecoveryMetrics(!result.getNewlyLost().isEmpty());
             }
         } else {
-            // Probe Timeout: nothing was naturally queued to retransmit,
-            // so send a bare PING to elicit an ACK and keep the
-            // connection alive (RFC 9002 Appendix A.9).
+            // Probe Timeout (RFC 9002 section 6.2.4): send an ack-eliciting
+            // probe, repeating the oldest unacknowledged data in the space
+            // so that the probe itself repairs a loss, with a PING to make
+            // sure it elicits an acknowledgement even when there is no
+            // data to repeat (Appendix A.9). Nothing is declared lost here:
+            // that still waits for the acknowledgement the probe elicits.
             EncryptionLevel probeSpace = result.getProbeSpace();
             if (probeSpace != null && sendKeys.get(probeSpace) != null) {
                 pendingPing[probeSpace.ordinal()] = true;
+                if (repeatOldestUnacknowledgedData(probeSpace) && probeSpace == EncryptionLevel.ONE_RTT) {
+                    // Section 7.5: a probe may be sent beyond the window.
+                    probeExemptFromWindow = true;
+                }
                 // draft section 6.3: the probe asks for an ACK at once
                 if (probeSpace == EncryptionLevel.ONE_RTT && mayAskForFewerAcks()) {
                     immediateAckOwed = true;

@@ -285,6 +285,24 @@ public final class LossDetector {
     }
 
     /**
+     * Returns the packet numbers of the ack-eliciting packets still in
+     * flight in a packet number space, oldest first: the candidates for
+     * the data a Probe Timeout probe repeats (RFC 9002 section 6.2.4).
+     *
+     * @param level the packet number space
+     * @return the packet numbers, ascending; empty if nothing is in flight
+     */
+    public List<Long> getAckElicitingInFlight(EncryptionLevel level) {
+        List<Long> result = new ArrayList<Long>();
+        for (SentPacket packet : sentPackets.get(level).values()) {
+            if (packet.isAckEliciting() && packet.isInFlight()) {
+                result.add(Long.valueOf(packet.getPacketNumber()));
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns how long to wait before {@code bytes} of congestion-controlled
      * data may be sent, so that sending is spread over the round trip rather
      * than done in one burst (RFC 9002 section 7.7). Callers apply this only

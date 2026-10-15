@@ -61,6 +61,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **QUIC Probe Timeout probes repeat the oldest unacknowledged data** in
+  their packet number space (RFC 9002 section 6.2.4), with a PING only when
+  there is nothing to repeat, and a 1-RTT probe may do so beyond the
+  congestion window (section 7.5). A probe used to be a bare PING, so every
+  loss cost a further round trip before the data was sent again.
+
 - **A QUIC client now addresses the server by the Source Connection ID of
   the server's Initial packet**, as RFC 9000 section 7.2 requires, rather
   than the first long-header packet it happened to see. A Retry's connection
