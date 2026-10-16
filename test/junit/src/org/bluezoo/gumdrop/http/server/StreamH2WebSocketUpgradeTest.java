@@ -278,4 +278,43 @@ public class StreamH2WebSocketUpgradeTest {
 
         stream.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() { });
     }
+
+    // -- early data on an Extended CONNECT stream, upgraded later (servlet worker thread) --
+
+    @Test
+    public void testDataBeforeLateUpgradeReachesWebSocketNotRequestBody() throws Exception {
+        StubConnection conn = new StubConnection();
+        final HttpResponse[] state = new HttpResponse[1];
+        final int[] bodyBytes = new int[1];
+        conn.streamHandler = new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponse s) {
+                state[0] = s;
+                return new CollectingRequestHandler(s) {
+                    @Override
+                    public void requestBodyContent(HttpResponse r, ByteBuffer data) {
+                        bodyBytes[0] += data.remaining();
+                    }
+                };
+            }
+        };
+        Stream stream = new Stream(conn, 1);
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":protocol", "websocket"), new Header(":scheme", "https"),
+                new Header(":path", "/ws")));
+        stream.streamEndHeaders();
+
+        // A masked text frame "hi" arrives before the application upgrades.
+        byte[] frame = new byte[] {(byte) 0x81, (byte) 0x82, 1, 2, 3, 4,
+                (byte) ('h' ^ 1), (byte) ('i' ^ 2)};
+        stream.appendRequestBody(frame);
+        assertEquals("early WebSocket bytes must not be delivered as a request body",
+                0, bodyBytes[0]);
+
+        org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler ws =
+                new org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler();
+        state[0].upgradeToWebSocket(null, ws);
+        assertEquals(1, ws.texts.size());
+        assertEquals("hi", ws.texts.get(0));
+    }
 }

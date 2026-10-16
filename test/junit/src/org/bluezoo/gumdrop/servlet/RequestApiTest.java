@@ -740,6 +740,22 @@ public class RequestApiTest {
         assertTrue(r.getTrailerFields().isEmpty());
     }
 
+    /** RFC 8441/9220: only CONNECT with :protocol websocket is the h2/h3 handshake. */
+    @Test
+    public void testExtendedConnectIsWebSocketUpgrade() throws Exception {
+        Request ws = request("CONNECT", "/plain/a", ":protocol", "websocket");
+        assertTrue(ws.isWebSocketUpgrade());
+        assertEquals("CONNECT", ws.getMethod());
+        assertEquals("GET", ws.getSecurityMethod());
+
+        Request other = request("CONNECT", "/plain/a", ":protocol", "connect-udp");
+        assertFalse(other.isWebSocketUpgrade());
+        assertEquals("CONNECT", other.getSecurityMethod());
+
+        Request get = request("GET", "/plain/a", ":protocol", "websocket");
+        assertFalse(get.isWebSocketUpgrade());
+    }
+
     // ===== Async and push =====
 
     @Test

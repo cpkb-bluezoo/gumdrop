@@ -89,6 +89,8 @@ class Request implements HttpServletRequest {
     final ServletHandler handler;
 
     String method;
+    /** The {@code :protocol} pseudo-header of an Extended CONNECT request (RFC 8441, RFC 9220), or null. */
+    String protocol;
     String requestTarget;
     URI uri;
 
@@ -809,16 +811,36 @@ class Request implements HttpServletRequest {
     }
 
     /**
-     * Checks if this request is a valid WebSocket upgrade request.
+     * Checks if this request is a valid WebSocket upgrade request: the
+     * RFC 6455 handshake on HTTP/1.1, or Extended CONNECT with
+     * {@code :protocol} {@code websocket} on HTTP/2 (RFC 8441) and HTTP/3
+     * (RFC 9220), which carries none of the RFC 6455 header fields.
      *
      * @return true if this is a valid WebSocket upgrade request
      */
-    private boolean isWebSocketUpgrade() {
+    boolean isWebSocketUpgrade() {
+        if (isExtendedConnectWebSocket()) {
+            return true;
+        }
         return WebSocketHandshake.isValidWebSocketUpgrade(
                 combinedHeader("Upgrade"),
                 combinedHeader("Connection"),
                 getHeader("Sec-WebSocket-Key"),
                 getHeader("Sec-WebSocket-Version"));
+    }
+
+    /** Whether this is the Extended CONNECT form of the WebSocket handshake. */
+    boolean isExtendedConnectWebSocket() {
+        return "CONNECT".equals(method) && "websocket".equalsIgnoreCase(protocol);
+    }
+
+    /**
+     * The method that security constraints and servlet dispatch see. The
+     * Extended CONNECT handshake is the HTTP/2 and HTTP/3 form of the
+     * HTTP/1.1 {@code GET} upgrade, so it is treated as that {@code GET}.
+     */
+    String getSecurityMethod() {
+        return isExtendedConnectWebSocket() ? "GET" : method;
     }
 
     /** The values of a request header joined as a comma-separated list, or null if absent. */

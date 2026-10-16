@@ -41,8 +41,10 @@ import jakarta.servlet.ServletRequestWrapper;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.UnavailableException;
 import jakarta.servlet.annotation.ServletSecurity;
+import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletMapping;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.logging.Level;
@@ -252,7 +254,14 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
                 try {
                     // Servlet may be loaded or not
                     servlet = context.loadServlet(servletDef);
-                    servlet.service(request, filterResponse);
+                    ServletRequest serviceRequest = request;
+                    if (r.isExtendedConnectWebSocket() && servlet instanceof HttpServlet) {
+                        // HttpServlet.service() selects doGet/doPost by the
+                        // method it reads first, and answers 501 for CONNECT.
+                        // Show it GET once; the application then sees CONNECT.
+                        serviceRequest = new ExtendedConnectRequest((HttpServletRequest) request);
+                    }
+                    servlet.service(serviceRequest, filterResponse);
                 } catch (UnavailableException e) {
                     if (e.isPermanent()) {
                         servletDef.unavailableUntil = -1L;
@@ -328,7 +337,7 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
         ServletDef servletDef = request.match.servletDef;
         if (servletDef.servletSecurity != null) {
             for (SecurityConstraint sc : servletDef.servletSecurity) {
-                if (!sc.matches(request.getMethod(), path)) {
+                if (!sc.matches(request.getSecurityMethod(), path)) {
                     continue;
                 }
                 if (!enforceSecurityConstraint(sc, request, response, authState)) {
@@ -342,7 +351,7 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
             @Override
             public boolean accept(int i) throws ServletException, IOException {
                 SecurityConstraint sc = index.constraintAt(i);
-                if (!sc.matches(request.getMethod(), path)) {
+                if (!sc.matches(request.getSecurityMethod(), path)) {
                     return true;
                 }
                 return enforceSecurityConstraint(sc, request, response, authState);
@@ -501,4 +510,28 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
         return buf.toString();
     }
 
+
+    /**
+     * Presents the Extended CONNECT WebSocket handshake to
+     * {@link HttpServlet#service} as the {@code GET} it is the HTTP/2 and
+     * HTTP/3 form of. Only the first {@code getMethod()} call, which is the
+     * one {@code HttpServlet} makes to pick its {@code doXxx} method, says
+     * {@code GET}; the application's own calls see the wire method.
+     */
+    private static final class ExtendedConnectRequest extends HttpServletRequestWrapper {
+        private boolean dispatched;
+
+        ExtendedConnectRequest(HttpServletRequest request) {
+            super(request);
+        }
+
+        @Override
+        public String getMethod() {
+            if (!dispatched) {
+                dispatched = true;
+                return "GET";
+            }
+            return super.getMethod();
+        }
+    }
 }

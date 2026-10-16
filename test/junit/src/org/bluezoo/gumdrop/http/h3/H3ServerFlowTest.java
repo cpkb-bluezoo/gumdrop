@@ -733,6 +733,23 @@ public class H3ServerFlowTest {
     }
 
     @Test
+    public void testDataBeforeLateWebSocketUpgradeIsHeldNotDeliveredAsBody() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = f.open();
+        feed(stream, headersFrame(":method", "CONNECT", ":protocol", "websocket",
+                ":scheme", "https", ":path", "/ws", ":authority", "x"));
+        byte[] frame = new byte[] {(byte) 0x81, (byte) 0x82, 1, 2, 3, 4,
+                (byte) ('h' ^ 1), (byte) ('i' ^ 2)};
+        feed(stream, dataFrame(frame));
+        assertEquals("early WebSocket bytes must not reach the request handler as a body",
+                0, f.rec.bodyBytes);
+        RecordingWebSocketEventHandler ws = new RecordingWebSocketEventHandler();
+        stream.upgradeToWebSocket(null, ws);
+        assertEquals(1, ws.texts.size());
+        assertEquals("hi", ws.texts.get(0));
+    }
+
+    @Test
     public void testWebSocketUpgradeErrors() throws Exception {
         Fixture f = new Fixture();
         H3Stream stream = f.open();

@@ -187,6 +187,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
     private H3WebSocketConnectionAdapter webSocketAdapter;
 
+    /** WebSocket frame bytes received before the adapter exists. */
+    private ByteBuffer pendingWebSocketData;
+
     private Span span;
     private long timestampStarted;
     private int responseStatusCode;
@@ -623,6 +626,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         }
         if (isWebSocketUpgraded()) {
             onWebSocketData(data);
+            return;
+        }
+        if (awaitingWebSocketUpgrade()) {
+            holdPendingWebSocketData(data);
             return;
         }
         if (capsuleMode) {
@@ -1238,6 +1245,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         }
 
         webSocketAdapter.notifyConnectionOpen();
+        drainPendingWebSocketData();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1293,6 +1301,46 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
      */
     boolean isWebSocketUpgraded() {
         return webSocketAdapter != null;
+    }
+
+    /**
+     * Whether this stream is an RFC 9220 WebSocket Extended CONNECT whose
+     * handler has not yet called {@code upgradeToWebSocket}, so data that
+     * arrives now is WebSocket frame bytes, not a request body. A handler
+     * that upgrades on a worker thread (the servlet container) is such a
+     * case; one that upgrades within {@code headers} never sees it.
+     */
+    private boolean awaitingWebSocketUpgrade() {
+        return webSocketAdapter == null && !responseStarted
+                && "CONNECT".equals(method) && "websocket".equalsIgnoreCase(protocol);
+    }
+
+    private void holdPendingWebSocketData(ByteBuffer data) {
+        int n = data.remaining();
+        if (n == 0) {
+            return;
+        }
+        if (pendingWebSocketData == null) {
+            pendingWebSocketData = ByteBuffer.allocate(n);
+        } else if (pendingWebSocketData.remaining() < n) {
+            ByteBuffer expanded = ByteBuffer.allocate(
+                    pendingWebSocketData.position() + pendingWebSocketData.remaining() + n);
+            pendingWebSocketData.flip();
+            expanded.put(pendingWebSocketData);
+            pendingWebSocketData = expanded;
+        }
+        pendingWebSocketData.put(data);
+    }
+
+    private void drainPendingWebSocketData() {
+        if (pendingWebSocketData == null || pendingWebSocketData.position() == 0) {
+            pendingWebSocketData = null;
+            return;
+        }
+        pendingWebSocketData.flip();
+        ByteBuffer held = pendingWebSocketData;
+        pendingWebSocketData = null;
+        onWebSocketData(held);
     }
 
     /**

@@ -1816,11 +1816,17 @@ class Stream implements HttpResponse {
     
     /**
      * Returns whether this stream's request advertised an RFC 6455 WebSocket
-     * upgrade (via {@code Connection: Upgrade} / {@code Upgrade: websocket}).
+     * upgrade (via {@code Connection: Upgrade} / {@code Upgrade: websocket},
+     * or RFC 8441 Extended CONNECT over HTTP/2).
      * Used to hold pipelined frame bytes while an async upgrade handler
      * (e.g. servlet {@code HttpUpgradeHandler}) runs on a worker thread.
      */
     boolean hasWebSocketUpgrade() {
+        // RFC 8441 section 4: over HTTP/2 the request is Extended CONNECT,
+        // which carries no Upgrade header field.
+        if (connection.getVersion() == HttpVersion.HTTP_2_0) {
+            return isWebSocketUpgradeRequest();
+        }
         if (upgrade == null) {
             return false;
         }

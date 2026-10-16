@@ -793,7 +793,8 @@ class Response implements HttpServletResponse {
      */
     void markUpgraded() {
         committed = true;
-        statusCode = 101;
+        // 101 is the HTTP/1.1 response; Extended CONNECT is answered 200.
+        statusCode = (request != null && request.isExtendedConnectWebSocket()) ? 200 : 101;
     }
 
     public void reset() {

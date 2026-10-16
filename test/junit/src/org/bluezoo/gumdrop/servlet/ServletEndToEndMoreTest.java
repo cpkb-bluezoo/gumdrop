@@ -719,6 +719,16 @@ public class ServletEndToEndMoreTest {
         }
     }
 
+    /** An application that upgrades from doGet and reports the method it sees. */
+    public static class WsGateServlet extends HttpServlet {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            resp.getWriter().print("doGet:" + req.getMethod());
+        }
+    }
+
     /** Throws a permanent or temporary unavailable exception. */
     public static class UnavailableFilter implements Filter {
         private boolean permanent;
@@ -918,6 +928,7 @@ public class ServletEndToEndMoreTest {
                 + "</servlet-class></servlet><servlet-mapping><servlet-name>noasync</servlet-name>"
                 + "<url-pattern>/noasync</url-pattern></servlet-mapping>");
         sb.append(servlet("perm", "RespServlet", "/perm", ""));
+        sb.append(servlet("wsgate", "WsGateServlet", "/wsg/*", ""));
         sb.append(servlet("fwho", "WhoServlet", "/fu/*", ""));
         sb.append("<filter><filter-name>fperm</filter-name><filter-class>" + cls("UnavailableFilter")
                 + "</filter-class><init-param><param-name>permanent</param-name><param-value>true"
@@ -937,6 +948,7 @@ public class ServletEndToEndMoreTest {
         sb.append(constraint("/sec/deny/*", null, "<auth-constraint/>", null));
         sb.append(constraint("/sec/tls/*", null, null, "CONFIDENTIAL"));
         sb.append(constraint("/sec/post/*", "POST", adminRole, null));
+        sb.append(constraint("/wsg/admin/*", "GET", adminRole, null));
         sb.append(constraint("/sec/none/*", null, null, null));
         sb.append("<login-config><auth-method>BASIC</auth-method><realm-name>morerealm</realm-name>"
                 + "</login-config><security-role><role-name>admin</role-name></security-role>");
@@ -1331,6 +1343,31 @@ public class ServletEndToEndMoreTest {
     public void testUpgradeRequiresWebSocketHandshake() throws Exception {
         Result r = get("/more/req/x?mode=upgrade");
         assertEquals("not-websocket", r.text());
+    }
+
+    /**
+     * RFC 8441/9220: the Extended CONNECT handshake reaches the servlet
+     * that would take the HTTP/1.1 GET upgrade of the URL, in doGet, while
+     * getMethod() still reports CONNECT.
+     */
+    @Test
+    public void testExtendedConnectDispatchedToDoGet() throws Exception {
+        Result r = send(new StubState(), "CONNECT", "/more/wsg/x", null, ":protocol", "websocket");
+        assertEquals(200, r.status);
+        assertEquals("doGet:CONNECT", r.text());
+    }
+
+    @Test
+    public void testConnectWithoutProtocolIsNotDispatchedToDoGet() throws Exception {
+        Result r = send(new StubState(), "CONNECT", "/more/wsg/x", null);
+        assertTrue(r.status != 200);
+    }
+
+    @Test
+    public void testGetSecurityConstraintAppliesToExtendedConnect() throws Exception {
+        Result anon = send(new StubState(), "CONNECT", "/more/wsg/admin/x", null,
+                ":protocol", "websocket");
+        assertEquals(401, anon.status);
     }
 
     @Test

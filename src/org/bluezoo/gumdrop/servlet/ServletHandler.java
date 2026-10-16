@@ -111,6 +111,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // The request, assembled from the message events until its header
     // section ends
     private HttpMethod requestMethod;
+    private String requestProtocol;
     private boolean headersEnded;
     private String requestTarget;
     private ServletHeaders requestHeaders = new ServletHeaders();
@@ -148,6 +149,11 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     @Override
     public void method(HttpMethod method) {
         requestMethod = method;
+    }
+
+    @Override
+    public void protocol(ByteBuffer protocol) {
+        requestProtocol = text(protocol);
     }
 
     @Override
@@ -221,6 +227,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
 
             // Create Request and Response
             request = new Request(this, bufferSize, method, requestTarget, requestHeaders, bodyStream);
+            request.protocol = requestProtocol;
             response = new Response(this, request, bufferSize);
 
             // Dispatch to worker thread for servlet execution
