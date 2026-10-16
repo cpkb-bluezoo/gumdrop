@@ -21,10 +21,10 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 
 import org.junit.Test;
@@ -42,17 +42,17 @@ public class PacketProtectionKeysDtls13Test {
 
     @Test
     public void dtls13LabelPrefixHasNoTrailingSpace() {
-        assertArrayEquals("dtls13".getBytes(StandardCharsets.US_ASCII), Hkdf.dtls13LabelPrefix());
+        assertArrayEquals("dtls13".getBytes(StandardCharsets.US_ASCII), PacketProtectionKeys.DTLS13_LABEL_PREFIX);
     }
 
     @Test
     public void deriveForDtlsUsesDtls13LabelsNotQuicLabels() throws Exception {
-        Hkdf hkdf = CipherSuite.TLS_AES_128_GCM_SHA256.newHkdf();
+        CryptoServices crypto = new CryptoServices();
         byte[] secret = new byte[32];
         Arrays.fill(secret, (byte) 0x42);
 
-        PacketProtectionKeys quicKeys = PacketProtectionKeys.derive(hkdf, secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
-        PacketProtectionKeys dtlsKeys = PacketProtectionKeys.deriveForDtls(hkdf, secret, QuicAeadAlgorithm.AES_128_GCM);
+        PacketProtectionKeys quicKeys = PacketProtectionKeys.derive(crypto, "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+        PacketProtectionKeys dtlsKeys = PacketProtectionKeys.deriveForDtls(crypto, "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM);
 
         assertFalse(Arrays.equals(quicKeys.getAeadKey().getEncoded(), dtlsKeys.getAeadKey().getEncoded()));
         assertFalse(Arrays.equals(quicKeys.getIv(), dtlsKeys.getIv()));
@@ -63,12 +63,12 @@ public class PacketProtectionKeysDtls13Test {
 
     @Test
     public void expandLabelWithPrefixMatchesManualDtls13LabelBytes() throws Exception {
-        Hkdf hkdf = CipherSuite.TLS_AES_128_GCM_SHA256.newHkdf();
+        CryptoServices crypto = new CryptoServices();
         byte[] secret = new byte[32];
         Arrays.fill(secret, (byte) 0x11);
 
-        byte[] fromPrefix = hkdf.expandLabelWithPrefix(Hkdf.dtls13LabelPrefix(), secret, "key", new byte[0], 16);
-        byte[] fromDerive = PacketProtectionKeys.deriveForDtls(hkdf, secret, QuicAeadAlgorithm.AES_128_GCM)
+        byte[] fromPrefix = crypto.hkdfExpandLabel("SHA-256", PacketProtectionKeys.DTLS13_LABEL_PREFIX, secret, "key", new byte[0], 16);
+        byte[] fromDerive = PacketProtectionKeys.deriveForDtls(crypto, "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM)
                 .getAeadKey().getEncoded();
         assertArrayEquals(fromPrefix, fromDerive);
         assertTrue(fromDerive.length == 16);

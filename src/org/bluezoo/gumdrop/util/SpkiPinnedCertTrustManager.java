@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.util;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
+
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.cert.CertificateException;
@@ -52,6 +54,7 @@ import javax.net.ssl.X509TrustManager;
 public class SpkiPinnedCertTrustManager implements X509TrustManager {
 
     private final X509TrustManager delegate;
+    private final CryptoServices crypto;
     private final Set<String> expectedFingerprints;
 
     /**
@@ -62,7 +65,7 @@ public class SpkiPinnedCertTrustManager implements X509TrustManager {
      *                     (colon-separated lowercase hex)
      */
     public SpkiPinnedCertTrustManager(String... fingerprints) {
-        this(defaultTrustManager(), fingerprints);
+        this(defaultTrustManager(), new CryptoServices(), fingerprints);
     }
 
     /**
@@ -72,9 +75,10 @@ public class SpkiPinnedCertTrustManager implements X509TrustManager {
      * @param fingerprints one or more SPKI SHA-256 fingerprints
      *                     (colon-separated lowercase hex)
      */
-    public SpkiPinnedCertTrustManager(X509TrustManager delegate,
+    public SpkiPinnedCertTrustManager(X509TrustManager delegate, CryptoServices crypto,
                                       String... fingerprints) {
         this.delegate = delegate;
+        this.crypto = crypto;
         this.expectedFingerprints =
                 new HashSet<String>(Arrays.asList(fingerprints));
     }
@@ -100,7 +104,7 @@ public class SpkiPinnedCertTrustManager implements X509TrustManager {
             throw new CertificateException(
                     "Empty certificate chain");
         }
-        String actual = computeSPKIFingerprint(chain[0]);
+        String actual = computeSPKIFingerprint(chain[0], crypto);
         if (!expectedFingerprints.contains(actual)) {
             throw new CertificateException(
                     "SPKI fingerprint mismatch: expected one of "
@@ -124,15 +128,14 @@ public class SpkiPinnedCertTrustManager implements X509TrustManager {
      * @return the SPKI fingerprint as a colon-separated lowercase hex string
      * @throws CertificateException if the fingerprint cannot be computed
      */
-    public static String computeSPKIFingerprint(X509Certificate cert)
+    public static String computeSPKIFingerprint(X509Certificate cert, CryptoServices crypto)
             throws CertificateException {
         try {
             // getPublicKey().getEncoded() returns the DER-encoded
             // SubjectPublicKeyInfo, which is exactly what RFC 7858
             // section 4.2 requires.
             byte[] spki = cert.getPublicKey().getEncoded();
-            MessageDigest md =
-                    MessageDigest.getInstance("SHA-256");
+            MessageDigest md = crypto.messageDigest("SHA-256");
             byte[] digest = md.digest(spki);
             StringBuilder sb =
                     new StringBuilder(digest.length * 3 - 1);

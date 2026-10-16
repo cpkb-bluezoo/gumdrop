@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpEndpoint;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.TimerHandle;
 
 /**
@@ -181,8 +182,8 @@ public class TcpDnsClientTransport implements DnsClientTransport {
             throw new IOException(
                     "TcpDnsClientTransport requires a SelectorLoop owned by a running Gumdrop");
         }
-        TcpTransportFactory factory = createTransportFactory();
-        factory.start();
+        TcpTransportFactory factory = createTransportFactory(loop.getGumdrop().getCryptoServices());
+        factory.start(loop.getGumdrop());
         if (port <= 0) {
             port = defaultPort;
         }
@@ -198,8 +199,8 @@ public class TcpDnsClientTransport implements DnsClientTransport {
             throw new IOException(
                     "TcpDnsClientTransport requires a SelectorLoop owned by a running Gumdrop");
         }
-        TcpTransportFactory factory = createTransportFactory();
-        factory.start();
+        TcpTransportFactory factory = createTransportFactory(loop.getGumdrop().getCryptoServices());
+        factory.start(loop.getGumdrop());
         if (port <= 0) {
             port = defaultPort;
         }
@@ -213,7 +214,7 @@ public class TcpDnsClientTransport implements DnsClientTransport {
      * private so tests can inspect the resulting ALPN/trust manager
      * configuration without a live connection.
      */
-    TcpTransportFactory createTransportFactory() {
+    TcpTransportFactory createTransportFactory(CryptoServices crypto) {
         TcpTransportFactory factory = new TcpTransportFactory();
         if (secure) {
             factory.setSecure(true);
@@ -236,7 +237,7 @@ public class TcpDnsClientTransport implements DnsClientTransport {
             factory.setTrustManager(trustManager != null
                     ? new org.bluezoo.gumdrop.util
                             .SpkiPinnedCertTrustManager(
-                            trustManager, fingerprints)
+                            trustManager, crypto, fingerprints)
                     : new org.bluezoo.gumdrop.util
                             .SpkiPinnedCertTrustManager(fingerprints));
         } else if (trustManager != null) {

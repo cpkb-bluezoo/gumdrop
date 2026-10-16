@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -145,14 +146,14 @@ public class HandshakeEngineMutationTest {
     }
 
     private HandshakeConfig serverConfig(boolean mutual, boolean compress) throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(new ServerCredentials(chain, key));
         c.setApplicationProtocols(Collections.singletonList("h3"));
         c.setLocalTransportParameters(new byte[] { 1, 2, 3 });
         c.setNamedGroups(Collections.singletonList(NamedGroup.X25519));
         if (mutual) {
             c.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-            c.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+            c.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         }
         c.setCertificateCompressionEnabled(compress);
         if (useEch) {
@@ -170,9 +171,9 @@ public class HandshakeEngineMutationTest {
     }
 
     private HandshakeConfig clientConfig(boolean mutual, boolean compress) throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
-        c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         c.setApplicationProtocols(Collections.singletonList("h3"));
         c.setLocalTransportParameters(new byte[] { 4, 5, 6 });
         c.setNamedGroups(Collections.singletonList(NamedGroup.X25519));

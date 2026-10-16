@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -183,7 +184,7 @@ public class HandshakeEngineLoopbackTest {
     }
 
     private HandshakeConfig serverConfig(List<X509Certificate> chain, PrivateKey key) {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setServerCredentials(new ServerCredentials(chain, key));
         config.setApplicationProtocols(Collections.singletonList("h3"));
         config.setLocalTransportParameters(new byte[] { 1, 2, 3, 4 });
@@ -191,9 +192,9 @@ public class HandshakeEngineLoopbackTest {
     }
 
     private HandshakeConfig clientConfig(List<X509Certificate> trustedChain, String serverName) throws Exception {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setServerName(serverName);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(trustedChain));
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(trustedChain, new CryptoServices()));
         config.setApplicationProtocols(Collections.singletonList("h3"));
         config.setLocalTransportParameters(new byte[] { 5, 6, 7, 8 });
         return config;
@@ -231,9 +232,9 @@ public class HandshakeEngineLoopbackTest {
     @Test
     public void clientWithoutAlpnExtensionCompletesWhenServerHasProtocolsConfigured() throws Exception {
         HandshakeConfig sc = serverConfig(ecChain, ecKey);
-        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         cc.setServerName(SERVER_NAME);
-        cc.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        cc.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain, new CryptoServices()));
         cc.setLocalTransportParameters(new byte[] { 5, 6, 7, 8 });
 
         HandshakeEngine client = new HandshakeEngine(cc);
@@ -308,7 +309,7 @@ public class HandshakeEngineLoopbackTest {
     @Test
     public void untrustedChainFailsClientVerification() throws Exception {
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
-        X509TrustManager wrongTrustManager = CertificateVerifier.trustManagerFromCertificates(rsaChain);
+        X509TrustManager wrongTrustManager = CertificateVerifier.trustManagerFromCertificates(rsaChain, new CryptoServices());
         cc.setTrustManager(wrongTrustManager);
         HandshakeEngine client = new HandshakeEngine(cc);
         HandshakeEngine server = new HandshakeEngine(serverConfig(ecChain, ecKey));
@@ -348,7 +349,7 @@ public class HandshakeEngineLoopbackTest {
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);
 
-        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519);
+        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
         HandshakeMessages.ClientHelloParams ch1Params = new HandshakeMessages.ClientHelloParams();
         ch1Params.random = random;
         ch1Params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
@@ -388,7 +389,7 @@ public class HandshakeEngineLoopbackTest {
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);
 
-        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519);
+        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
         HandshakeMessages.ClientHelloParams ch1Params = new HandshakeMessages.ClientHelloParams();
         ch1Params.random = random;
         ch1Params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
@@ -404,7 +405,7 @@ public class HandshakeEngineLoopbackTest {
         List<byte[]> firstFlight = serverSink.drain();
         byte[] hrrBytes = firstFlight.get(0);
 
-        KeyExchange secp256r1Kx = KeyExchange.generate(NamedGroup.SECP256R1);
+        KeyExchange secp256r1Kx = KeyExchange.generate(NamedGroup.SECP256R1, new CryptoServices());
         HandshakeMessages.ClientHelloParams ch2Params = new HandshakeMessages.ClientHelloParams();
         ch2Params.random = random;
         ch2Params.cipherSuites = ch1Params.cipherSuites;
@@ -426,7 +427,7 @@ public class HandshakeEngineLoopbackTest {
         // low-level primitives HandshakeEngine itself uses, to prove the
         // server's retry-continued transcript/key schedule actually
         // matches what a real peer would compute.
-        Transcript clientTranscript = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256);
+        Transcript clientTranscript = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256, new CryptoServices());
         clientTranscript.update(ch1);
         byte[] ch1Hash = clientTranscript.hash();
         clientTranscript.retry(ch1Hash);
@@ -439,7 +440,7 @@ public class HandshakeEngineLoopbackTest {
         clientTranscript.update(serverHelloBytes);
 
         byte[] sharedSecret = secp256r1Kx.agree(sh.keyShareData);
-        KeySchedule clientKeySchedule = new KeySchedule(CipherSuite.TLS_AES_128_GCM_SHA256);
+        KeySchedule clientKeySchedule = new KeySchedule(CipherSuite.TLS_AES_128_GCM_SHA256, new CryptoServices());
         clientKeySchedule.deriveEarlySecret(null);
         clientKeySchedule.deriveHandshakeSecret(sharedSecret, clientTranscript.hash());
         assertArrayEquals(clientKeySchedule.getServerHandshakeTrafficSecret(),
@@ -781,7 +782,7 @@ public class HandshakeEngineLoopbackTest {
     public void clientCertificateRequiredAndPresentedCompletes() throws Exception {
         HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(rsaChain));
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(rsaChain, new CryptoServices()));
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setClientCredentials(new ServerCredentials(rsaChain, rsaKey));
 
@@ -870,7 +871,7 @@ public class HandshakeEngineLoopbackTest {
                 TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, "pq-client");
         HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(id.getChain()));
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(id.getChain(), new CryptoServices()));
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setClientCredentials(new ServerCredentials(id.getChain(), id.getPrivateKey()));
 
@@ -894,7 +895,7 @@ public class HandshakeEngineLoopbackTest {
         RecordingSink serverSink = new RecordingSink();
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);
-        KeyExchange kx = KeyExchange.generate(NamedGroup.X25519);
+        KeyExchange kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.random = random;
         params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
@@ -950,7 +951,7 @@ public class HandshakeEngineLoopbackTest {
         List<byte[]> flight = serverSink.drain();
         assertEquals(5, flight.size());
 
-        Transcript transcript = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256);
+        Transcript transcript = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256, new CryptoServices());
         transcript.update(clientHello);
         for (int i = 0; i < 3; i++) {
             transcript.update(flight.get(i));
@@ -958,7 +959,7 @@ public class HandshakeEngineLoopbackTest {
             assertNull(clientSink.error);
         }
         byte[] content = HandshakeMessages.certificateVerifySignedContent(true, transcript.hash());
-        byte[] forged = HandshakeMessages.buildCertificateVerify(scheme, scheme.sign(key, content));
+        byte[] forged = HandshakeMessages.buildCertificateVerify(scheme, scheme.sign(key, content, new CryptoServices()));
         client.processMessage(forged, clientSink);
         return clientSink.error;
     }
@@ -967,7 +968,7 @@ public class HandshakeEngineLoopbackTest {
     public void clientCertificateRequiredButUntrustedFailsHandshake() throws Exception {
         HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain)); // does not trust rsaChain
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain, new CryptoServices())); // does not trust rsaChain
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setClientCredentials(new ServerCredentials(rsaChain, rsaKey));
 
@@ -1528,12 +1529,12 @@ public class HandshakeEngineLoopbackTest {
      */
     @Test
     public void defaultCipherSuitesPreferAesGcm() {
-        List<CipherSuite> tls13 = new HandshakeConfig(HandshakeRole.SERVER).getCipherSuites();
+        List<CipherSuite> tls13 = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices()).getCipherSuites();
         assertEquals(Arrays.asList(
                 CipherSuite.TLS_AES_256_GCM_SHA384,
                 CipherSuite.TLS_AES_128_GCM_SHA256,
                 CipherSuite.TLS_CHACHA20_POLY1305_SHA256), tls13);
-        List<Tls12CipherSuite> tls12 = new Tls12HandshakeConfig(HandshakeRole.SERVER).getCipherSuites();
+        List<Tls12CipherSuite> tls12 = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices()).getCipherSuites();
         assertEquals(Arrays.asList(
                 Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
                 Tls12CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
@@ -1556,7 +1557,7 @@ public class HandshakeEngineLoopbackTest {
             int n = binderLengths[i];
             HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
             params.random = new byte[32];
-            params.cipherSuites = new HandshakeConfig(HandshakeRole.CLIENT).getCipherSuites();
+            params.cipherSuites = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices()).getCipherSuites();
             params.groups = Collections.singletonList(NamedGroup.X25519);
             params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
             params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
@@ -1655,7 +1656,7 @@ public class HandshakeEngineLoopbackTest {
     public void compressedCertificateWithUnofferedAlgorithmRejected() throws Exception {
         List<CertificateCompressionAlgorithm> offered = new ArrayList<CertificateCompressionAlgorithm>();
         offered.add(CertificateCompressionAlgorithm.ZLIB);
-        CompressedCertificateReceiver receiver = new CompressedCertificateReceiver(offered, 1 << 16, 12);
+        CompressedCertificateReceiver receiver = new CompressedCertificateReceiver(offered, 1 << 16, 12, new CryptoServices());
         byte[] prefix = new byte[] { 0, (byte) CertificateCompressionAlgorithm.BROTLI.getId(), 0, 0, 9, 0, 0, 4 };
         try {
             receiver.write(prefix);
@@ -1790,7 +1791,7 @@ public class HandshakeEngineLoopbackTest {
             byte[] wire = HandshakeMessages.buildCompressedCertificate(
                     CertificateCompressionAlgorithm.ZLIB, declared[i], compressed);
             CompressedCertificateReceiver receiver = new CompressedCertificateReceiver(
-                    CertificateCompressor.defaultEnabledAlgorithms(), 1 << 20, wire.length - 4);
+                    CertificateCompressor.defaultEnabledAlgorithms(), 1 << 20, wire.length - 4, new CryptoServices());
             try {
                 receiver.write(Arrays.copyOfRange(wire, 4, wire.length));
                 receiver.finish();
@@ -1803,7 +1804,7 @@ public class HandshakeEngineLoopbackTest {
                 CertificateCompressionAlgorithm.ZLIB, certificate.length, compressed);
         try {
             new CompressedCertificateReceiver(CertificateCompressor.defaultEnabledAlgorithms(),
-                    certificate.length - 1, wire.length - 4).write(Arrays.copyOfRange(wire, 4, wire.length));
+                    certificate.length - 1, wire.length - 4, new CryptoServices()).write(Arrays.copyOfRange(wire, 4, wire.length));
             fail("a declared length over the limit must be rejected");
         } catch (HandshakeFormatException expected) {
             assertTrue(expected.getMessage().contains("limit"));

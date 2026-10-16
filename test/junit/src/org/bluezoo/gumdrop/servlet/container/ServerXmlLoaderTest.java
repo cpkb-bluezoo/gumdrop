@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.container;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -220,7 +221,7 @@ public class ServerXmlLoaderTest {
                     f.get(listener(1)));
         }
         assertNotNull(org.bluezoo.gumdrop.quic.tls.PemCredentials.loadServerCredentials(
-                dir.resolve("cert.pem"), dir.resolve("key.pem")));
+                dir.resolve("cert.pem"), dir.resolve("key.pem"), new CryptoServices()));
     }
 
     @Test

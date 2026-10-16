@@ -104,6 +104,46 @@ public class QuicLoopbackQlogPacketEventsTest {
         lb.pump();
     }
 
+    /**
+     * qlog may optionally record key material ({@code security:key_updated}
+     * and {@code key_discarded} have a {@code new} field, and packet events
+     * a {@code raw.data} field holding the bytes on the wire). Gumdrop never
+     * fills those fields, which is what lets a FIPS runtime leave qlog on:
+     * the trace carries no secret and no payload. This pins that down, so
+     * a change that logs either reconsiders the FIPS question first
+     * (issue #570).
+     */
+    @Test
+    public void qlogNeverRecordsKeyMaterialOrPacketBytes() throws Exception {
+        connect();
+        exchange();
+        String[] vantages = { "client", "server" };
+        int packets = 0;
+        int keys = 0;
+        for (int v = 0; v < vantages.length; v++) {
+            String[] packetEvents = { "quic:packet_sent", "quic:packet_received", "quic:packet_dropped" };
+            for (int e = 0; e < packetEvents.length; e++) {
+                for (Map<String, String> p : events(vantages[v], packetEvents[e])) {
+                    packets++;
+                    assertFalse(packetEvents[e] + " must not carry raw bytes: " + p, p.containsKey("raw.data"));
+                    assertFalse(packetEvents[e] + " must not carry raw bytes: " + p, p.containsKey("raw.payload"));
+                }
+            }
+            String[] keyEvents = { "quic:key_updated", "quic:key_discarded" };
+            for (int e = 0; e < keyEvents.length; e++) {
+                for (Map<String, String> k : events(vantages[v], keyEvents[e])) {
+                    keys++;
+                    assertTrue(k.containsKey("key_type"));
+                    assertFalse(keyEvents[e] + " must not carry the key: " + k, k.containsKey("new"));
+                    assertFalse(keyEvents[e] + " must not carry the key: " + k, k.containsKey("old"));
+                    assertFalse(keyEvents[e] + " must not carry the key: " + k, k.containsKey("key"));
+                }
+            }
+        }
+        assertTrue("the guard must have seen packets", packets > 0);
+        assertTrue("the guard must have seen key events", keys > 0);
+    }
+
     @Test
     public void sentPacketsCarryTheirHeaderSizeAndFrames() throws Exception {
         connect();

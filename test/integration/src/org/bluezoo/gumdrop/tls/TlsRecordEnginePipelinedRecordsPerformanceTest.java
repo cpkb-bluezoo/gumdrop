@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.ByteArrayOutputStream;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
@@ -118,14 +119,14 @@ public class TlsRecordEnginePipelinedRecordsPerformanceTest {
     }
 
     private HandshakeConfig serverConfig() {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setServerCredentials(new ServerCredentials(ecChain, ecKey));
         config.setApplicationProtocols(Collections.singletonList("test"));
         return config;
     }
 
     private HandshakeConfig clientConfig() throws Exception {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setServerName(SERVER_NAME);
         config.setTrustManager(trustManager);
         config.setApplicationProtocols(Collections.singletonList("test"));

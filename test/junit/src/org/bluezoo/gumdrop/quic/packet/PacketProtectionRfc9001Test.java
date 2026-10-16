@@ -21,11 +21,11 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.Arrays;
 
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.util.ByteArrays;
 
@@ -92,16 +92,16 @@ public class PacketProtectionRfc9001Test {
 
     @Test
     public void testDerivedInitialKeys() {
-        Hkdf hkdf = Hkdf.sha256();
+        CryptoServices crypto = new CryptoServices();
 
         PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(
-                hkdf, InitialSecrets.clientSecret(QuicVersion.V1, DCID), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                crypto, "SHA-256", InitialSecrets.clientSecret(QuicVersion.V1, DCID, new CryptoServices()), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         assertEquals(CLIENT_KEY, ByteArrays.toHexString(clientKeys.getAeadKey().getEncoded()));
         assertEquals(CLIENT_IV, ByteArrays.toHexString(clientKeys.getIv()));
         assertEquals(CLIENT_HP, ByteArrays.toHexString(clientKeys.getHeaderProtectionKey().getEncoded()));
 
         PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(
-                hkdf, InitialSecrets.serverSecret(QuicVersion.V1, DCID), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                crypto, "SHA-256", InitialSecrets.serverSecret(QuicVersion.V1, DCID, new CryptoServices()), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         assertEquals(SERVER_KEY, ByteArrays.toHexString(serverKeys.getAeadKey().getEncoded()));
         assertEquals(SERVER_IV, ByteArrays.toHexString(serverKeys.getIv()));
         assertEquals(SERVER_HP, ByteArrays.toHexString(serverKeys.getHeaderProtectionKey().getEncoded()));
@@ -110,7 +110,7 @@ public class PacketProtectionRfc9001Test {
     @Test
     public void testClientInitialPacketProtection() throws PacketProtectionException {
         PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), InitialSecrets.clientSecret(QuicVersion.V1, DCID), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                new CryptoServices(), "SHA-256", InitialSecrets.clientSecret(QuicVersion.V1, DCID, new CryptoServices()), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
 
         byte[] cryptoFrame = ByteArrays.toByteArray(CLIENT_CRYPTO_FRAME);
         // RFC 9001 A.2: "plus enough PADDING frames to make a 1162-byte
@@ -179,7 +179,7 @@ public class PacketProtectionRfc9001Test {
     @Test
     public void testServerInitialPacketProtection() throws PacketProtectionException {
         PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), InitialSecrets.serverSecret(QuicVersion.V1, DCID), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                new CryptoServices(), "SHA-256", InitialSecrets.serverSecret(QuicVersion.V1, DCID, new CryptoServices()), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
 
         byte[] plaintext = ByteArrays.toByteArray(SERVER_PAYLOAD_PLAINTEXT);
         byte[] header = ByteArrays.toByteArray(SERVER_UNPROTECTED_HEADER);

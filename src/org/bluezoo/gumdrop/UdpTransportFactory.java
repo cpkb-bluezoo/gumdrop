@@ -188,14 +188,14 @@ public class UdpTransportFactory extends TransportFactory {
         try {
             if (serverCredentials == null && serverCredentialsResolver == null) {
                 if (certFile != null && keyFile != null) {
-                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile, getCryptoServices());
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
+                        KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat, getCryptoServices());
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                     } else {
-                        serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
+                        serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat, getCryptoServices());
                     }
                 }
             }
@@ -231,7 +231,7 @@ public class UdpTransportFactory extends TransportFactory {
     }
 
     Dtls12HandshakeConfig buildClientConfig12(String serverName) {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT, getCryptoServices());
         base.setServerName(serverName);
         base.setTrustManager(effectiveTrustManager);
         if (clientCredentials != null) {
@@ -244,7 +244,7 @@ public class UdpTransportFactory extends TransportFactory {
     }
 
     Dtls13HandshakeConfig buildClientConfig13(String serverName) {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT, getCryptoServices());
         base.setServerName(serverName);
         base.setTrustManager(effectiveTrustManager);
         if (clientCredentials != null) {
@@ -260,7 +260,7 @@ public class UdpTransportFactory extends TransportFactory {
     }
 
     private Dtls13HandshakeConfig buildServerConfig13() {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.SERVER, getCryptoServices());
         base.setServerCredentials(serverCredentials);
         base.setServerCredentialsResolver(serverCredentialsResolver);
         if (needClientAuth) {
@@ -295,7 +295,7 @@ public class UdpTransportFactory extends TransportFactory {
     synchronized byte[] effectiveCookieSecret() {
         if (requireCookie && cookieSecret == null) {
             byte[] generated = new byte[32];
-            new java.security.SecureRandom().nextBytes(generated);
+            getCryptoServices().nextBytes(generated);
             cookieSecret = generated;
         }
         return cookieSecret;
@@ -308,7 +308,7 @@ public class UdpTransportFactory extends TransportFactory {
     }
 
     private Dtls12HandshakeConfig buildServerConfig12() {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER, getCryptoServices());
         base.setServerCredentials(serverCredentials);
         base.setServerCredentialsResolver(serverCredentialsResolver);
         if (needClientAuth) {
@@ -344,14 +344,14 @@ public class UdpTransportFactory extends TransportFactory {
         if (trustManager != null) {
             base = trustManager;
         } else if (truststoreFile != null && truststorePass != null) {
-            base = firstX509TrustManager(TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
+            base = firstX509TrustManager(TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat, getCryptoServices()));
         } else {
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            TrustManagerFactory tmf = getCryptoServices().trustManagerFactory();
             tmf.init((KeyStore) null);
             base = firstX509TrustManager(tmf.getTrustManagers());
         }
         if (pinnedCertFingerprint != null) {
-            return new PinnedCertTrustManager(base, new String[] { pinnedCertFingerprint });
+            return new PinnedCertTrustManager(base, getCryptoServices(), new String[] { pinnedCertFingerprint });
         }
         return base;
     }
@@ -419,6 +419,7 @@ public class UdpTransportFactory extends TransportFactory {
                                                   ProtocolHandler handler,
                                                   SelectorLoop loop)
             throws IOException {
+        checkRuntime(gumdrop);
         if (secure && serverCredentials == null && serverCredentialsResolver == null) {
             String message = Gumdrop.L10N.getString("err.no_keystore");
             throw new IOException("Secure UDP server requires TLS identity: " + message);
@@ -452,6 +453,7 @@ public class UdpTransportFactory extends TransportFactory {
     public UdpEndpoint createServerEndpoint(Gumdrop gumdrop, DatagramChannel channel,
                                                   ProtocolHandler handler)
             throws IOException {
+        checkRuntime(gumdrop);
         UdpEndpoint endpoint = new UdpEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);
@@ -479,6 +481,7 @@ public class UdpTransportFactory extends TransportFactory {
                                     ProtocolHandler handler,
                                     SelectorLoop loop)
             throws IOException {
+        checkRuntime(gumdrop);
         UdpEndpoint endpoint = new UdpEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);

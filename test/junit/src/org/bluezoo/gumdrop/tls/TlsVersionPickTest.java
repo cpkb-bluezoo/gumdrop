@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 
@@ -39,14 +40,14 @@ public class TlsVersionPickTest {
 
     @Test
     public void picksTls13WhenClientOffers0304() throws Exception {
-        HandshakeConfig defaults = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig defaults = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.random = new byte[32];
         params.cipherSuites = defaults.getCipherSuites();
         params.groups = defaults.getNamedGroups();
         params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
         NamedGroup shareGroup = params.groups.get(0);
-        params.keyShares.put(shareGroup, KeyExchange.generate(shareGroup).getShareBytes());
+        params.keyShares.put(shareGroup, KeyExchange.generate(shareGroup, new CryptoServices()).getShareBytes());
         params.signatureAlgorithms = Collections.singletonList(
                 SignatureScheme.ECDSA_SECP256R1_SHA256);
         params.applicationProtocols = Collections.emptyList();

@@ -74,7 +74,7 @@ public final class EchDeployment {
             int paired = 0;
             for (int i = 0; i < privateKeys.size(); i++) {
                 byte[] privateKey = privateKeys.get(i);
-                byte[] publicKey = Hpke.deriveX25519PublicKey(privateKey);
+                byte[] publicKey = Hpke.deriveX25519PublicKey(privateKey, config.getCrypto());
                 boolean matched = false;
                 for (int j = 0; j < published.length; j++) {
                     if (Arrays.equals(published[j].getPublicKey(), publicKey)) {

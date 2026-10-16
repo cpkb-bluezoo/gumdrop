@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
@@ -61,6 +62,7 @@ public final class Dtls12RecordEngine {
     private static final int MAX_FRAGMENT = 16384;
 
     private final Tls12HandshakeEngine engine;
+    private final CryptoServices crypto;
     private final HandshakeRole role;
     private final DtlsReassembler reassembler = new DtlsReassembler();
     private final int maxFragmentSize;
@@ -116,6 +118,7 @@ public final class Dtls12RecordEngine {
 
     public Dtls12RecordEngine(Tls12HandshakeConfig config, int maxFragmentSize, HandshakeAsyncOffload offload) {
         this.role = config.getRole();
+        this.crypto = config.getCrypto();
         this.engine = new Tls12HandshakeEngine(config);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
         this.handshakeOffload = offload;
@@ -774,7 +777,7 @@ public final class Dtls12RecordEngine {
             previousReadReplay = readReplay;
         }
         readEpoch++;
-        read = Dtls12DirectionalKeys.fromMaterial(stagedSuite, pendingRead, readEpoch);
+        read = Dtls12DirectionalKeys.fromMaterial(stagedSuite, pendingRead, readEpoch, crypto);
         readReplay = new DtlsReplayWindow();
         pendingRead = null;
     }
@@ -784,7 +787,7 @@ public final class Dtls12RecordEngine {
             return;
         }
         writeEpoch++;
-        write = Dtls12DirectionalKeys.fromMaterial(stagedSuite, pendingWrite, writeEpoch);
+        write = Dtls12DirectionalKeys.fromMaterial(stagedSuite, pendingWrite, writeEpoch, crypto);
         pendingWrite = null;
     }
 

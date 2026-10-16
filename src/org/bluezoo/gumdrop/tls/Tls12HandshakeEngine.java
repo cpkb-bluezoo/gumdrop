@@ -25,7 +25,6 @@ import java.io.ByteArrayOutputStream;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
-import java.security.SecureRandom;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -36,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.crypto.Prf;
@@ -96,7 +96,7 @@ final class Tls12HandshakeEngine {
     }
 
     private final Tls12HandshakeConfig config;
-    private final SecureRandom secureRandom = new SecureRandom();
+    private final CryptoServices crypto;
 
     private State state = State.INITIAL;
     private Transcript transcript;
@@ -153,6 +153,7 @@ final class Tls12HandshakeEngine {
 
     Tls12HandshakeEngine(Tls12HandshakeConfig config) {
         this.config = config;
+        this.crypto = config.getCrypto();
         this.localRecordSizeLimit = RecordSizeLimit.localInboundLimit(
                 config.getRecordSizeLimit(), config.isRecordSizeLimitEnabled());
     }
@@ -173,7 +174,7 @@ final class Tls12HandshakeEngine {
             random = config.getDtlsClientRandom().clone();
         } else {
             random = new byte[32];
-            secureRandom.nextBytes(random);
+            crypto.nextBytes(random);
         }
         clientRandom = random;
 
@@ -184,7 +185,7 @@ final class Tls12HandshakeEngine {
             Tls12SessionTicket stored = (config.getServerName() != null) ? store.get(config.getServerName()) : null;
             if (stored != null) {
                 byte[] sid = new byte[32];
-                secureRandom.nextBytes(sid);
+                crypto.nextBytes(sid);
                 sessionId = sid;
                 ticketOffer = stored.getTicket();
                 pendingResumeTicket = stored;
@@ -371,7 +372,7 @@ final class Tls12HandshakeEngine {
             peerRecordSizeLimit = sh.recordSizeLimit;
         }
 
-        transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm());
+        transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm(), crypto);
         addToTranscript(savedClientHelloBytes);
         addToTranscript(message);
 
@@ -439,7 +440,7 @@ final class Tls12HandshakeEngine {
         }
         List<X509Certificate> chain;
         try {
-            chain = CertificateVerifier.parseChain(der);
+            chain = CertificateVerifier.parseChain(der, crypto);
         } catch (CertificateException e) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed server certificate: " + e.getMessage());
             return;
@@ -494,7 +495,7 @@ final class Tls12HandshakeEngine {
         }
         KeyExchange local;
         try {
-            local = KeyExchange.generate(peerGroup);
+            local = KeyExchange.generate(peerGroup, crypto);
         } catch (GeneralSecurityException e) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "Key generation failed: " + e.getMessage());
             return;
@@ -545,7 +546,7 @@ final class Tls12HandshakeEngine {
             }
             byte[] signature;
             try {
-                signature = scheme.sign(sentClientCreds.getPrivateKey(), rawTranscript.toByteArray());
+                signature = scheme.sign(sentClientCreds.getPrivateKey(), rawTranscript.toByteArray(), crypto);
             } catch (GeneralSecurityException e) {
                 fail(sink, AlertDescription.INTERNAL_ERROR, "Client signing failed: " + e.getMessage());
                 return;
@@ -673,7 +674,7 @@ final class Tls12HandshakeEngine {
         if (ch.sessionTicket != null && ch.sessionTicket.length > 0 && config.getTicketKeys() != null) {
             List<byte[]> candidates = config.getTicketKeys().candidateKeys();
             for (int i = 0; i < candidates.size() && resumePayload == null; i++) {
-                Tls12TicketPayload payload = Tls12TicketPayload.open(candidates.get(i), ch.sessionTicket);
+                Tls12TicketPayload payload = Tls12TicketPayload.open(candidates.get(i), ch.sessionTicket, crypto);
                 if (payload != null && !payload.isExpired()
                         && ch.cipherSuites.contains(Tls12CipherSuite.fromCode(payload.cipherSuiteCode))) {
                     resumePayload = payload;
@@ -691,10 +692,10 @@ final class Tls12HandshakeEngine {
             logMasterSecret();
 
             byte[] random = new byte[32];
-            secureRandom.nextBytes(random);
+            crypto.nextBytes(random);
             serverRandom = random;
 
-            transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm());
+            transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm(), crypto);
             addToTranscript(message);
 
             // No new ticket is minted on a resumption (see this class's
@@ -753,11 +754,11 @@ final class Tls12HandshakeEngine {
             return;
         }
 
-        transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm());
+        transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm(), crypto);
         addToTranscript(message);
 
         byte[] random = new byte[32];
-        secureRandom.nextBytes(random);
+        crypto.nextBytes(random);
         serverRandom = random;
         boolean advertiseRecordSizeLimit = ch.recordSizeLimitPresent && config.isRecordSizeLimitEnabled();
         byte[] sh = Tls12HandshakeMessages.buildServerHello(
@@ -774,7 +775,7 @@ final class Tls12HandshakeEngine {
 
         KeyExchange local;
         try {
-            local = KeyExchange.generate(group);
+            local = KeyExchange.generate(group, crypto);
         } catch (GeneralSecurityException e) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "Key generation failed: " + e.getMessage());
             return;
@@ -793,7 +794,7 @@ final class Tls12HandshakeEngine {
         }
         byte[] signature;
         try {
-            signature = scheme.sign(resolvedCredentials.getPrivateKey(), signed.toByteArray());
+            signature = scheme.sign(resolvedCredentials.getPrivateKey(), signed.toByteArray(), crypto);
         } catch (GeneralSecurityException e) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "Server signing failed: " + e.getMessage());
             return;
@@ -827,7 +828,7 @@ final class Tls12HandshakeEngine {
         }
         List<X509Certificate> chain;
         try {
-            chain = CertificateVerifier.parseChain(der);
+            chain = CertificateVerifier.parseChain(der, crypto);
         } catch (CertificateException e) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed client certificate: " + e.getMessage());
             return;
@@ -893,7 +894,7 @@ final class Tls12HandshakeEngine {
         if (shouldIssueTicket && config.getTicketKeys() != null) {
             Tls12TicketPayload payload = new Tls12TicketPayload(
                     masterSecret, negotiatedSuite.getCode(), System.currentTimeMillis(), Tls12TicketPayload.TICKET_LIFETIME_SECS);
-            byte[] ticket = payload.seal(config.getTicketKeys().getCurrentKey());
+            byte[] ticket = payload.seal(config.getTicketKeys().getCurrentKey(), crypto);
             byte[] nst = Tls12HandshakeMessages.buildNewSessionTicket(Tls12TicketPayload.TICKET_LIFETIME_SECS, ticket);
             emit(nst, sink);
         }
@@ -930,7 +931,7 @@ final class Tls12HandshakeEngine {
     }
 
     private void deriveMasterSecret(byte[] preMaster) {
-        Prf prf = Prf.forDigest(negotiatedSuite.getPrfHashAlgorithm());
+        Prf prf = Prf.forDigest(negotiatedSuite.getPrfHashAlgorithm(), crypto);
         String label;
         byte[] seed;
         if (useEms) {
@@ -957,7 +958,7 @@ final class Tls12HandshakeEngine {
 
     /** Key block (RFC 5246 section 6.3): client_write_key, server_write_key, client_write_IV, server_write_IV -- no MAC keys, AEAD only. */
     private DirectionalKeyMaterial[] computeKeyMaterial() {
-        Prf prf = Prf.forDigest(negotiatedSuite.getPrfHashAlgorithm());
+        Prf prf = Prf.forDigest(negotiatedSuite.getPrfHashAlgorithm(), crypto);
         int keyLen = negotiatedSuite.getAeadKeyLength();
         int ivLen = negotiatedSuite.getFixedIvLength();
         int total = 2 * keyLen + 2 * ivLen;
@@ -984,7 +985,7 @@ final class Tls12HandshakeEngine {
      * needs both: its own to send, the server's to verify -- and vice versa).
      */
     private byte[] finishedVerifyData(boolean forClient) {
-        Prf prf = Prf.forDigest(negotiatedSuite.getPrfHashAlgorithm());
+        Prf prf = Prf.forDigest(negotiatedSuite.getPrfHashAlgorithm(), crypto);
         String label = forClient ? "client finished" : "server finished";
         return prf.compute(masterSecret, label, transcript.hash(), 12);
     }
@@ -1024,7 +1025,7 @@ final class Tls12HandshakeEngine {
             return false;
         }
         try {
-            return scheme.verify(leaf.getPublicKey(), message, signature);
+            return scheme.verify(leaf.getPublicKey(), message, signature, crypto);
         } catch (GeneralSecurityException e) {
             return false;
         }
@@ -1057,14 +1058,14 @@ final class Tls12HandshakeEngine {
         return null;
     }
 
-    private static List<SignatureScheme> offeredSignatureAlgorithms() {
+    private List<SignatureScheme> offeredSignatureAlgorithms() {
         List<SignatureScheme> schemes = new ArrayList<SignatureScheme>();
         schemes.add(SignatureScheme.ECDSA_SECP256R1_SHA256);
         schemes.add(SignatureScheme.RSA_PKCS1_SHA256);
         schemes.add(SignatureScheme.ECDSA_SECP384R1_SHA384);
         schemes.add(SignatureScheme.RSA_PKCS1_SHA384);
         schemes.add(SignatureScheme.RSA_PSS_RSAE_SHA256);
-        return schemes;
+        return config.isFipsMode() ? FipsProfile.filterSchemes(schemes) : schemes;
     }
 
     private void finish(Tls12EventSink sink) {

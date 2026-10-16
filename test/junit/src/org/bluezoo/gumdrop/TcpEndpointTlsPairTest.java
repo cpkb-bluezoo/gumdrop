@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -107,26 +108,26 @@ public class TcpEndpointTlsPairTest {
     }
 
     private static HandshakeConfig server13() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TestCertificates.ec256().credentials());
         return c;
     }
 
     private static HandshakeConfig client13() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.ec256().trustManager());
         return c;
     }
 
     private static Tls12HandshakeConfig server12() throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TestCertificates.ec256().credentials());
         return c;
     }
 
     private static Tls12HandshakeConfig client12() throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.ec256().trustManager());
         return c;
@@ -239,7 +240,7 @@ public class TcpEndpointTlsPairTest {
     public void tls13UntrustedServerFailsHandshake() throws Exception {
         Peer cp = new Peer();
         Peer sp = new Peer();
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.trustNone());
         TcpEndpoint client = endpoint(cp, c, null, TlsVersion.TLS_1_3, true);
@@ -290,7 +291,7 @@ public class TcpEndpointTlsPairTest {
     public void tls12UntrustedServerFailsHandshake() throws Exception {
         Peer cp = new Peer();
         Peer sp = new Peer();
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.trustNone());
         TcpEndpoint client = endpoint(cp, null, c, TlsVersion.TLS_1_2, true);
@@ -872,7 +873,7 @@ public class TcpEndpointTlsPairTest {
     public void tls13HandshakeAndExchangeWithMlDsaServerCertificate() throws Exception {
         TestCertificates.Identity id =
                 TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, TestCertificates.SERVER_NAME);
-        HandshakeConfig sc = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig sc = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         sc.setServerCredentials(id.credentials());
         HandshakeConfig cc = client13();
         cc.setTrustManager(id.trustManager());
@@ -894,7 +895,7 @@ public class TcpEndpointTlsPairTest {
         // such a server fails rather than signing under it.
         TestCertificates.Identity id =
                 TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, TestCertificates.SERVER_NAME);
-        Tls12HandshakeConfig sc = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig sc = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         sc.setServerCredentials(id.credentials());
         Tls12HandshakeConfig cc = client12();
         cc.setTrustManager(id.trustManager());

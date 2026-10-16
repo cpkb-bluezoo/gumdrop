@@ -25,6 +25,8 @@ import java.nio.ByteBuffer;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
+
 /**
  * Incremental receiver for the body of an RFC 8879
  * {@code CompressedCertificate} message: reads the algorithm and length
@@ -53,16 +55,19 @@ final class CompressedCertificateReceiver {
     private int decodedLength;
     private CertificateCompressor.Decompressor decompressor;
     private boolean algorithmMismatch;
+    private final CryptoServices crypto;
 
     /**
      * @param offered the algorithms this endpoint offered; the message must
      *        use one of them (RFC 8879 section 4)
      * @param maxDecompressedSize limit on the decompressed Certificate message
      * @param bodyLength the CompressedCertificate body length from its handshake header
+     * @param crypto the services the certificate factory comes from
      */
     CompressedCertificateReceiver(List<CertificateCompressionAlgorithm> offered, int maxDecompressedSize,
-            int bodyLength) {
+            int bodyLength, CryptoServices crypto) {
         this.offered = offered;
+        this.crypto = crypto;
         this.maxDecompressedSize = maxDecompressedSize;
         this.bodyRemaining = bodyLength;
     }
@@ -108,7 +113,7 @@ final class CompressedCertificateReceiver {
         if (uncompressedLength > maxDecompressedSize) {
             throw new HandshakeFormatException("decompressed certificate exceeds limit");
         }
-        parser = new CertificateMessageParser(uncompressedLength);
+        parser = new CertificateMessageParser(uncompressedLength, crypto);
         compressedRemaining = ((prefix[5] & 0xff) << 16) | ((prefix[6] & 0xff) << 8) | (prefix[7] & 0xff);
         if (compressedRemaining != bodyRemaining + inThisChunk) {
             throw new HandshakeFormatException("inconsistent compressed certificate length");

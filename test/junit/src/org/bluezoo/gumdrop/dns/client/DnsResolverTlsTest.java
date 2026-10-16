@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 
@@ -49,13 +50,13 @@ public class DnsResolverTlsTest {
         X509TrustManager trust = TestCertificates.trustAll();
         DnsResolver resolver = new DnsResolver();
         assertSame(resolver, resolver.tls(new TlsConfig().trustManager(trust)));
-        TcpTransportFactory factory = dot(resolver).createTransportFactory();
+        TcpTransportFactory factory = dot(resolver).createTransportFactory(new CryptoServices());
         assertSame(trust, factory.getTrustManager());
     }
 
     @Test
     public void withoutTlsTheDotTransportUsesTheDefaults() {
-        TcpTransportFactory factory = dot(new DnsResolver()).createTransportFactory();
+        TcpTransportFactory factory = dot(new DnsResolver()).createTransportFactory(new CryptoServices());
         assertNull(factory.getTrustManager());
     }
 
@@ -65,7 +66,7 @@ public class DnsResolverTlsTest {
         TlsConfig tls = new TlsConfig().trustManager(first);
         DnsResolver resolver = new DnsResolver().tls(tls);
         tls.trustManager(TestCertificates.trustNone());
-        assertSame(first, dot(resolver).createTransportFactory().getTrustManager());
+        assertSame(first, dot(resolver).createTransportFactory(new CryptoServices()).getTrustManager());
     }
 
     @Test
@@ -73,6 +74,6 @@ public class DnsResolverTlsTest {
         DnsResolver resolver = new DnsResolver()
                 .tls(new TlsConfig().trustManager(TestCertificates.trustAll()));
         resolver.tls(null);
-        assertNull(dot(resolver).createTransportFactory().getTrustManager());
+        assertNull(dot(resolver).createTransportFactory(new CryptoServices()).getTrustManager());
     }
 }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -132,27 +133,27 @@ public class NegotiatingTlsRecordStatePolicyTest {
     }
 
     private static HandshakeConfig client13() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.ec256().trustManager());
         return c;
     }
 
     private static HandshakeConfig server13() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TestCertificates.ec256().credentials());
         return c;
     }
 
     private static Tls12HandshakeConfig client12() throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.ec256().trustManager());
         return c;
     }
 
     private static Tls12HandshakeConfig server12() throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TestCertificates.ec256().credentials());
         return c;
     }

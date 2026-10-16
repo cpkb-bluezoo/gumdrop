@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.cid;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Test;
 
 import org.bluezoo.util.ByteArrays;
@@ -42,22 +43,22 @@ public class StatelessResetTokenTest {
     @Test
     public void testTokenIsFixedLength() {
         byte[] connectionId = ByteArrays.toByteArray("a1a2a3a4a5a6a7a8");
-        byte[] token = StatelessResetToken.generate(STATIC_KEY, connectionId);
+        byte[] token = StatelessResetToken.generate(STATIC_KEY, connectionId, new CryptoServices());
         assertEquals(StatelessResetToken.LENGTH, token.length);
     }
 
     @Test
     public void testTokenIsDeterministic() {
         byte[] connectionId = ByteArrays.toByteArray("a1a2a3a4a5a6a7a8");
-        byte[] token1 = StatelessResetToken.generate(STATIC_KEY, connectionId);
-        byte[] token2 = StatelessResetToken.generate(STATIC_KEY, connectionId);
+        byte[] token1 = StatelessResetToken.generate(STATIC_KEY, connectionId, new CryptoServices());
+        byte[] token2 = StatelessResetToken.generate(STATIC_KEY, connectionId, new CryptoServices());
         assertEquals(ByteArrays.toHexString(token1), ByteArrays.toHexString(token2));
     }
 
     @Test
     public void testDifferentConnectionIdsProduceDifferentTokens() {
-        byte[] token1 = StatelessResetToken.generate(STATIC_KEY, ByteArrays.toByteArray("a1a2a3a4a5a6a7a8"));
-        byte[] token2 = StatelessResetToken.generate(STATIC_KEY, ByteArrays.toByteArray("b1b2b3b4b5b6b7b8"));
+        byte[] token1 = StatelessResetToken.generate(STATIC_KEY, ByteArrays.toByteArray("a1a2a3a4a5a6a7a8"), new CryptoServices());
+        byte[] token2 = StatelessResetToken.generate(STATIC_KEY, ByteArrays.toByteArray("b1b2b3b4b5b6b7b8"), new CryptoServices());
         assertFalse(ByteArrays.toHexString(token1).equals(ByteArrays.toHexString(token2)));
     }
 
@@ -66,8 +67,8 @@ public class StatelessResetTokenTest {
         byte[] connectionId = ByteArrays.toByteArray("a1a2a3a4a5a6a7a8");
         byte[] otherKey = ByteArrays.toByteArray(
                 "1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100");
-        byte[] token1 = StatelessResetToken.generate(STATIC_KEY, connectionId);
-        byte[] token2 = StatelessResetToken.generate(otherKey, connectionId);
+        byte[] token1 = StatelessResetToken.generate(STATIC_KEY, connectionId, new CryptoServices());
+        byte[] token2 = StatelessResetToken.generate(otherKey, connectionId, new CryptoServices());
         assertFalse(ByteArrays.toHexString(token1).equals(ByteArrays.toHexString(token2)));
     }
 }

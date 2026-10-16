@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -192,7 +193,7 @@ public class DtlsRecordDiscardTest {
     private static Peer newPeer(int version, boolean server, X509TrustManager trust) throws Exception {
         if (version == 12) {
             Tls12HandshakeConfig c = new Tls12HandshakeConfig(
-                    server ? HandshakeRole.SERVER : HandshakeRole.CLIENT);
+                    server ? HandshakeRole.SERVER : HandshakeRole.CLIENT, new CryptoServices());
             c.setDtlsTransport(true);
             if (server) {
                 c.setServerCredentials(new ServerCredentials(chain, key));
@@ -202,7 +203,7 @@ public class DtlsRecordDiscardTest {
             }
             return wrap12(new Dtls12RecordEngine(c, 1024));
         }
-        HandshakeConfig c = new HandshakeConfig(server ? HandshakeRole.SERVER : HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(server ? HandshakeRole.SERVER : HandshakeRole.CLIENT, new CryptoServices());
         c.setCertificateCompressionEnabled(false);
         if (server) {
             c.setServerCredentials(new ServerCredentials(chain, key));
@@ -348,7 +349,7 @@ public class DtlsRecordDiscardTest {
     }
 
     private void spoofedGarbageBeforeAndDuringHandshake(int version) throws Exception {
-        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.noise = spoofedDatagrams();
         // before the handshake even starts
         net.injectNoise(net.server, net.ss);
@@ -372,7 +373,7 @@ public class DtlsRecordDiscardTest {
     }
 
     private void spoofedGarbageAfterHandshake(int version) throws Exception {
-        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.handshake();
         net.assertHealthy("handshake v" + version);
         List<byte[]> garbage = spoofedDatagrams();
@@ -398,7 +399,7 @@ public class DtlsRecordDiscardTest {
     }
 
     private void tamperedProtectedRecord(int version) throws Exception {
-        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.handshake();
         net.assertHealthy("handshake v" + version);
         net.client.send(PING, net.cs);
@@ -445,7 +446,7 @@ public class DtlsRecordDiscardTest {
 
     @Test
     public void dtls12DiscardsWrongEpochProtectedRecord() throws Exception {
-        Net net = new Net(12, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(12, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.handshake();
         net.client.send(PING, net.cs);
         byte[] real = net.cs.outbound.get(0);
@@ -464,7 +465,7 @@ public class DtlsRecordDiscardTest {
     }
 
     private void replayEverything(int version) throws Exception {
-        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.handshake();
         net.assertHealthy("handshake v" + version);
         net.assertDataFlows("first exchange v" + version);
@@ -498,7 +499,7 @@ public class DtlsRecordDiscardTest {
     }
 
     private void closeNotifyStillEndsSession(int version) throws Exception {
-        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.handshake();
         net.client.close(net.cs);
         net.pump();
@@ -535,7 +536,7 @@ public class DtlsRecordDiscardTest {
     }
 
     private void lostAndReorderedRecordsDoNotBreakLaterOnes(int version) throws Exception {
-        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain));
+        Net net = new Net(version, CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         net.handshake();
         net.assertHealthy("handshake v" + version);
         byte[][] sent = new byte[4][];

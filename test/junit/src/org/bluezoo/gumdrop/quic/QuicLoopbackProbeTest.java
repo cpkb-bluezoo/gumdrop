@@ -26,6 +26,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Method;
+
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
@@ -140,9 +142,11 @@ public class QuicLoopbackProbeTest {
         LongHeaderPrefix prefix = LongHeaderCodec.parsePrefix(datagram);
         PacketProtectionKeys keys;
         if (prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL) {
-            Method derive = QuicConnection.class.getDeclaredMethod("deriveInitialKeys", QuicVersion.class, byte[].class);
+            Method derive = QuicConnection.class.getDeclaredMethod("deriveInitialKeys", QuicVersion.class,
+                    byte[].class, CryptoServices.class);
             derive.setAccessible(true);
-            keys = ((PacketProtectionKeys[]) derive.invoke(null, sender.getVersion(), originalDcid))[1];
+            keys = ((PacketProtectionKeys[]) derive.invoke(null, sender.getVersion(), originalDcid,
+                    new CryptoServices()))[1];
         } else {
             assertEquals(LongHeaderCodec.TYPE_HANDSHAKE, prefix.getPacketType());
             Map<?, ?> send = (Map<?, ?>) QuicForger.field(sender, "sendKeys");

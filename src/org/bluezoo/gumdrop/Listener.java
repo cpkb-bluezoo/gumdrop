@@ -794,7 +794,12 @@ public abstract class Listener {
     public void start() {
         transportFactory = createTransportFactory();
         configureTransportFactory(transportFactory);
-        transportFactory.start();
+        Gumdrop runtime = gumdrop;
+        if (runtime != null) {
+            transportFactory.start(runtime);
+        } else {
+            transportFactory.start();
+        }
     }
 
     /**

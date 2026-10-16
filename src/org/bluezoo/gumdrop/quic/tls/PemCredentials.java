@@ -28,7 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
-import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
@@ -46,6 +46,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -76,14 +77,15 @@ public final class PemCredentials {
      *
      * @param certFile the PEM certificate chain file
      * @param keyFile the PEM PKCS8 private key file
+     * @param crypto the services the certificate factory, key factory and key store come from
      * @return the server credentials
      * @throws IOException if either file cannot be read or parsed
      * @throws GeneralSecurityException if the key cannot be parsed
      */
-    public static ServerCredentials loadServerCredentials(Path certFile, Path keyFile)
+    public static ServerCredentials loadServerCredentials(Path certFile, Path keyFile, CryptoServices crypto)
             throws IOException, GeneralSecurityException {
-        List<X509Certificate> chain = loadCertificateChain(certFile);
-        PrivateKey key = loadPrivateKey(keyFile);
+        List<X509Certificate> chain = loadCertificateChain(certFile, crypto);
+        PrivateKey key = loadPrivateKey(keyFile, crypto);
         return new ServerCredentials(chain, key);
     }
 
@@ -91,13 +93,14 @@ public final class PemCredentials {
      * Loads a certificate chain from a PEM file.
      *
      * @param certFile the PEM certificate chain file
+     * @param crypto the services the certificate factory, key factory and key store come from
      * @return the certificate chain, in file order
      * @throws IOException if the file cannot be read
      * @throws GeneralSecurityException if the certificates cannot be parsed
      */
-    public static List<X509Certificate> loadCertificateChain(Path certFile)
+    public static List<X509Certificate> loadCertificateChain(Path certFile, CryptoServices crypto)
             throws IOException, GeneralSecurityException {
-        CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+        CertificateFactory certificateFactory = crypto.certificateFactory("X.509");
         List<X509Certificate> chain = new ArrayList<X509Certificate>();
         try (InputStream in = Files.newInputStream(certFile)) {
             // CertificateFactory reads PEM directly, and generateCertificates
@@ -119,19 +122,21 @@ public final class PemCredentials {
      * platform default trust store.
      *
      * @param caFile the PEM CA certificate file (one or more concatenated certificates)
+     * @param crypto the services the certificate factory, key factory and key store come from
      * @return the trust manager
      * @throws IOException if the file cannot be read
      * @throws GeneralSecurityException if the certificates cannot be parsed
      *                                  or the trust manager cannot be built
      */
-    public static X509TrustManager loadTrustManager(Path caFile) throws IOException, GeneralSecurityException {
-        List<X509Certificate> chain = loadCertificateChain(caFile);
-        KeyStore trustStore = KeyStore.getInstance("PKCS12");
+    public static X509TrustManager loadTrustManager(Path caFile, CryptoServices crypto)
+            throws IOException, GeneralSecurityException {
+        List<X509Certificate> chain = loadCertificateChain(caFile, crypto);
+        KeyStore trustStore = crypto.keyStore("PKCS12");
         trustStore.load(null, null);
         for (int i = 0; i < chain.size(); i++) {
             trustStore.setCertificateEntry("ca" + i, chain.get(i));
         }
-        TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        TrustManagerFactory factory = crypto.trustManagerFactory();
         factory.init(trustStore);
         for (TrustManager manager : factory.getTrustManagers()) {
             if (manager instanceof X509TrustManager) {
@@ -149,6 +154,7 @@ public final class PemCredentials {
      * block naming the curve.
      *
      * @param keyFile the PEM private key file
+     * @param crypto the services the certificate factory, key factory and key store come from
      * @return the private key
      * @throws IOException if the file cannot be read or does not contain
      *                     a private key block
@@ -156,7 +162,8 @@ public final class PemCredentials {
      *                                  as an RSA, EC, Ed25519 or ML-DSA
      *                                  private key
      */
-    public static PrivateKey loadPrivateKey(Path keyFile) throws IOException, GeneralSecurityException {
+    public static PrivateKey loadPrivateKey(Path keyFile, CryptoServices crypto)
+            throws IOException, GeneralSecurityException {
         String pem = new String(Files.readAllBytes(keyFile), StandardCharsets.US_ASCII);
         byte[] der;
         if (findPemBlock(pem, "EC PRIVATE KEY") != null) {
@@ -169,9 +176,12 @@ public final class PemCredentials {
         InvalidKeySpecException failure = null;
         for (int i = 0; i < KEY_ALGORITHMS.length; i++) {
             try {
-                return KeyFactory.getInstance(KEY_ALGORITHMS[i]).generatePrivate(spec);
+                return crypto.keyFactory(KEY_ALGORITHMS[i]).generatePrivate(spec);
             } catch (InvalidKeySpecException e) {
                 failure = e;
+            } catch (NoSuchAlgorithmException e) {
+                // A pinned provider need not offer every key type; try the next
+                failure = new InvalidKeySpecException(e);
             }
         }
         throw new InvalidKeyException(

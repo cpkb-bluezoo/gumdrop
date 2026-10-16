@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.util.ByteArrays;
 
@@ -56,11 +56,11 @@ public class QuicVersion2Test {
 
     @Test
     public void testV2ClientInitialSecretAndKeys() {
-        byte[] secret = InitialSecrets.clientSecret(QuicVersion.V2, DCID);
+        byte[] secret = InitialSecrets.clientSecret(QuicVersion.V2, DCID, new CryptoServices());
         assertEquals("14ec9d6eb9fd7af83bf5a668bc17a7e283766aade7ecd0891f70f9ff7f4bf47b",
                 ByteArrays.toHexString(secret));
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V2);
+                new CryptoServices(), "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V2);
         assertEquals("8b1a0bc121284290a29e0971b5cd045d", ByteArrays.toHexString(keys.getAeadKey().getEncoded()));
         assertEquals("91f73e2351d8fa91660e909f", ByteArrays.toHexString(keys.getIv()));
         assertEquals("45b95e15235d6f45a6b19cbcb0294ba9",
@@ -69,11 +69,11 @@ public class QuicVersion2Test {
 
     @Test
     public void testV2ServerInitialSecretAndKeys() {
-        byte[] secret = InitialSecrets.serverSecret(QuicVersion.V2, DCID);
+        byte[] secret = InitialSecrets.serverSecret(QuicVersion.V2, DCID, new CryptoServices());
         assertEquals("0263db1782731bf4588e7e4d93b7463907cb8cd8200b5da55a8bd488eafc37c1",
                 ByteArrays.toHexString(secret));
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V2);
+                new CryptoServices(), "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V2);
         assertEquals("82db637861d55e1d011f19ea71d5d2a7", ByteArrays.toHexString(keys.getAeadKey().getEncoded()));
         assertEquals("dd13c276499c0249d3310652", ByteArrays.toHexString(keys.getIv()));
         assertEquals("edf6d05c83121201b436e16877593c3a",
@@ -82,11 +82,11 @@ public class QuicVersion2Test {
 
     @Test
     public void testV2KeysDifferFromV1KeysForSameSecret() {
-        byte[] secret = InitialSecrets.clientSecret(QuicVersion.V1, DCID);
+        byte[] secret = InitialSecrets.clientSecret(QuicVersion.V1, DCID, new CryptoServices());
         PacketProtectionKeys v1 = PacketProtectionKeys.derive(
-                Hkdf.sha256(), secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                new CryptoServices(), "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         PacketProtectionKeys v2 = PacketProtectionKeys.derive(
-                Hkdf.sha256(), secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V2);
+                new CryptoServices(), "SHA-256", secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V2);
         assertFalse(java.util.Arrays.equals(v1.getAeadKey().getEncoded(), v2.getAeadKey().getEncoded()));
     }
 
@@ -117,10 +117,10 @@ public class QuicVersion2Test {
     @Test
     public void testV2RetryIntegrityTag() {
         byte[] retry = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V2, DCID, DCID, new byte[] { 1, 2, 3 });
-        byte[] tagV2 = RetryIntegrityTag.compute(QuicVersion.V2, DCID, retry);
-        assertTrue(RetryIntegrityTag.verify(QuicVersion.V2, DCID, retry, tagV2));
-        assertFalse("v1 key must not validate a v2 tag", RetryIntegrityTag.verify(QuicVersion.V1, DCID, retry, tagV2));
-        assertFalse(java.util.Arrays.equals(tagV2, RetryIntegrityTag.compute(QuicVersion.V1, DCID, retry)));
+        byte[] tagV2 = RetryIntegrityTag.compute(QuicVersion.V2, DCID, retry, new CryptoServices());
+        assertTrue(RetryIntegrityTag.verify(QuicVersion.V2, DCID, retry, tagV2, new CryptoServices()));
+        assertFalse("v1 key must not validate a v2 tag", RetryIntegrityTag.verify(QuicVersion.V1, DCID, retry, tagV2, new CryptoServices()));
+        assertFalse(java.util.Arrays.equals(tagV2, RetryIntegrityTag.compute(QuicVersion.V1, DCID, retry, new CryptoServices())));
     }
 
     @Test
@@ -129,7 +129,7 @@ public class QuicVersion2Test {
         // of the RFC 9369 Appendix A.4 Retry packet.
         byte[] packet = ByteArrays.toByteArray(
                 "cf6b3343cf0008f067a5502a4262b5746f6b656e");
-        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V2, DCID, packet);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V2, DCID, packet, new CryptoServices());
         assertEquals("c8646ce8bfe33952d955543665dcc7b6", ByteArrays.toHexString(tag));
     }
 }

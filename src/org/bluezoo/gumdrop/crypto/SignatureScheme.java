@@ -154,11 +154,12 @@ public enum SignatureScheme {
      * @param message the exact bytes to sign (the caller builds the
      *                TLS 1.3 {@code CertificateVerify} signature content,
      *                including its 64-space padding and context string)
+     * @param crypto the services the signature engine comes from
      * @return the signature bytes
      * @throws GeneralSecurityException if signing fails
      */
-    public byte[] sign(PrivateKey key, byte[] message) throws GeneralSecurityException {
-        Signature signature = newSignature();
+    public byte[] sign(PrivateKey key, byte[] message, CryptoServices crypto) throws GeneralSecurityException {
+        Signature signature = newSignature(crypto);
         signature.initSign(key);
         signature.update(message);
         return signature.sign();
@@ -170,20 +171,22 @@ public enum SignatureScheme {
      * @param key the public key
      * @param message the exact bytes that were signed
      * @param signatureBytes the signature to verify
+     * @param crypto the services the signature engine comes from
      * @return true if the signature is valid
      * @throws GeneralSecurityException if verification cannot be
      *         attempted (a malformed key, for instance) -- an invalid
      *         signature returns false, it does not throw
      */
-    public boolean verify(PublicKey key, byte[] message, byte[] signatureBytes) throws GeneralSecurityException {
-        Signature signature = newSignature();
+    public boolean verify(PublicKey key, byte[] message, byte[] signatureBytes, CryptoServices crypto)
+            throws GeneralSecurityException {
+        Signature signature = newSignature(crypto);
         signature.initVerify(key);
         signature.update(message);
         return signature.verify(signatureBytes);
     }
 
-    private Signature newSignature() throws GeneralSecurityException {
-        Signature signature = Signature.getInstance(jcaAlgorithm);
+    private Signature newSignature(CryptoServices crypto) throws GeneralSecurityException {
+        Signature signature = crypto.signature(jcaAlgorithm);
         if (pssDigest != null) {
             signature.setParameter(new PSSParameterSpec(
                     pssDigest, "MGF1", new MGF1ParameterSpec(pssDigest), pssSaltLength, 1));

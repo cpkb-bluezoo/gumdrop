@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Collections;
@@ -55,7 +56,7 @@ public class EchClientHelloBuilderTest {
         HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
         SecureRandom random = new SecureRandom();
 
-        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, random);
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new CryptoServices());
 
         HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(
                 offer.getClientHelloOuterFramed());
@@ -75,7 +76,7 @@ public class EchClientHelloBuilderTest {
         EncryptedClientHello.Outer wire = outer.encryptedClientHelloOuter;
         byte[] aad = EncryptedClientHello.clientHelloOuterAadWithZeroEchPayload(
                 outerContent, wire.payload.length);
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices());
         Hpke.RecipientContext recipient = hpke.setupBaseR(
                 wire.enc, SK_RM, PK_RM, ech.hpkeSetupInfo());
         assertArrayEquals(encodedInner, recipient.open(aad, wire.payload));
@@ -87,9 +88,9 @@ public class EchClientHelloBuilderTest {
         HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
         SecureRandom random = new SecureRandom();
 
-        EchClientHelloBuilder.Offer first = EchClientHelloBuilder.build(params, ech, null, random);
+        EchClientHelloBuilder.Offer first = EchClientHelloBuilder.build(params, ech, null, new CryptoServices());
         EchServer.OpenResult openedFirst = EchServer.openInnerClientHello(
-                first.getClientHelloOuterFramed(), ech, SK_RM, null);
+                first.getClientHelloOuterFramed(), ech, SK_RM, null, new CryptoServices());
 
         HandshakeMessages.ClientHelloParams retryParams = sampleParams("backend.example");
         retryParams.random = first.getClientHelloOuterRandom();
@@ -102,7 +103,7 @@ public class EchClientHelloBuilderTest {
         assertEquals(0, outer2.encryptedClientHelloOuter.enc.length);
 
         EchServer.OpenResult openedSecond = EchServer.openInnerClientHello(
-                second.getClientHelloOuterFramed(), ech, SK_RM, openedFirst.getHpkeRecipient());
+                second.getClientHelloOuterFramed(), ech, SK_RM, openedFirst.getHpkeRecipient(), new CryptoServices());
         HandshakeMessages.ClientHello inner2 = HandshakeMessages.parseClientHello(
                 openedSecond.getInnerClientHelloFramed());
         assertEquals("backend.example", inner2.serverName);
@@ -112,7 +113,7 @@ public class EchClientHelloBuilderTest {
     @Test
     public void greaseOuterHasValidEncAndNonEmptyPayload() throws Exception {
         HandshakeMessages.ClientHelloParams params = sampleParams("client.example");
-        EncryptedClientHello.Outer grease = EchClientHelloBuilder.buildGreaseOuter(params, new SecureRandom());
+        EncryptedClientHello.Outer grease = EchClientHelloBuilder.buildGreaseOuter(params, new CryptoServices());
         assertEquals(32, grease.enc.length);
         assertTrue(grease.payload.length > 16);
         assertTrue(grease.configId >= 0 && grease.configId <= 255);
@@ -128,14 +129,14 @@ public class EchClientHelloBuilderTest {
             EchConfig ech = EchConfig.createV13(9, PK_RM, "public.example", 32,
                     new int[][] { { Hpke.KDF_HKDF_SHA256, aead } });
             EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(
-                    sampleParams("backend.example"), ech, null, new SecureRandom());
+                    sampleParams("backend.example"), ech, null, new CryptoServices());
             HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(
                     offer.getClientHelloOuterFramed());
             assertEquals(Hpke.KDF_HKDF_SHA256, outer.encryptedClientHelloOuter.kdfId);
             assertEquals("aead id on the wire", aead, outer.encryptedClientHelloOuter.aeadId);
 
             EchServer.OpenResult opened = EchServer.openInnerClientHello(
-                    offer.getClientHelloOuterFramed(), ech, SK_RM, null);
+                    offer.getClientHelloOuterFramed(), ech, SK_RM, null, new CryptoServices());
             HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(
                     opened.getInnerClientHelloFramed());
             assertEquals("backend.example", inner.serverName);
@@ -147,9 +148,9 @@ public class EchClientHelloBuilderTest {
         EchConfig ech = EchConfig.createV13(10, PK_RM, "public.example", 32,
                 new int[][] { { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 } });
         HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
-        EchClientHelloBuilder.Offer first = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+        EchClientHelloBuilder.Offer first = EchClientHelloBuilder.build(params, ech, null, new CryptoServices());
         EchServer.OpenResult openedFirst = EchServer.openInnerClientHello(
-                first.getClientHelloOuterFramed(), ech, SK_RM, null);
+                first.getClientHelloOuterFramed(), ech, SK_RM, null, new CryptoServices());
         HandshakeMessages.ClientHelloParams retryParams = sampleParams("backend.example");
         retryParams.random = first.getClientHelloOuterRandom();
         retryParams.keyShares = params.keyShares;
@@ -159,7 +160,7 @@ public class EchClientHelloBuilderTest {
                 second.getClientHelloOuterFramed());
         assertEquals(Hpke.AEAD_CHACHA20_POLY1305, outer2.encryptedClientHelloOuter.aeadId);
         EchServer.OpenResult openedSecond = EchServer.openInnerClientHello(
-                second.getClientHelloOuterFramed(), ech, SK_RM, openedFirst.getHpkeRecipient());
+                second.getClientHelloOuterFramed(), ech, SK_RM, openedFirst.getHpkeRecipient(), new CryptoServices());
         assertTrue(HandshakeMessages.parseClientHello(
                 openedSecond.getInnerClientHelloFramed()).encryptedClientHelloInner);
     }
@@ -169,12 +170,12 @@ public class EchClientHelloBuilderTest {
         EchConfig clientView = EchConfig.createV13(9, PK_RM, "public.example", 32,
                 new int[][] { { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 } });
         EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(
-                sampleParams("backend.example"), clientView, null, new SecureRandom());
+                sampleParams("backend.example"), clientView, null, new CryptoServices());
         // Same key and id, but the server config lists only the section 9 suite:
         // the client's suite is not one it advertised.
         EchConfig serverView = EchConfig.createV13(9, PK_RM, "public.example", 32);
         try {
-            EchServer.openInnerClientHello(offer.getClientHelloOuterFramed(), serverView, SK_RM, null);
+            EchServer.openInnerClientHello(offer.getClientHelloOuterFramed(), serverView, SK_RM, null, new CryptoServices());
             fail("suite outside the advertised list must not be opened");
         } catch (GeneralSecurityException expected) {
             // treated as an ECH decryption failure by the handshake engine
@@ -186,7 +187,7 @@ public class EchClientHelloBuilderTest {
         EchConfig ech = EchConfig.createV13(9, PK_RM, "public.example", 32,
                 new int[][] { { 0x0002, Hpke.AEAD_AES_128_GCM } });
         try {
-            EchClientHelloBuilder.build(sampleParams("backend.example"), ech, null, new SecureRandom());
+            EchClientHelloBuilder.build(sampleParams("backend.example"), ech, null, new CryptoServices());
             fail("expected HandshakeFormatException");
         } catch (HandshakeFormatException expected) {
             // nothing usable in the config

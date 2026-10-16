@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
@@ -150,6 +151,7 @@ public final class Tls12RecordEngine {
     }
 
     private final Tls12HandshakeEngine engine;
+    private final CryptoServices crypto;
     private final HandshakeRole role;
     private final InnerSink innerSink = new InnerSink();
     private final HandshakeRunner handshakeRunner = new HandshakeRunner();
@@ -195,6 +197,7 @@ public final class Tls12RecordEngine {
      */
     public Tls12RecordEngine(Tls12HandshakeConfig config, HandshakeAsyncOffload offload) {
         this.role = config.getRole();
+        this.crypto = config.getCrypto();
         this.engine = new Tls12HandshakeEngine(config);
         this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
@@ -620,7 +623,7 @@ public final class Tls12RecordEngine {
 
     private void activateRead() {
         if (pendingRead != null) {
-            read = Tls12DirectionalKeys.fromMaterial(stagedSuite, pendingRead);
+            read = Tls12DirectionalKeys.fromMaterial(stagedSuite, pendingRead, crypto);
             pendingRead = null;
         }
     }
@@ -696,7 +699,7 @@ public final class Tls12RecordEngine {
         public void deliverChangeCipherSpec() {
             writeFragmented(CONTENT_CHANGE_CIPHER_SPEC, new byte[] { 0x01 }, outer);
             if (pendingWrite != null) {
-                write = Tls12DirectionalKeys.fromMaterial(stagedSuite, pendingWrite);
+                write = Tls12DirectionalKeys.fromMaterial(stagedSuite, pendingWrite, crypto);
                 pendingWrite = null;
             }
         }

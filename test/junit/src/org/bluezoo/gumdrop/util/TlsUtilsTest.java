@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.util;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -55,6 +56,9 @@ import static org.junit.Assert.fail;
  */
 public class TlsUtilsTest {
 
+    // One set of services for the whole class: the caches are per services
+    private static final CryptoServices CRYPTO = new CryptoServices();
+
     private static final char[] PASSWORD = "changeit".toCharArray();
     private static final String PW = "changeit";
 
@@ -82,8 +86,8 @@ public class TlsUtilsTest {
     @Test
     public void loadKeyStoreCachesByPathAndMtime() throws Exception {
         Path p = store("cache.p12", "one");
-        KeyStore a = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12);
-        KeyStore b = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12);
+        KeyStore a = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12, CRYPTO);
+        KeyStore b = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         assertSame(a, b);
         assertTrue(a.containsAlias("one"));
     }
@@ -91,29 +95,29 @@ public class TlsUtilsTest {
     @Test
     public void loadKeyStoreReloadsWhenFileModified() throws Exception {
         Path p = store("reload.p12", "one");
-        KeyStore a = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12);
+        KeyStore a = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         Files.setLastModifiedTime(p, FileTime.fromMillis(1000000000000L));
-        KeyStore b = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12);
+        KeyStore b = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         assertNotSame(a, b);
     }
 
     @Test
     public void reloadEvictsDerivedManagerCaches() throws Exception {
         Path p = store("evict.p12", "one");
-        KeyManager[] k1 = TlsUtils.loadKeyManagers(p, PW, KeystoreFormat.PKCS12);
-        TrustManager[] t1 = TlsUtils.loadTrustManagers(p, PW, KeystoreFormat.PKCS12);
-        KeyManager[] k1b = TlsUtils.loadKeyManagers(p, PW, KeystoreFormat.PKCS12);
-        TrustManager[] t1b = TlsUtils.loadTrustManagers(p, PW, KeystoreFormat.PKCS12);
+        KeyManager[] k1 = TlsUtils.loadKeyManagers(p, PW, KeystoreFormat.PKCS12, CRYPTO);
+        TrustManager[] t1 = TlsUtils.loadTrustManagers(p, PW, KeystoreFormat.PKCS12, CRYPTO);
+        KeyManager[] k1b = TlsUtils.loadKeyManagers(p, PW, KeystoreFormat.PKCS12, CRYPTO);
+        TrustManager[] t1b = TlsUtils.loadTrustManagers(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         assertSame(k1, k1b);
         assertSame(t1, t1b);
         assertNotNull(k1);
         assertTrue(k1.length > 0);
         assertTrue(t1.length > 0);
         Files.setLastModifiedTime(p, FileTime.fromMillis(1100000000000L));
-        KeyStore reloaded = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12);
+        KeyStore reloaded = TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         assertNotNull(reloaded);
-        KeyManager[] k2 = TlsUtils.loadKeyManagers(p, PW, KeystoreFormat.PKCS12);
-        TrustManager[] t2 = TlsUtils.loadTrustManagers(p, PW, KeystoreFormat.PKCS12);
+        KeyManager[] k2 = TlsUtils.loadKeyManagers(p, PW, KeystoreFormat.PKCS12, CRYPTO);
+        TrustManager[] t2 = TlsUtils.loadTrustManagers(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         assertNotSame(k1, k2);
         assertNotSame(t1, t2);
     }
@@ -121,14 +125,14 @@ public class TlsUtilsTest {
     @Test
     public void loadServerCredentialsFirstKeyEntry() throws Exception {
         Path p = store("creds.p12", "first");
-        ServerCredentials c = TlsUtils.loadServerCredentials(p, PW, KeystoreFormat.PKCS12);
+        ServerCredentials c = TlsUtils.loadServerCredentials(p, PW, KeystoreFormat.PKCS12, CRYPTO);
         assertNotNull(c);
     }
 
     @Test
     public void loadServerCredentialsByAlias() throws Exception {
         Path p = store("alias.p12", "named");
-        ServerCredentials c = TlsUtils.loadServerCredentials(p, PW, KeystoreFormat.PKCS12, "named");
+        ServerCredentials c = TlsUtils.loadServerCredentials(p, PW, KeystoreFormat.PKCS12, "named", CRYPTO);
         assertNotNull(c);
     }
 
@@ -136,7 +140,7 @@ public class TlsUtilsTest {
     public void unknownAliasHasNoChain() throws Exception {
         Path p = store("missing.p12", "named");
         try {
-            TlsUtils.loadServerCredentials(p, PW, KeystoreFormat.PKCS12, "other");
+            TlsUtils.loadServerCredentials(p, PW, KeystoreFormat.PKCS12, "other", CRYPTO);
             fail("expected GeneralSecurityException");
         } catch (GeneralSecurityException e) {
             String m = e.getMessage();
@@ -183,7 +187,7 @@ public class TlsUtilsTest {
     public void missingFileIsIoError() throws Exception {
         Path p = root.resolve("absent.p12");
         try {
-            TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12);
+            TlsUtils.loadKeyStore(p, PW, KeystoreFormat.PKCS12, CRYPTO);
             fail("expected IOException");
         } catch (NoSuchFileException expected) {
             assertNotNull(expected);
@@ -194,7 +198,7 @@ public class TlsUtilsTest {
     public void wrongPasswordFails() throws Exception {
         Path p = store("badpw.p12", "one");
         try {
-            TlsUtils.loadKeyStore(p, "wrong", KeystoreFormat.PKCS12);
+            TlsUtils.loadKeyStore(p, "wrong", KeystoreFormat.PKCS12, CRYPTO);
             fail("expected IOException");
         } catch (IOException expected) {
             assertNotNull(expected);

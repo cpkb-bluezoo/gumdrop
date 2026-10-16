@@ -28,6 +28,8 @@ import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -158,9 +160,11 @@ public class QuicLoopbackServerConnectionIdTest {
     // client's first Destination Connection ID.
     private static byte[] forgeAckOnlyServerInitial(QuicConnection client, byte[] originalDcid, byte[] scid)
             throws Exception {
-        Method derive = QuicConnection.class.getDeclaredMethod("deriveInitialKeys", QuicVersion.class, byte[].class);
+        Method derive = QuicConnection.class.getDeclaredMethod("deriveInitialKeys", QuicVersion.class, byte[].class,
+                CryptoServices.class);
         derive.setAccessible(true);
-        PacketProtectionKeys keys = ((PacketProtectionKeys[]) derive.invoke(null, client.getVersion(), originalDcid))[1];
+        PacketProtectionKeys keys = ((PacketProtectionKeys[]) derive.invoke(null, client.getVersion(), originalDcid,
+                new CryptoServices()))[1];
         ByteBuffer frames = ByteBuffer.allocate(1200);
         QuicFrameWriter.writeAck(frames, new long[][] { { 0, 0 } }, 0);
         QuicFrameWriter.writePadding(frames, 1100 - frames.position());

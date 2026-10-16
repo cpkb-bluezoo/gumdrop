@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +41,7 @@ import org.bluezoo.gumdrop.tls.SessionTicket;
 import org.bluezoo.gumdrop.tls.TicketKeys;
 
 import static org.junit.Assert.*;
+import org.bluezoo.gumdrop.testsupport.CompositeTestProvider;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 
 /**
@@ -165,14 +167,14 @@ public class QuicTlsHandshakeTest {
     }
 
     private QuicTlsClientEngine newClient(String alpn, String groups, String ciphers) {
-        QuicTlsClientEngine client = new QuicTlsClientEngine(params(1000), clientPeer, alpn, groups, ciphers);
+        QuicTlsClientEngine client = new QuicTlsClientEngine(new CryptoServices(), params(1000), clientPeer, alpn, groups, ciphers);
         client.setTrustManager(TestCertificates.trustAll());
         client.setVerifyHostname(false);
         return client;
     }
 
     private QuicTlsServerEngine newServer(String alpn, String ciphers, boolean early) {
-        return new QuicTlsServerEngine(credentials, params(2000), serverPeer, early, alpn, ciphers);
+        return new QuicTlsServerEngine(new CryptoServices(), credentials, params(2000), serverPeer, early, alpn, ciphers);
     }
 
     private static void deliver(QuicTlsEngine to, Frame f, int chunk, boolean reverse) throws Exception {
@@ -255,6 +257,27 @@ public class QuicTlsHandshakeTest {
     }
 
     @Test
+    public void handshakeUnderAFipsRuntimeDrawsOnThePinnedProvider() throws Exception {
+        CompositeTestProvider provider = CompositeTestProvider.install();
+        CryptoServices crypto = CryptoServices.pinned(CompositeTestProvider.NAME, null);
+        int kdf = provider.handedOut("KDF");
+        int random = provider.handedOut("SecureRandom");
+        int agreement = provider.handedOut("KeyAgreement");
+        QuicTlsClientEngine client = new QuicTlsClientEngine(crypto, params(1000), clientPeer, "h3", null, null);
+        client.setTrustManager(TestCertificates.trustAll());
+        client.setVerifyHostname(false);
+        QuicTlsServerEngine server = new QuicTlsServerEngine(crypto, credentials, params(2000), serverPeer, false,
+                "h3", null);
+        client.startHandshake("localhost");
+        pump(client, server, 0, false);
+        assertCompleted(client, server);
+        assertTrue(provider.handedOut("KDF") > kdf);
+        assertTrue(provider.handedOut("SecureRandom") > random);
+        assertTrue(provider.handedOut("KeyAgreement") > agreement);
+        assertEquals(CipherSuite.TLS_AES_256_GCM_SHA384, client.getSelectedCipher());
+    }
+
+    @Test
     public void testHandshakeWithoutAlpn() throws Exception {
         handshake(null, null, null, 0, false);
     }
@@ -325,7 +348,7 @@ public class QuicTlsHandshakeTest {
         TransportParameters clientParams = params(1000);
         clientParams.setVersionInformation(QuicVersion.V1.getWireValue(),
                 new int[] {QuicVersion.V1.getWireValue(), QuicVersion.V2.getWireValue()});
-        QuicTlsClientEngine client = new QuicTlsClientEngine(clientParams, clientPeer, "h3");
+        QuicTlsClientEngine client = new QuicTlsClientEngine(new CryptoServices(), clientParams, clientPeer, "h3");
         client.setTrustManager(TestCertificates.trustAll());
         client.setVerifyHostname(false);
         QuicTlsServerEngine server = newServer("h3", null, false);
@@ -448,7 +471,7 @@ public class QuicTlsHandshakeTest {
         TransportParameters clientParams = params(1000);
         clientParams.setVersionInformation(QuicVersion.V1.getWireValue(),
                 new int[] {QuicVersion.V1.getWireValue()});
-        QuicTlsClientEngine client = new QuicTlsClientEngine(clientParams, clientPeer, "h3");
+        QuicTlsClientEngine client = new QuicTlsClientEngine(new CryptoServices(), clientParams, clientPeer, "h3");
         client.setTrustManager(TestCertificates.trustAll());
         client.setVerifyHostname(false);
         QuicTlsServerEngine server = newServer("h3", null, true);
@@ -470,7 +493,7 @@ public class QuicTlsHandshakeTest {
         TransportParameters clientParams2 = params(1000);
         clientParams2.setVersionInformation(QuicVersion.V1.getWireValue(),
                 new int[] {QuicVersion.V1.getWireValue()});
-        QuicTlsClientEngine client2 = new QuicTlsClientEngine(clientParams2, clientPeer, "h3");
+        QuicTlsClientEngine client2 = new QuicTlsClientEngine(new CryptoServices(), clientParams2, clientPeer, "h3");
         client2.setTrustManager(TestCertificates.trustAll());
         client2.setVerifyHostname(false);
         client2.presentSessionTicket(ticket);
@@ -494,7 +517,7 @@ public class QuicTlsHandshakeTest {
     @Test
     public void testServerWithoutCredentialsFailsViaListener() throws Exception {
         QuicTlsClientEngine client = newClient("h3", null, null);
-        QuicTlsServerEngine server = new QuicTlsServerEngine(null, params(2000), serverPeer, false);
+        QuicTlsServerEngine server = new QuicTlsServerEngine(new CryptoServices(), null, params(2000), serverPeer, false);
         client.startHandshake("localhost");
         pump(client, server, 0, false);
         assertFalse(serverPeer.failures.isEmpty());
@@ -503,7 +526,7 @@ public class QuicTlsHandshakeTest {
 
     @Test
     public void testClientRejectingCertificateFails() throws Exception {
-        QuicTlsClientEngine client = new QuicTlsClientEngine(params(1000), clientPeer, "h3");
+        QuicTlsClientEngine client = new QuicTlsClientEngine(new CryptoServices(), params(1000), clientPeer, "h3");
         client.setTrustManager(TestCertificates.trustNone());
         client.setVerifyHostname(false);
         QuicTlsServerEngine server = newServer("h3", null, false);
@@ -675,7 +698,7 @@ public class QuicTlsHandshakeTest {
     @Test
     public void testRequiredClientAuthWithoutCertificateFails() throws Exception {
         QuicTlsClientEngine client = newClient("h3", null, null);
-        QuicTlsServerEngine server = new QuicTlsServerEngine(credentials, null, params(2000), serverPeer,
+        QuicTlsServerEngine server = new QuicTlsServerEngine(new CryptoServices(), credentials, null, params(2000), serverPeer,
                 false, "h3", null, true, TestCertificates.trustAll());
         client.startHandshake("localhost");
         pump(client, server, 0, false);
@@ -694,7 +717,7 @@ public class QuicTlsHandshakeTest {
             }
         };
         QuicTlsClientEngine client = newClient("h3", null, null);
-        QuicTlsServerEngine server = new QuicTlsServerEngine(null, resolver, params(2000), serverPeer,
+        QuicTlsServerEngine server = new QuicTlsServerEngine(new CryptoServices(), null, resolver, params(2000), serverPeer,
                 false, "h3", null, false, null);
         client.startHandshake("localhost");
         pump(client, server, 0, false);

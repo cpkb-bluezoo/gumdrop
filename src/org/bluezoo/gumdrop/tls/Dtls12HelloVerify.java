@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
@@ -38,9 +39,9 @@ public final class Dtls12HelloVerify {
     private Dtls12HelloVerify() {
     }
 
-    public static byte[] computeCookie(byte[] secret, byte[] clientRandom, InetSocketAddress source)
-            throws GeneralSecurityException {
-        Mac mac = Mac.getInstance("HmacSHA256");
+    public static byte[] computeCookie(byte[] secret, byte[] clientRandom, InetSocketAddress source,
+            CryptoServices crypto) throws GeneralSecurityException {
+        Mac mac = crypto.mac("HmacSHA256");
         mac.init(new SecretKeySpec(secret, "HmacSHA256"));
         mac.update(clientRandom);
         if (source != null) {
@@ -53,12 +54,13 @@ public final class Dtls12HelloVerify {
         return mac.doFinal();
     }
 
-    public static boolean validateCookie(byte[] secret, byte[] clientRandom, InetSocketAddress source, byte[] cookie) {
+    public static boolean validateCookie(byte[] secret, byte[] clientRandom, InetSocketAddress source, byte[] cookie,
+            CryptoServices crypto) {
         if (cookie == null || cookie.length == 0) {
             return false;
         }
         try {
-            byte[] expected = computeCookie(secret, clientRandom, source);
+            byte[] expected = computeCookie(secret, clientRandom, source, crypto);
             return Arrays.equals(expected, cookie);
         } catch (GeneralSecurityException e) {
             return false;

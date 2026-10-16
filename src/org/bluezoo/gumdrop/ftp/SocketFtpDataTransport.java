@@ -155,7 +155,7 @@ class SocketFtpDataTransport implements FtpDataTransport {
             int port, SelectorLoop loop, final ActiveConnectCallback callback)
             throws IOException {
         final TcpTransportFactory factory = new TcpTransportFactory();
-        factory.start();
+        factory.start(gumdrop);
         ProtocolHandler connectHandler = new ProtocolHandler() {
             @Override
             public void connected(Endpoint ep) {

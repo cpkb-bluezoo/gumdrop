@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.cid;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.List;
 
 import org.junit.Test;
@@ -51,7 +52,7 @@ public class ConnectionIdManagerTest {
     private static final byte[] PEER_HANDSHAKE_CID = ByteArrays.toByteArray("bbbbbbbbbbbbbbbb");
 
     private static ConnectionIdManager newManager() {
-        return new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY);
+        return new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY, new CryptoServices());
     }
 
     private static byte[] cid(int fill) {
@@ -254,7 +255,7 @@ public class ConnectionIdManagerTest {
     @Test
     public void testIssueNextEncodesServerIdWhenKeyed() {
         QuicLbConfig config = lb(1, LB_KEY);
-        ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY, config);
+        ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY, config, new CryptoServices());
         manager.setPeerAdvertisedLimit(4);
         ConnectionIdEntry entry = manager.issueNext();
         assertNotNull(entry);
@@ -265,7 +266,7 @@ public class ConnectionIdManagerTest {
     @Test
     public void testIssueNextSkippedWhenUnkeyed() {
         ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY,
-                lb(0, null));
+                lb(0, null), new CryptoServices());
         manager.setPeerAdvertisedLimit(4);
         assertNull(manager.issueNext());
     }
@@ -273,7 +274,7 @@ public class ConnectionIdManagerTest {
     @Test
     public void testRotationReplacesRetiredConfigIds() {
         ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY,
-                lb(0, LB_KEY));
+                lb(0, LB_KEY), new CryptoServices());
         manager.setPeerAdvertisedLimit(2);
         manager.issueNext();
         manager.drainPendingIssuance();
@@ -298,7 +299,7 @@ public class ConnectionIdManagerTest {
     @Test
     public void testUnkeyedRotationIssuesOneReplacement() {
         ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY,
-                lb(0, null));
+                lb(0, null), new CryptoServices());
         manager.setPeerAdvertisedLimit(4);
         manager.rotateTo(lb(1, null));
         assertEquals(1, manager.drainPendingIssuance().size());
@@ -309,7 +310,7 @@ public class ConnectionIdManagerTest {
 
     @Test
     public void testPreferredAddressConnectionIdIsSequenceOneAndNotQueuedAsAFrame() {
-        ConnectionIdManager manager = new ConnectionIdManager(new byte[] {1, 2}, new byte[] {3, 4}, new byte[32]);
+        ConnectionIdManager manager = new ConnectionIdManager(new byte[] {1, 2}, new byte[] {3, 4}, new byte[32], new CryptoServices());
         ConnectionIdEntry preferred = manager.mintPreferredAddressConnectionId();
         assertEquals("the preferred_address connection ID has sequence number 1", 1, preferred.getSequenceNumber());
         assertEquals(16, preferred.getStatelessResetToken().length);
@@ -323,7 +324,7 @@ public class ConnectionIdManagerTest {
 
     @Test
     public void testPreferredAddressConnectionIdMustBeMintedFirst() {
-        ConnectionIdManager manager = new ConnectionIdManager(new byte[] {1, 2}, new byte[] {3, 4}, new byte[32]);
+        ConnectionIdManager manager = new ConnectionIdManager(new byte[] {1, 2}, new byte[] {3, 4}, new byte[32], new CryptoServices());
         manager.setPeerAdvertisedLimit(8);
         manager.issueNext();
         try {

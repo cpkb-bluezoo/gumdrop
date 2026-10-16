@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -496,7 +497,7 @@ public class DnsZoneClientTcpTest {
         t.defaultPort(9853);
         TcpDnsClientTransport copy = t.duplicate();
         assertNotSame(t, copy);
-        assertNotNull(copy.createTransportFactory());
+        assertNotNull(copy.createTransportFactory(new CryptoServices()));
     }
 
     private static final class NoopHandler implements DnsClientTransportHandler {

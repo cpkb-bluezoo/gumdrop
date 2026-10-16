@@ -23,12 +23,10 @@ package org.bluezoo.gumdrop.crypto;
 
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
-import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.PublicKey;
-import java.security.SecureRandom;
 import java.security.spec.NamedParameterSpec;
 import java.security.spec.XECPrivateKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -67,18 +65,20 @@ public final class Hpke {
     private static final byte[] EMPTY_PSK_ID = new byte[0];
     private static final byte[] X25519_HEADER = hex("302a300506032b656e032100");
 
+    /** RFC 9180 section 7.2: the KDF of this suite is HKDF-SHA256. */
+    private static final String HASH = "SHA-256";
     private static final int SECRET_LENGTH = 32;
     private static final int NONCE_LENGTH = 12;
 
-    private final Hkdf hkdf;
+    private final CryptoServices crypto;
     private final int aeadId;
     /** RFC 9180 section 5.1: full HPKE ciphersuite identifier. */
     private final byte[] hpkeSuiteId;
     /** RFC 9180 section 7.3 {@code Nk} for the AEAD. */
     private final int keyLength;
 
-    private Hpke(int aeadId) {
-        this.hkdf = Hkdf.sha256();
+    private Hpke(int aeadId, CryptoServices crypto) {
+        this.crypto = crypto;
         this.aeadId = aeadId;
         this.keyLength = aeadId == AEAD_AES_128_GCM ? 16 : 32;
         this.hpkeSuiteId = concat(
@@ -110,25 +110,26 @@ public final class Hpke {
      *
      * @param aeadId {@link #AEAD_AES_128_GCM}, {@link #AEAD_AES_256_GCM} or
      *        {@link #AEAD_CHACHA20_POLY1305}
+     * @param crypto the services the key agreement, HKDF and AEAD come from
      * @return the instance
      * @throws IllegalArgumentException if the AEAD is not supported
      */
-    public static Hpke x25519HkdfSha256(int aeadId) {
+    public static Hpke x25519HkdfSha256(int aeadId, CryptoServices crypto) {
         if (!isSupported(KEM_X25519_HKDF_SHA256, KDF_HKDF_SHA256, aeadId)) {
             throw new IllegalArgumentException("Unsupported HPKE AEAD: " + aeadId);
         }
-        return new Hpke(aeadId);
+        return new Hpke(aeadId, crypto);
     }
 
     /**
      * Generates an X25519 key pair for HPKE / ECH.
      *
-     * @param random entropy source
+     * @param crypto the services the generator and its entropy come from
      * @return raw 32-byte public key and private key
      */
-    public static RawKeyPair generateX25519KeyPair(SecureRandom random) throws GeneralSecurityException {
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("X25519");
-        kpg.initialize(NamedParameterSpec.X25519, random);
+    public static RawKeyPair generateX25519KeyPair(CryptoServices crypto) throws GeneralSecurityException {
+        KeyPairGenerator kpg = crypto.keyPairGenerator("X25519");
+        kpg.initialize(NamedParameterSpec.X25519, crypto.secureRandom());
         KeyPair kp = kpg.generateKeyPair();
         byte[] pub = extractRawPublic(kp.getPublic());
         byte[] priv = extractRawPrivate(kp.getPrivate());
@@ -145,8 +146,9 @@ public final class Hpke {
      * @param privateKey the 32-byte private key
      * @return the 32-byte public key
      */
-    public static byte[] deriveX25519PublicKey(byte[] privateKey) throws GeneralSecurityException {
-        return dh(rawX25519Private(privateKey), rawX25519Public(X25519_BASE_POINT));
+    public static byte[] deriveX25519PublicKey(byte[] privateKey, CryptoServices crypto)
+            throws GeneralSecurityException {
+        return dh(rawX25519Private(privateKey, crypto), rawX25519Public(X25519_BASE_POINT, crypto), crypto);
     }
 
     /**
@@ -154,22 +156,20 @@ public final class Hpke {
      *
      * @param recipientPublicKey 32-byte X25519 public key
      * @param info application info (for ECH: {@code "tls ech" || 0x00 || ECHConfig})
-     * @param random entropy for ephemeral key
      * @return encapsulation value and sealing context
      */
-    public SenderContext setupBaseS(byte[] recipientPublicKey, byte[] info, SecureRandom random)
-            throws GeneralSecurityException {
-        return setupBaseS(rawX25519Public(recipientPublicKey), info, random);
+    public SenderContext setupBaseS(byte[] recipientPublicKey, byte[] info) throws GeneralSecurityException {
+        return setupBaseS(rawX25519Public(recipientPublicKey, crypto), info);
     }
 
-    SenderContext setupBaseS(PublicKey recipientPublicKey, byte[] info, SecureRandom random)
-            throws GeneralSecurityException {
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("X25519");
+    SenderContext setupBaseS(PublicKey recipientPublicKey, byte[] info) throws GeneralSecurityException {
+        KeyPairGenerator kpg = crypto.keyPairGenerator("X25519");
+        kpg.initialize(NamedParameterSpec.X25519, crypto.secureRandom());
         KeyPair ephemeral = kpg.generateKeyPair();
         byte[] enc = extractRawPublic(ephemeral.getPublic());
         byte[] pkRm = extractRawPublic(recipientPublicKey);
         byte[] sharedSecret = encapSharedSecret(ephemeral.getPrivate(), recipientPublicKey, enc, pkRm);
-        return new SenderContext(enc, keyScheduleBase(sharedSecret, info), aeadId);
+        return new SenderContext(enc, keyScheduleBase(sharedSecret, info), aeadId, crypto);
     }
 
     /**
@@ -182,17 +182,18 @@ public final class Hpke {
      */
     public RecipientContext setupBaseR(byte[] enc, byte[] recipientPrivateKey, byte[] recipientPublicKey,
             byte[] info) throws GeneralSecurityException {
-        return setupBaseR(enc, rawX25519Private(recipientPrivateKey), rawX25519Public(recipientPublicKey), info);
+        return setupBaseR(enc, rawX25519Private(recipientPrivateKey, crypto), rawX25519Public(recipientPublicKey, crypto),
+                info);
     }
 
     RecipientContext setupBaseR(byte[] enc, PrivateKey recipientPrivateKey, PublicKey recipientPublicKey, byte[] info)
             throws GeneralSecurityException {
-        PublicKey peer = rawX25519Public(enc);
+        PublicKey peer = rawX25519Public(enc, crypto);
         byte[] pkRm = extractRawPublic(recipientPublicKey);
-        byte[] dh = dh(recipientPrivateKey, peer);
+        byte[] dh = dh(recipientPrivateKey, peer, crypto);
         byte[] kemContext = concat(enc, pkRm);
         byte[] sharedSecret = extractAndExpand(dh, kemContext);
-        return new RecipientContext(keyScheduleBase(sharedSecret, info), aeadId);
+        return new RecipientContext(keyScheduleBase(sharedSecret, info), aeadId, crypto);
     }
 
     byte[] encapSharedSecretForTest(PrivateKey skE, PublicKey pkR, byte[] enc, byte[] pkRm)
@@ -201,15 +202,15 @@ public final class Hpke {
     }
 
     byte[] decapSharedSecretForTest(PrivateKey skR, byte[] enc, byte[] pkRm) throws GeneralSecurityException {
-        PublicKey pkE = rawX25519Public(enc);
-        byte[] dh = dh(skR, pkE);
+        PublicKey pkE = rawX25519Public(enc, crypto);
+        byte[] dh = dh(skR, pkE, crypto);
         byte[] kemContext = concat(enc, pkRm);
         return extractAndExpand(dh, kemContext);
     }
 
     private byte[] encapSharedSecret(PrivateKey skE, PublicKey pkR, byte[] enc, byte[] pkRm)
             throws GeneralSecurityException {
-        byte[] dh = dh(skE, pkR);
+        byte[] dh = dh(skE, pkR, crypto);
         byte[] kemContext = concat(enc, pkRm);
         return extractAndExpand(dh, kemContext);
     }
@@ -226,7 +227,7 @@ public final class Hpke {
         byte[] secret = hpkeLabeledExtract(sharedSecret, "secret", EMPTY_PSK);
         byte[] key = hpkeLabeledExpand(secret, "key", keyScheduleContext, keyLength);
         byte[] baseNonce = hpkeLabeledExpand(secret, "base_nonce", keyScheduleContext, NONCE_LENGTH);
-        byte[] exporterSecret = hpkeLabeledExpand(secret, "exp", keyScheduleContext, hkdf.getHashLength());
+        byte[] exporterSecret = hpkeLabeledExpand(secret, "exp", keyScheduleContext, SECRET_LENGTH);
         return new KeySchedule(secret, key, baseNonce, exporterSecret);
     }
 
@@ -235,7 +236,7 @@ public final class Hpke {
         byte[] enc = extractRawPublic(pkE);
         byte[] pkRm = extractRawPublic(pkR);
         byte[] sharedSecret = encapSharedSecret(skE, pkR, enc, pkRm);
-        return new SenderContext(enc, keyScheduleBase(sharedSecret, info), aeadId);
+        return new SenderContext(enc, keyScheduleBase(sharedSecret, info), aeadId, crypto);
     }
 
     byte[] kemLabeledExtract(byte[] salt, String label, byte[] ikm) {
@@ -257,29 +258,30 @@ public final class Hpke {
     private byte[] labeledExtract(byte[] salt, String label, byte[] ikm, byte[] suiteId) {
         byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
         byte[] labeledIkm = concat(HPKE_V1, suiteId, labelBytes, ikm);
-        return hkdf.extract(salt.length == 0 ? hkdf.zeroSalt() : salt, labeledIkm);
+        return crypto.hkdfExtract(HASH, salt, labeledIkm);
     }
 
     private byte[] labeledExpand(byte[] prk, String label, byte[] info, int length, byte[] suiteId) {
         byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
         byte[] labeledInfo = concat(u16(length), HPKE_V1, suiteId, labelBytes, info);
-        return hkdf.expand(prk, labeledInfo, length);
+        return crypto.hkdfExpand(HASH, prk, labeledInfo, length);
     }
 
-    private static byte[] dh(PrivateKey privateKey, PublicKey publicKey) throws GeneralSecurityException {
-        KeyAgreement ka = KeyAgreement.getInstance("XDH");
+    private static byte[] dh(PrivateKey privateKey, PublicKey publicKey, CryptoServices crypto)
+            throws GeneralSecurityException {
+        KeyAgreement ka = crypto.keyAgreement("XDH");
         ka.init(privateKey);
         ka.doPhase(publicKey, true);
         return ka.generateSecret();
     }
 
-    private static PublicKey rawX25519Public(byte[] raw) throws GeneralSecurityException {
+    private static PublicKey rawX25519Public(byte[] raw, CryptoServices crypto) throws GeneralSecurityException {
         byte[] wrapped = concat(X25519_HEADER, raw);
-        return KeyFactory.getInstance("X25519").generatePublic(new X509EncodedKeySpec(wrapped));
+        return crypto.keyFactory("X25519").generatePublic(new X509EncodedKeySpec(wrapped));
     }
 
-    private static PrivateKey rawX25519Private(byte[] raw) throws GeneralSecurityException {
-        return KeyFactory.getInstance("X25519").generatePrivate(new XECPrivateKeySpec(NamedParameterSpec.X25519, raw));
+    private static PrivateKey rawX25519Private(byte[] raw, CryptoServices crypto) throws GeneralSecurityException {
+        return crypto.keyFactory("X25519").generatePrivate(new XECPrivateKeySpec(NamedParameterSpec.X25519, raw));
     }
 
     static byte[] scheduleKeyForTest(SenderContext context) {
@@ -302,16 +304,17 @@ public final class Hpke {
         return extractRawPublic(publicKey);
     }
 
-    static PublicKey rawX25519PublicForTest(byte[] raw) throws GeneralSecurityException {
-        return rawX25519Public(raw);
+    static PublicKey rawX25519PublicForTest(byte[] raw, CryptoServices crypto) throws GeneralSecurityException {
+        return rawX25519Public(raw, crypto);
     }
 
-    static PrivateKey rawX25519PrivateForTest(byte[] raw) throws GeneralSecurityException {
-        return rawX25519Private(raw);
+    static PrivateKey rawX25519PrivateForTest(byte[] raw, CryptoServices crypto) throws GeneralSecurityException {
+        return rawX25519Private(raw, crypto);
     }
 
-    static byte[] dhForTest(PrivateKey privateKey, PublicKey publicKey) throws GeneralSecurityException {
-        return dh(privateKey, publicKey);
+    static byte[] dhForTest(PrivateKey privateKey, PublicKey publicKey, CryptoServices crypto)
+            throws GeneralSecurityException {
+        return dh(privateKey, publicKey, crypto);
     }
 
     private static byte[] extractRawPublic(PublicKey publicKey) {
@@ -327,28 +330,29 @@ public final class Hpke {
         return Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
     }
 
-    private static Cipher aead(int mode, int aeadId, byte[] key, byte[] nonce) throws GeneralSecurityException {
+    private static Cipher aead(int mode, int aeadId, byte[] key, byte[] nonce, CryptoServices crypto)
+            throws GeneralSecurityException {
         Cipher cipher;
         if (aeadId == AEAD_CHACHA20_POLY1305) {
-            cipher = Cipher.getInstance("ChaCha20-Poly1305");
+            cipher = crypto.cipher("ChaCha20-Poly1305");
             cipher.init(mode, new SecretKeySpec(key, "ChaCha20"), new IvParameterSpec(nonce));
         } else {
-            cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher = crypto.cipher("AES/GCM/NoPadding");
             cipher.init(mode, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, nonce));
         }
         return cipher;
     }
 
-    static byte[] seal(int aeadId, byte[] key, byte[] nonce, byte[] aad, byte[] plaintext)
+    static byte[] seal(int aeadId, byte[] key, byte[] nonce, byte[] aad, byte[] plaintext, CryptoServices crypto)
             throws GeneralSecurityException {
-        Cipher cipher = aead(Cipher.ENCRYPT_MODE, aeadId, key, nonce);
+        Cipher cipher = aead(Cipher.ENCRYPT_MODE, aeadId, key, nonce, crypto);
         cipher.updateAAD(aad);
         return cipher.doFinal(plaintext);
     }
 
-    static byte[] open(int aeadId, byte[] key, byte[] nonce, byte[] aad, byte[] ciphertext)
+    static byte[] open(int aeadId, byte[] key, byte[] nonce, byte[] aad, byte[] ciphertext, CryptoServices crypto)
             throws GeneralSecurityException {
-        Cipher cipher = aead(Cipher.DECRYPT_MODE, aeadId, key, nonce);
+        Cipher cipher = aead(Cipher.DECRYPT_MODE, aeadId, key, nonce, crypto);
         cipher.updateAAD(aad);
         return cipher.doFinal(ciphertext);
     }
@@ -427,12 +431,14 @@ public final class Hpke {
         private final byte[] enc;
         final KeySchedule schedule;
         private final int aeadId;
+        private final CryptoServices crypto;
         private long seq;
 
-        SenderContext(byte[] enc, KeySchedule schedule, int aeadId) {
+        SenderContext(byte[] enc, KeySchedule schedule, int aeadId, CryptoServices crypto) {
             this.enc = enc;
             this.schedule = schedule;
             this.aeadId = aeadId;
+            this.crypto = crypto;
         }
 
         public byte[] getEnc() {
@@ -449,7 +455,7 @@ public final class Hpke {
 
         public byte[] seal(byte[] aad, byte[] plaintext) throws GeneralSecurityException {
             byte[] nonce = nonceWithSeq(schedule.baseNonce, seq++);
-            return Hpke.seal(aeadId, schedule.key, nonce, aad, plaintext);
+            return Hpke.seal(aeadId, schedule.key, nonce, aad, plaintext, crypto);
         }
     }
 
@@ -459,11 +465,13 @@ public final class Hpke {
     public static final class RecipientContext {
         final KeySchedule schedule;
         private final int aeadId;
+        private final CryptoServices crypto;
         private long seq;
 
-        RecipientContext(KeySchedule schedule, int aeadId) {
+        RecipientContext(KeySchedule schedule, int aeadId, CryptoServices crypto) {
             this.schedule = schedule;
             this.aeadId = aeadId;
+            this.crypto = crypto;
         }
 
         public int getKdfId() {
@@ -476,7 +484,7 @@ public final class Hpke {
 
         public byte[] open(byte[] aad, byte[] ciphertext) throws GeneralSecurityException {
             byte[] nonce = nonceWithSeq(schedule.baseNonce, seq++);
-            return Hpke.open(aeadId, schedule.key, nonce, aad, ciphertext);
+            return Hpke.open(aeadId, schedule.key, nonce, aad, ciphertext, crypto);
         }
     }
 }

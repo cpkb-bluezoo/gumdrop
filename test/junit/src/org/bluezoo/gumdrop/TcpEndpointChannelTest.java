@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -336,7 +337,7 @@ public class TcpEndpointChannelTest {
 
     @Test
     public void stalledStartTlsHandshakeIsClosedByTheHandshakeTimeout() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         Recorder h = new Recorder();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, null, TlsVersion.TLS_1_3, false);
         StubSocketChannel c = new StubSocketChannel(LOCAL, REMOTE);

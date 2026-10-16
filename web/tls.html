@@ -72,6 +72,7 @@ and quotas see <a href="security.html">Security</a>.
 <li><a href="#dtls">DTLS 1.2 and DTLS 1.3</a></li>
 <li><a href="#quic">QUIC integration</a></li>
 <li><a href="#security">Security practices</a></li>
+<li><a href="#fips">FIPS mode</a></li>
 <li><a href="#configuration">Configuration for implementers</a>
   <ul>
   <li><a href="#transparent">Transparent TLS</a></li>
@@ -466,6 +467,112 @@ Netty&rsquo;s incubator codec) wrap native code.
     actually negotiated, which is how to confirm a connection used a hybrid
     post-quantum group</li>
 </ul>
+
+<h2 id="fips">FIPS mode</h2>
+
+<p>
+A Gumdrop runtime can be put into FIPS mode, in which every cipher, MAC,
+digest, signature, key exchange, key derivation and random value used by its
+TLS&nbsp;1.2, TLS&nbsp;1.3, DTLS and QUIC connections is requested from one
+JCA provider that the operator names, and negotiation is limited to an
+approved profile. The mode is off by default; a runtime that does not enable
+it keeps the provider selection, cipher suites and groups described
+elsewhere on this page.
+</p>
+
+<h3 id="fips-claim">Scope of the claim</h3>
+
+<p>
+The claim FIPS mode supports is that <b>the runtime uses FIPS-validated
+cryptography</b>: Gumdrop performs no cryptographic primitive itself and
+draws every one from the named module. It is not a claim that Gumdrop has
+been validated, and Gumdrop does not detect whether the named provider is a
+validated module, which version of it is installed, or whether it is running
+in its approved mode. Choosing a validated provider, installing the validated
+version, and configuring it for approved-only operation are the
+operator&rsquo;s responsibility; the mode makes Gumdrop honour that choice.
+</p>
+
+<h3 id="fips-configuration">Configuration</h3>
+
+<p>
+Name the provider when booting the runtime, either in code or with system
+properties. The provider must already be installed with
+<code>java.security.Security</code> (through <code>java.security</code> or
+<code>Security.addProvider</code>) before the runtime boots.
+</p>
+
+<pre>
+GumdropConfig config = GumdropConfig.create()
+        .fipsProvider("BCFIPS")                // the provider's registered name
+        .fipsSecureRandomAlgorithm("DEFAULT"); // optional
+Gumdrop gumdrop = Gumdrop.boot(config);
+</pre>
+
+<pre>
+java -Dgumdrop.fipsProvider=BCFIPS -Dgumdrop.fipsSecureRandom=DEFAULT ...
+</pre>
+
+<p>
+<code>fipsSecureRandomAlgorithm</code> names the provider&rsquo;s random
+source, since providers do not agree on one (the JDK&rsquo;s own is
+<code>DRBG</code>). Unset, the provider&rsquo;s first registered
+<code>SecureRandom</code> service is used. An embedded runtime takes the
+same settings through
+<code>Gumdrop.embedded(loop, work, config)</code>. The servlet container
+reads the two system properties.
+</p>
+
+<p>
+Boot fails, with an <code>IllegalStateException</code> naming what is
+missing, if the provider is not installed, registers no random source, or
+cannot supply any service the stack needs: AES-GCM, HMAC and SHA-256 and
+SHA-384, HKDF-SHA256 and HKDF-SHA384, ECDSA and RSA signatures, EC key
+generation and agreement, EC and RSA key factories and an X.509 certificate
+factory. Nothing falls back to another provider. Key and trust manager
+factories and the PKCS12 store that holds trust anchors are the exception:
+they are not approved algorithms and validated modules commonly ship them in
+a separate JSSE provider, so they are taken from the named provider when it
+offers them and from the JVM otherwise. When the runtime starts it logs
+<code>info.fips_mode</code> at info level with the provider, its version and
+the random algorithm in use, as the operator&rsquo;s confirmation that the
+mode took effect.
+</p>
+
+<h3 id="fips-profile">The approved profile</h3>
+
+<p>
+In FIPS mode every handshake configuration under the runtime is limited to:
+</p>
+
+<ul>
+<li>Cipher suites <code>TLS_AES_128_GCM_SHA256</code> and
+    <code>TLS_AES_256_GCM_SHA384</code> for TLS&nbsp;1.3, DTLS&nbsp;1.3 and QUIC,
+    and the four <code>TLS_ECDHE_*_WITH_AES_*_GCM_SHA*</code> suites for
+    TLS&nbsp;1.2 and DTLS&nbsp;1.2. ChaCha20-Poly1305 is excluded.</li>
+<li>Key exchange groups <code>secp256r1</code> and <code>secp384r1</code>.
+    X25519 and the hybrid ML-KEM groups are excluded: a hybrid shared secret
+    is combined outside the module.</li>
+<li>Signature schemes ECDSA on P-256 and P-384 and RSA (RSASSA-PSS for
+    TLS&nbsp;1.3, also PKCS#1 v1.5 for TLS&nbsp;1.2 where the module permits
+    it). Ed25519 and ML-DSA are excluded.</li>
+<li>No Encrypted Client Hello, whose key encapsulation is X25519. Configuring
+    ECH, as server or client, fails.</li>
+<li>No key logging: <code>KeyLog</code>, whether set per connection or as the
+    process default, records nothing. qlog is unaffected, as it never records
+    key material or packet payloads.</li>
+</ul>
+
+<p>
+Both TLS&nbsp;1.2 and TLS&nbsp;1.3 remain available. A <code>TlsConfig</code>
+or listener setting can narrow the profile but never widen it: a configured
+list keeps only its approved entries, and a list with none fails. A transport
+factory started on its own, rather than by the listener or client under the
+runtime (<code>TransportFactory.start(Gumdrop)</code>), draws on the
+JVM&rsquo;s provider list and is refused by a FIPS runtime when it would
+create an endpoint. Session tickets, QUIC retry tokens, connection
+identifiers and stateless reset tokens use the same provider and profile.
+</p>
 
 <h2 id="configuration">Configuration for implementers</h2>
 

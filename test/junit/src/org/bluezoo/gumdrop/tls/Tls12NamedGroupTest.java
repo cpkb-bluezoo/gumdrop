@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -82,7 +83,7 @@ public class Tls12NamedGroupTest {
     }
 
     private static Tls12HandshakeConfig serverCfg(NamedGroup... groups) throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TlsBLoopbackSupport.ecCredentials());
         if (groups.length > 0) {
             c.setNamedGroups(Arrays.asList(groups));
@@ -91,7 +92,7 @@ public class Tls12NamedGroupTest {
     }
 
     private static Tls12HandshakeConfig clientCfg(NamedGroup... groups) throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         c.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.ecChain()));
         if (groups.length > 0) {

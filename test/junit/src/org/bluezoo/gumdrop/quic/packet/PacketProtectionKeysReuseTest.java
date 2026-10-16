@@ -21,11 +21,11 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.SecureRandom;
 
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.fail;
@@ -49,8 +49,8 @@ public class PacketProtectionKeysReuseTest {
     }
 
     private static PacketProtectionKeys keys(QuicAeadAlgorithm algorithm, byte[] secret) {
-        Hkdf hkdf = algorithm == QuicAeadAlgorithm.AES_256_GCM ? Hkdf.sha384() : Hkdf.sha256();
-        return PacketProtectionKeys.derive(hkdf, secret, algorithm, QuicVersion.V1);
+        String hash = algorithm == QuicAeadAlgorithm.AES_256_GCM ? "SHA-384" : "SHA-256";
+        return PacketProtectionKeys.derive(new CryptoServices(), hash, secret, algorithm, QuicVersion.V1);
     }
 
     @Test

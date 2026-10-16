@@ -310,3 +310,13 @@ use HTTP sessions; drain below pod grace period.
 Composed applications: read whatever env vars **you** define in your `main`; the
 framework does not interpret app-specific settings beyond the drain timeout
 above.
+
+FIPS mode is configured with system properties rather than environment
+variables, passed through `JAVA_OPTS`: `-Dgumdrop.fipsProvider=<name>` names
+the installed JCA provider every TLS, DTLS and QUIC cryptographic service must
+come from, and `-Dgumdrop.fipsSecureRandom=<algorithm>` optionally names its
+random source. The provider must be installed in the image's `java.security`
+or on the class path and registered before the runtime boots; boot fails,
+naming what is missing, if it is absent or incomplete. See
+[FIPS mode](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html#fips) for the
+approved profile and the scope of the claim.

@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
 
 /**
  * TLS 1.3 cipher suites (RFC 8446 section B.4). Only the three AEAD
@@ -32,8 +31,9 @@ import org.bluezoo.gumdrop.crypto.Hkdf;
  *
  * <p>This is a replacement for {@code tech.kwik.agent15.TlsConstants.CipherSuite},
  * which it otherwise mirrors in spirit: each suite's hash algorithm
- * determines both its transcript hash and its key schedule ({@link Hkdf}
- * instance), per RFC 8446 section 7.1.
+ * determines both its transcript hash and its key schedule (the HKDF
+ * {@link org.bluezoo.gumdrop.crypto.CryptoServices} derives with), per RFC
+ * 8446 section 7.1.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8446#appendix-B.4">RFC 8446 appendix B.4</a>
@@ -88,15 +88,6 @@ public enum CipherSuite {
      */
     public int getHashLength() {
         return hashLength;
-    }
-
-    /**
-     * Returns the {@link Hkdf} instance for this suite's hash algorithm.
-     *
-     * @return an HKDF instance matching this suite's hash
-     */
-    public Hkdf newHkdf() {
-        return (hashLength == 32) ? Hkdf.sha256() : Hkdf.sha384();
     }
 
     /**

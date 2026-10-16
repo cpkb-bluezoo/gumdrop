@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.util;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.io.InputStream;
@@ -58,10 +59,14 @@ public final class TlsUtils {
     private static final class CachedKeyStore {
         final KeyStore keyStore;
         final long lastModified;
+        // The services it was loaded with: a store loaded under one runtime
+        // is not reused by another
+        final CryptoServices crypto;
 
-        CachedKeyStore(KeyStore keyStore, long lastModified) {
+        CachedKeyStore(KeyStore keyStore, long lastModified, CryptoServices crypto) {
             this.keyStore = keyStore;
             this.lastModified = lastModified;
+            this.crypto = crypto;
         }
     }
 
@@ -78,19 +83,19 @@ public final class TlsUtils {
      * @throws GeneralSecurityException if the store cannot be initialised
      * @throws IOException if the file cannot be read
      */
-    public static KeyStore loadKeyStore(Path path, String password, KeystoreFormat format)
+    public static KeyStore loadKeyStore(Path path, String password, KeystoreFormat format, CryptoServices crypto)
             throws GeneralSecurityException, IOException {
         Path canonicalPath = path.normalize().toAbsolutePath();
         long lastModified = Files.getLastModifiedTime(canonicalPath).toMillis();
         CachedKeyStore cached = keystoreCache.get(canonicalPath);
-        if (cached != null && cached.lastModified == lastModified) {
+        if (cached != null && cached.lastModified == lastModified && cached.crypto == crypto) {
             return cached.keyStore;
         }
-        KeyStore ks = KeyStore.getInstance(format.keystoreType());
+        KeyStore ks = crypto.keyStore(format.keystoreType());
         try (InputStream in = Files.newInputStream(canonicalPath)) {
             ks.load(in, password.toCharArray());
         }
-        keystoreCache.put(canonicalPath, new CachedKeyStore(ks, lastModified));
+        keystoreCache.put(canonicalPath, new CachedKeyStore(ks, lastModified, crypto));
         String prefix = canonicalPath.toString() + "|";
         for (Iterator<String> it = keyManagerCache.keySet().iterator();
                 it.hasNext(); ) {
@@ -118,21 +123,21 @@ public final class TlsUtils {
      * @param path the keystore file
      * @param password the keystore password
      * @param format the keystore format (for example PKCS12)
+     * @param crypto the services the key store and factories come from
      * @return the key managers
      * @throws GeneralSecurityException if initialisation fails
      * @throws IOException if the file cannot be read
      */
-    public static KeyManager[] loadKeyManagers(Path path, String password, KeystoreFormat format)
-            throws GeneralSecurityException, IOException {
+    public static KeyManager[] loadKeyManagers(Path path, String password, KeystoreFormat format,
+            CryptoServices crypto) throws GeneralSecurityException, IOException {
         Path canonicalPath = path.normalize().toAbsolutePath();
-        String cacheKey = canonicalPath.toString() + "|" + format;
+        String cacheKey = canonicalPath.toString() + "|" + format + "|" + System.identityHashCode(crypto);
         KeyManager[] cached = keyManagerCache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
-        KeyStore ks = loadKeyStore(path, password, format);
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(
-                KeyManagerFactory.getDefaultAlgorithm());
+        KeyStore ks = loadKeyStore(path, password, format, crypto);
+        KeyManagerFactory kmf = crypto.keyManagerFactory();
         kmf.init(ks, password.toCharArray());
         KeyManager[] managers = kmf.getKeyManagers();
         keyManagerCache.put(cacheKey, managers);
@@ -150,21 +155,21 @@ public final class TlsUtils {
      * @param path the truststore file
      * @param password the truststore password
      * @param format the truststore format (for example PKCS12)
+     * @param crypto the services the key store and factories come from
      * @return the trust managers
      * @throws GeneralSecurityException if initialisation fails
      * @throws IOException if the file cannot be read
      */
-    public static TrustManager[] loadTrustManagers(Path path, String password, KeystoreFormat format)
-            throws GeneralSecurityException, IOException {
+    public static TrustManager[] loadTrustManagers(Path path, String password, KeystoreFormat format,
+            CryptoServices crypto) throws GeneralSecurityException, IOException {
         Path canonicalPath = path.normalize().toAbsolutePath();
-        String cacheKey = canonicalPath.toString() + "|" + format;
+        String cacheKey = canonicalPath.toString() + "|" + format + "|" + System.identityHashCode(crypto);
         TrustManager[] cached = trustManagerCache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
-        KeyStore ts = loadKeyStore(path, password, format);
-        TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                TrustManagerFactory.getDefaultAlgorithm());
+        KeyStore ts = loadKeyStore(path, password, format, crypto);
+        TrustManagerFactory tmf = crypto.trustManagerFactory();
         tmf.init(ts);
         TrustManager[] managers = tmf.getTrustManagers();
         trustManagerCache.put(cacheKey, managers);
@@ -181,14 +186,15 @@ public final class TlsUtils {
      * @param path the keystore file
      * @param password the keystore password (also the private key password)
      * @param format the keystore format (for example PKCS12)
+     * @param crypto the services the key store and factories come from
      * @return the server credentials
      * @throws GeneralSecurityException if no private key entry is found,
      *         or the entry cannot be read
      * @throws IOException if the file cannot be read
      */
-    public static ServerCredentials loadServerCredentials(Path path, String password, KeystoreFormat format)
-            throws GeneralSecurityException, IOException {
-        return loadServerCredentials(path, password, format, null);
+    public static ServerCredentials loadServerCredentials(Path path, String password, KeystoreFormat format,
+            CryptoServices crypto) throws GeneralSecurityException, IOException {
+        return loadServerCredentials(path, password, format, null, crypto);
     }
 
     /**
@@ -205,9 +211,9 @@ public final class TlsUtils {
      *         alias at all) does not name a private key entry
      * @throws IOException if the file cannot be read
      */
-    public static ServerCredentials loadServerCredentials(Path path, String password, KeystoreFormat format, String alias)
-            throws GeneralSecurityException, IOException {
-        KeyStore ks = loadKeyStore(path, password, format);
+    public static ServerCredentials loadServerCredentials(Path path, String password, KeystoreFormat format,
+            String alias, CryptoServices crypto) throws GeneralSecurityException, IOException {
+        KeyStore ks = loadKeyStore(path, password, format, crypto);
         return loadServerCredentials(ks, password, alias);
     }
 

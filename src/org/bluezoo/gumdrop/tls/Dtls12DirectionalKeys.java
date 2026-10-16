@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.GeneralSecurityException;
 import java.security.spec.AlgorithmParameterSpec;
 
@@ -55,7 +56,8 @@ final class Dtls12DirectionalKeys {
 
     long seq;
 
-    private Dtls12DirectionalKeys(Tls12CipherSuite suite, byte[] key, byte[] fixedIv, int epoch) {
+    private Dtls12DirectionalKeys(Tls12CipherSuite suite, byte[] key, byte[] fixedIv, int epoch,
+            CryptoServices crypto) {
         this.suite = suite;
         this.key = key;
         this.fixedIv = fixedIv;
@@ -63,15 +65,16 @@ final class Dtls12DirectionalKeys {
         this.keySpec = new SecretKeySpec(key, suite.getAeadKeyAlgorithm());
         try {
             String transformation = suite.getAeadTransformation();
-            this.encryptCipher = Cipher.getInstance(transformation);
-            this.decryptCipher = Cipher.getInstance(transformation);
+            this.encryptCipher = crypto.cipher(transformation);
+            this.decryptCipher = crypto.cipher(transformation);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Could not initialize AEAD ciphers", e);
         }
     }
 
-    static Dtls12DirectionalKeys fromMaterial(Tls12CipherSuite suite, DirectionalKeyMaterial material, int epoch) {
-        return new Dtls12DirectionalKeys(suite, material.key, material.fixedIv, epoch);
+    static Dtls12DirectionalKeys fromMaterial(Tls12CipherSuite suite, DirectionalKeyMaterial material, int epoch,
+            CryptoServices crypto) {
+        return new Dtls12DirectionalKeys(suite, material.key, material.fixedIv, epoch, crypto);
     }
 
     long combinedSeq() {

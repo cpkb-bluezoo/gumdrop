@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.file.Path;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
@@ -116,7 +117,7 @@ public class TelemetryIntegrationTest {
             File certsDir = new File(System.getProperty("java.io.tmpdir"), "otlp-test-certs");
             File truststoreFile = new File(certsDir, "test-truststore.p12");
             TrustManager[] managers = TlsUtils.loadTrustManagers(
-                    Path.of(truststoreFile.getAbsolutePath()), "testpass", KeystoreFormat.PKCS12);
+                    Path.of(truststoreFile.getAbsolutePath()), "testpass", KeystoreFormat.PKCS12, new CryptoServices());
             TlsConfig tls = new TlsConfig();
             for (int i = 0; i < managers.length; i++) {
                 if (managers[i] instanceof X509TrustManager) {

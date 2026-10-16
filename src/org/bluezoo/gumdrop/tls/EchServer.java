@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
 
@@ -65,17 +66,18 @@ public final class EchServer {
      * @param config ECH configuration matching {@code config_id}
      * @param recipientPrivateKey 32-byte X25519 private key for {@code config}
      * @param retryRecipient prior HPKE context after HelloRetryRequest, or null
+     * @param crypto the services the HPKE primitives come from
      */
     public static OpenResult openInnerClientHello(byte[] framedClientHelloOuter, EchConfig config,
-            byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient)
+            byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient, CryptoServices crypto)
             throws GeneralSecurityException, HandshakeFormatException {
         return openInnerClientHello(framedClientHelloOuter, config, recipientPrivateKey, retryRecipient,
-                false);
+                false, crypto);
     }
 
     static OpenResult openInnerClientHello(byte[] framedClientHelloOuter, EchConfig config,
-            byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient, boolean dtlsTransport)
-            throws GeneralSecurityException, HandshakeFormatException {
+            byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient, boolean dtlsTransport,
+            CryptoServices crypto) throws GeneralSecurityException, HandshakeFormatException {
         HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(framedClientHelloOuter,
                 dtlsTransport);
         if (outer.encryptedClientHelloOuter == null) {
@@ -109,7 +111,7 @@ public final class EchServer {
                     || !config.advertisesCipherSuite(ech.kdfId, ech.aeadId)) {
                 throw new GeneralSecurityException("Client HPKE ciphersuite not advertised by ECHConfig");
             }
-            Hpke hpke = Hpke.x25519HkdfSha256(ech.aeadId);
+            Hpke hpke = Hpke.x25519HkdfSha256(ech.aeadId, crypto);
             recipient = hpke.setupBaseR(ech.enc, recipientPrivateKey, config.getPublicKey(), config.hpkeSetupInfo());
             encodedInner = recipient.open(aad, ech.payload);
         }

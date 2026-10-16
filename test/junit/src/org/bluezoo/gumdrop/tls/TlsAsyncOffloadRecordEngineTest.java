@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -161,26 +162,26 @@ public class TlsAsyncOffloadRecordEngineTest {
     }
 
     private HandshakeConfig tls13Server() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TlsBLoopbackSupport.ecCredentials());
         return c;
     }
 
     private HandshakeConfig tls13Client() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         c.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.ecChain()));
         return c;
     }
 
     private Tls12HandshakeConfig tls12Server() throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TlsBLoopbackSupport.ecCredentials());
         return c;
     }
 
     private Tls12HandshakeConfig tls12Client() throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         c.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.ecChain()));
         return c;

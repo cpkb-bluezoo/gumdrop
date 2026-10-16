@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.tls;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
+
 import org.bluezoo.gumdrop.crypto.Hpke;
 
 /**
@@ -89,11 +91,12 @@ public final class EchClientHelloBuilder {
      * @param template negotiation parameters shared by inner and outer hellos
      * @param echConfig chosen ECH configuration
      * @param realPskBinder real PSK binder for inner hello, or null if no PSK
-     * @param random entropy source
+     * @param crypto the services the HPKE primitives and entropy come from
      * @return framed outer hello to transmit and framed inner hello for ECH acceptance
      */
     public static Offer build(HandshakeMessages.ClientHelloParams template, EchConfig echConfig,
-            byte[] realPskBinder, SecureRandom random) throws GeneralSecurityException, HandshakeFormatException {
+            byte[] realPskBinder, CryptoServices crypto) throws GeneralSecurityException, HandshakeFormatException {
+        SecureRandom random = crypto.secureRandom();
         int[] suite = echConfig.selectHpkeCipherSuite();
         if (suite == null) {
             throw new HandshakeFormatException("ECHConfig offers no supported HPKE cipher suite");
@@ -128,8 +131,8 @@ public final class EchClientHelloBuilder {
         byte[] encodedInner = encodeClientHelloInner(innerContent, echConfig, template.serverName);
         byte[] hpkeInfo = echConfig.hpkeSetupInfo();
 
-        Hpke hpke = Hpke.x25519HkdfSha256(suite[1]);
-        Hpke.SenderContext sender = hpke.setupBaseS(echConfig.getPublicKey(), hpkeInfo, random);
+        Hpke hpke = Hpke.x25519HkdfSha256(suite[1], crypto);
+        Hpke.SenderContext sender = hpke.setupBaseS(echConfig.getPublicKey(), hpkeInfo);
         byte[] enc = sender.getEnc();
 
         int payloadLength = encodedInner.length + HPKE_AEAD_TAG_LENGTH;
@@ -163,11 +166,12 @@ public final class EchClientHelloBuilder {
      * Builds a GREASE {@code encrypted_client_hello} outer extension (RFC 9849 section 6.2.1).
      */
     public static EncryptedClientHello.Outer buildGreaseOuter(HandshakeMessages.ClientHelloParams template,
-            SecureRandom random) throws GeneralSecurityException, HandshakeFormatException {
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
-        Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(random);
+            CryptoServices crypto) throws GeneralSecurityException, HandshakeFormatException {
+        SecureRandom random = crypto.secureRandom();
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, crypto);
+        Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(crypto);
         byte[] greaseInfo = new byte[] { 't', 'l', 's', ' ', 'e', 'c', 'h', 0 };
-        Hpke.SenderContext sender = hpke.setupBaseS(recipient.getPublicKey(), greaseInfo, random);
+        Hpke.SenderContext sender = hpke.setupBaseS(recipient.getPublicKey(), greaseInfo);
 
         HandshakeMessages.ClientHelloParams innerTemplate = copyParams(template);
         innerTemplate.encryptedClientHelloInner = true;

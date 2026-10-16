@@ -73,8 +73,10 @@ public final class KeyExchange {
     private final NamedGroup group;
     private final KeyPair classicalKeyPair;
     private final KeyPair mlkemKeyPair;
+    private final CryptoServices crypto;
 
-    private KeyExchange(NamedGroup group, KeyPair classicalKeyPair, KeyPair mlkemKeyPair) {
+    private KeyExchange(NamedGroup group, KeyPair classicalKeyPair, KeyPair mlkemKeyPair, CryptoServices crypto) {
+        this.crypto = crypto;
         this.group = group;
         this.classicalKeyPair = classicalKeyPair;
         this.mlkemKeyPair = mlkemKeyPair;
@@ -89,18 +91,19 @@ public final class KeyExchange {
      * encapsulates against the client's).
      *
      * @param group the group to generate a share for
+     * @param crypto the services the key pairs come from
      * @return a key exchange holding the freshly-generated private state
      * @throws GeneralSecurityException if the platform cannot generate
      *         keys for this group
      */
-    public static KeyExchange generate(NamedGroup group) throws GeneralSecurityException {
-        KeyPair classical = generateClassical(classicalComponent(group));
+    public static KeyExchange generate(NamedGroup group, CryptoServices crypto) throws GeneralSecurityException {
+        KeyPair classical = generateClassical(classicalComponent(group), crypto);
         KeyPair mlkem = null;
         if (group.isHybrid()) {
-            KeyPairGenerator kpg = KeyPairGenerator.getInstance(mlkemAlgorithm(group));
+            KeyPairGenerator kpg = crypto.keyPairGenerator(mlkemAlgorithm(group));
             mlkem = kpg.generateKeyPair();
         }
-        return new KeyExchange(group, classical, mlkem);
+        return new KeyExchange(group, classical, mlkem, crypto);
     }
 
     /**
@@ -142,8 +145,8 @@ public final class KeyExchange {
     public byte[] agree(byte[] peerShareBytes) throws GeneralSecurityException {
         NamedGroup classicalGroup = classicalComponent(group);
         if (mlkemKeyPair == null) {
-            PublicKey peerPublic = classicalPublicKey(classicalGroup, peerShareBytes);
-            return classicalAgree(classicalGroup, classicalKeyPair.getPrivate(), peerPublic);
+            PublicKey peerPublic = classicalPublicKey(classicalGroup, peerShareBytes, crypto);
+            return classicalAgree(classicalGroup, classicalKeyPair.getPrivate(), peerPublic, crypto);
         }
         int ciphertextLength = mlkemCiphertextLength(group);
         int classicalLength = classicalGroup.getClientShareLength();
@@ -161,12 +164,13 @@ public final class KeyExchange {
             System.arraycopy(peerShareBytes, classicalLength, ciphertext, 0, ciphertextLength);
         }
 
-        KEM kem = KEM.getInstance(mlkemAlgorithm(group));
+        KEM kem = crypto.kem(mlkemAlgorithm(group));
         KEM.Decapsulator decapsulator = kem.newDecapsulator(mlkemKeyPair.getPrivate());
         SecretKey mlkemSecret = decapsulator.decapsulate(ciphertext);
 
-        PublicKey serverClassicalPublic = classicalPublicKey(classicalGroup, serverClassicalRaw);
-        byte[] classicalSecret = classicalAgree(classicalGroup, classicalKeyPair.getPrivate(), serverClassicalPublic);
+        PublicKey serverClassicalPublic = classicalPublicKey(classicalGroup, serverClassicalRaw, crypto);
+        byte[] classicalSecret = classicalAgree(classicalGroup, classicalKeyPair.getPrivate(), serverClassicalPublic,
+                crypto);
 
         return group.isPqFirst() ? combine(mlkemSecret.getEncoded(), classicalSecret)
                 : combine(classicalSecret, mlkemSecret.getEncoded());
@@ -183,16 +187,17 @@ public final class KeyExchange {
      *
      * @param group the negotiated group
      * @param clientShareBytes the client's {@code KeyShareEntry} bytes
+     * @param crypto the services the key pairs and agreements come from
      * @return the server's response share and the shared secret
      * @throws GeneralSecurityException if the client's share is invalid
      *         for this group
      */
-    public static ServerResult agreeAsServer(NamedGroup group, byte[] clientShareBytes)
+    public static ServerResult agreeAsServer(NamedGroup group, byte[] clientShareBytes, CryptoServices crypto)
             throws GeneralSecurityException {
         if (!group.isHybrid()) {
-            KeyPair serverEphemeral = generateClassical(group);
-            PublicKey clientPublic = classicalPublicKey(group, clientShareBytes);
-            byte[] secret = classicalAgree(group, serverEphemeral.getPrivate(), clientPublic);
+            KeyPair serverEphemeral = generateClassical(group, crypto);
+            PublicKey clientPublic = classicalPublicKey(group, clientShareBytes, crypto);
+            byte[] secret = classicalAgree(group, serverEphemeral.getPrivate(), clientPublic, crypto);
             byte[] serverShare = stripHeader(serverEphemeral.getPublic().getEncoded(), headerFor(group));
             return new ServerResult(serverShare, secret);
         }
@@ -215,16 +220,17 @@ public final class KeyExchange {
         }
 
         String mlkemAlgorithm = mlkemAlgorithm(group);
-        PublicKey clientMlkemPublic = wrapAndDecode(mlkemAlgorithm, mlkemHeader(group), mlkemPublicRaw);
-        KEM kem = KEM.getInstance(mlkemAlgorithm);
+        PublicKey clientMlkemPublic = wrapAndDecode(mlkemAlgorithm, mlkemHeader(group), mlkemPublicRaw, crypto);
+        KEM kem = crypto.kem(mlkemAlgorithm);
         KEM.Encapsulator encapsulator = kem.newEncapsulator(clientMlkemPublic);
         KEM.Encapsulated encapsulated = encapsulator.encapsulate();
         byte[] ciphertext = encapsulated.encapsulation();
         byte[] mlkemSecret = encapsulated.key().getEncoded();
 
-        KeyPair serverClassical = generateClassical(classicalGroup);
-        PublicKey clientClassicalPublic = classicalPublicKey(classicalGroup, clientClassicalRaw);
-        byte[] classicalSecret = classicalAgree(classicalGroup, serverClassical.getPrivate(), clientClassicalPublic);
+        KeyPair serverClassical = generateClassical(classicalGroup, crypto);
+        PublicKey clientClassicalPublic = classicalPublicKey(classicalGroup, clientClassicalRaw, crypto);
+        byte[] classicalSecret = classicalAgree(classicalGroup, serverClassical.getPrivate(), clientClassicalPublic,
+                crypto);
         byte[] serverClassicalRaw = stripHeader(serverClassical.getPublic().getEncoded(), headerFor(classicalGroup));
 
         byte[] serverShare = group.isPqFirst() ? combine(ciphertext, serverClassicalRaw)
@@ -297,17 +303,18 @@ public final class KeyExchange {
         return group == NamedGroup.SECP384R1_MLKEM1024 ? ML_KEM_1024_CIPHERTEXT_LENGTH : ML_KEM_768_CIPHERTEXT_LENGTH;
     }
 
-    private static KeyPair generateClassical(NamedGroup group) throws GeneralSecurityException {
+    private static KeyPair generateClassical(NamedGroup group, CryptoServices crypto)
+            throws GeneralSecurityException {
         switch (group) {
             case X25519:
-                return KeyPairGenerator.getInstance("X25519").generateKeyPair();
+                return crypto.keyPairGenerator("X25519").generateKeyPair();
             case SECP256R1: {
-                KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
+                KeyPairGenerator kpg = crypto.keyPairGenerator("EC");
                 kpg.initialize(new ECGenParameterSpec("secp256r1"));
                 return kpg.generateKeyPair();
             }
             case SECP384R1: {
-                KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
+                KeyPairGenerator kpg = crypto.keyPairGenerator("EC");
                 kpg.initialize(new ECGenParameterSpec("secp384r1"));
                 return kpg.generateKeyPair();
             }
@@ -316,30 +323,32 @@ public final class KeyExchange {
         }
     }
 
-    private static byte[] classicalAgree(NamedGroup group, PrivateKey privateKey, PublicKey peerPublic)
-            throws GeneralSecurityException {
+    private static byte[] classicalAgree(NamedGroup group, PrivateKey privateKey, PublicKey peerPublic,
+            CryptoServices crypto) throws GeneralSecurityException {
         String algorithm = (group == NamedGroup.X25519) ? "XDH" : "ECDH";
-        KeyAgreement ka = KeyAgreement.getInstance(algorithm);
+        KeyAgreement ka = crypto.keyAgreement(algorithm);
         ka.init(privateKey);
         ka.doPhase(peerPublic, true);
         return ka.generateSecret();
     }
 
-    private static PublicKey classicalPublicKey(NamedGroup group, byte[] raw) throws GeneralSecurityException {
+    private static PublicKey classicalPublicKey(NamedGroup group, byte[] raw, CryptoServices crypto)
+            throws GeneralSecurityException {
         int expected = group.getClientShareLength();
         if (raw.length != expected) {
             throw new GeneralSecurityException("Malformed " + group + " key share: expected "
                     + expected + " bytes, got " + raw.length);
         }
         String algorithm = (group == NamedGroup.X25519) ? "X25519" : "EC";
-        return wrapAndDecode(algorithm, headerFor(group), raw);
+        return wrapAndDecode(algorithm, headerFor(group), raw, crypto);
     }
 
-    private static PublicKey wrapAndDecode(String algorithm, byte[] header, byte[] raw) throws GeneralSecurityException {
+    private static PublicKey wrapAndDecode(String algorithm, byte[] header, byte[] raw, CryptoServices crypto)
+            throws GeneralSecurityException {
         byte[] wrapped = new byte[header.length + raw.length];
         System.arraycopy(header, 0, wrapped, 0, header.length);
         System.arraycopy(raw, 0, wrapped, header.length, raw.length);
-        KeyFactory kf = KeyFactory.getInstance(algorithm);
+        KeyFactory kf = crypto.keyFactory(algorithm);
         return kf.generatePublic(new X509EncodedKeySpec(wrapped));
     }
 

@@ -549,7 +549,7 @@ There is extensive documentation for all Gumdrop features:
 
 ## Configuration
 
-See the [Composition documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on assembling servers, listeners, and handlers in Java. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
+See the [Composition documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on assembling servers, listeners, and handlers in Java. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls). To pin every TLS, DTLS and QUIC cryptographic service to one validated JCA provider and limit negotiation to an approved profile, see [FIPS mode](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html#fips).
 
 ## Building and running
 

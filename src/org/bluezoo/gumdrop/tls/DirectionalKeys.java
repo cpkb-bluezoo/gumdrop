@@ -30,7 +30,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * One direction's TLS 1.3 record-layer AEAD state (RFC 8446 section 5.3):
@@ -74,15 +74,15 @@ final class DirectionalKeys {
     // actually protecting 23 million records.
     long seq;
 
-    private DirectionalKeys(CipherSuite suite, byte[] key, byte[] iv) {
+    private DirectionalKeys(CipherSuite suite, byte[] key, byte[] iv, CryptoServices crypto) {
         this.suite = suite;
         this.key = key;
         this.iv = iv;
         this.keySpec = new SecretKeySpec(key, suite.getAeadKeyAlgorithm());
         try {
             String transformation = suite.getAeadTransformation();
-            this.encryptCipher = Cipher.getInstance(transformation);
-            this.decryptCipher = Cipher.getInstance(transformation);
+            this.encryptCipher = crypto.cipher(transformation);
+            this.decryptCipher = crypto.cipher(transformation);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Could not initialize AEAD ciphers", e);
         }
@@ -96,13 +96,14 @@ final class DirectionalKeys {
      *
      * @param suite the negotiated cipher suite
      * @param secret the traffic secret for this direction
+     * @param crypto the services the HKDF and ciphers come from
      * @return the derived directional keys
      */
-    static DirectionalKeys fromSecret(CipherSuite suite, byte[] secret) {
-        Hkdf hkdf = suite.newHkdf();
-        byte[] key = hkdf.expandLabel(secret, "key", new byte[0], suite.getAeadKeyLength());
-        byte[] iv = hkdf.expandLabel(secret, "iv", new byte[0], NONCE_LENGTH);
-        return new DirectionalKeys(suite, key, iv);
+    static DirectionalKeys fromSecret(CipherSuite suite, byte[] secret, CryptoServices crypto) {
+        String hash = suite.getHashAlgorithm();
+        byte[] key = crypto.hkdfExpandLabel(hash, secret, "key", new byte[0], suite.getAeadKeyLength());
+        byte[] iv = crypto.hkdfExpandLabel(hash, secret, "iv", new byte[0], NONCE_LENGTH);
+        return new DirectionalKeys(suite, key, iv, crypto);
     }
 
     /**

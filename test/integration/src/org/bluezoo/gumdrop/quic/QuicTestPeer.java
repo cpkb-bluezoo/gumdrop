@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -48,7 +49,6 @@ import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
-import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
@@ -205,25 +205,25 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             pendingCrypto.put(level, new ArrayList<PendingChunk>());
         }
 
-        byte[] clientInitialSecret = InitialSecrets.clientSecret(QuicVersion.V1, clientInitialDcid);
-        byte[] serverInitialSecret = InitialSecrets.serverSecret(QuicVersion.V1, clientInitialDcid);
-        Hkdf sha256 = Hkdf.sha256();
+        byte[] clientInitialSecret = InitialSecrets.clientSecret(QuicVersion.V1, clientInitialDcid, new CryptoServices());
+        byte[] serverInitialSecret = InitialSecrets.serverSecret(QuicVersion.V1, clientInitialDcid, new CryptoServices());
+        CryptoServices crypto = new CryptoServices();
         PacketProtectionKeys clientInitialKeys =
-                PacketProtectionKeys.derive(sha256, clientInitialSecret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                PacketProtectionKeys.derive(crypto, "SHA-256", clientInitialSecret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         PacketProtectionKeys serverInitialKeys =
-                PacketProtectionKeys.derive(sha256, serverInitialSecret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+                PacketProtectionKeys.derive(crypto, "SHA-256", serverInitialSecret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
 
         if (isClient) {
             sendKeys.put(EncryptionLevel.INITIAL, clientInitialKeys);
             recvKeys.put(EncryptionLevel.INITIAL, serverInitialKeys);
             QuicTlsClientEngine clientEngine =
-                    new QuicTlsClientEngine(localTransportParameters, this, applicationProtocol);
+                    new QuicTlsClientEngine(new CryptoServices(), localTransportParameters, this, applicationProtocol);
             clientEngine.setTrustManager(new PermissiveTrustManager());
             this.tlsEngine = clientEngine;
         } else {
             sendKeys.put(EncryptionLevel.INITIAL, serverInitialKeys);
             recvKeys.put(EncryptionLevel.INITIAL, clientInitialKeys);
-            this.tlsEngine = new QuicTlsServerEngine(serverCredentials, localTransportParameters, this, false);
+            this.tlsEngine = new QuicTlsServerEngine(new CryptoServices(), serverCredentials, localTransportParameters, this, false);
         }
     }
 
@@ -243,11 +243,8 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         }
     }
 
-    private static Hkdf hkdfFor(CipherSuite cipher) {
-        if (cipher == CipherSuite.TLS_AES_256_GCM_SHA384) {
-            return Hkdf.sha384();
-        }
-        return Hkdf.sha256();
+    private static String hashFor(CipherSuite cipher) {
+        return cipher.getHashAlgorithm();
     }
 
     private static QuicAeadAlgorithm aeadFor(CipherSuite cipher) {
@@ -295,21 +292,21 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     @Override
     public void handshakeSecretsAvailable() {
         CipherSuite cipher = getSelectedCipher();
-        Hkdf hkdf = hkdfFor(cipher);
+        String hash = hashFor(cipher);
         QuicAeadAlgorithm aead = aeadFor(cipher);
         byte[] clientSecret = tlsEngine.getClientHandshakeTrafficSecret();
         byte[] serverSecret = tlsEngine.getServerHandshakeTrafficSecret();
-        deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, hkdf, aead, clientSecret, serverSecret);
+        deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, hash, aead, clientSecret, serverSecret);
     }
 
     @Override
     public void handshakeFinished() {
         CipherSuite cipher = getSelectedCipher();
-        Hkdf hkdf = hkdfFor(cipher);
+        String hash = hashFor(cipher);
         QuicAeadAlgorithm aead = aeadFor(cipher);
         byte[] clientSecret = tlsEngine.getClientApplicationTrafficSecret();
         byte[] serverSecret = tlsEngine.getServerApplicationTrafficSecret();
-        deriveDirectionalKeys(EncryptionLevel.ONE_RTT, hkdf, aead, clientSecret, serverSecret);
+        deriveDirectionalKeys(EncryptionLevel.ONE_RTT, hash, aead, clientSecret, serverSecret);
         if (!isClient) {
             // RFC 9001 section 4.1.2: once the server has verified the
             // client's Finished message, it MUST send HANDSHAKE_DONE.
@@ -329,9 +326,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         if (cipher == null) {
             return;
         }
-        Hkdf hkdf = hkdfFor(cipher);
+        String hash = hashFor(cipher);
         QuicAeadAlgorithm aead = aeadFor(cipher);
-        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, tlsEngine.getClientEarlyTrafficSecret(), aead, QuicVersion.V1);
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(new CryptoServices(), hash, tlsEngine.getClientEarlyTrafficSecret(), aead,
+                QuicVersion.V1);
         if (isClient) {
             zeroRttSendKeys = keys;
         } else {
@@ -378,10 +376,13 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         deliveryError = cause instanceof Exception ? (Exception) cause : new RuntimeException(cause);
     }
 
-    private void deriveDirectionalKeys(EncryptionLevel level, Hkdf hkdf, QuicAeadAlgorithm aead,
+    private void deriveDirectionalKeys(EncryptionLevel level, String hash, QuicAeadAlgorithm aead,
             byte[] clientSecret, byte[] serverSecret) {
-        PacketProtectionKeys clientDirectionKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead, QuicVersion.V1);
-        PacketProtectionKeys serverDirectionKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead, QuicVersion.V1);
+        CryptoServices crypto = new CryptoServices();
+        PacketProtectionKeys clientDirectionKeys = PacketProtectionKeys.derive(crypto, hash, clientSecret, aead,
+                QuicVersion.V1);
+        PacketProtectionKeys serverDirectionKeys = PacketProtectionKeys.derive(crypto, hash, serverSecret, aead,
+                QuicVersion.V1);
         if (isClient) {
             sendKeys.put(level, clientDirectionKeys);
             recvKeys.put(level, serverDirectionKeys);

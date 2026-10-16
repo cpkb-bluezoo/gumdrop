@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.net.InetSocketAddress;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
@@ -73,25 +74,25 @@ public class Dtls12CookieExchangeTest {
         for (int i = 0; i < random.length; i++) {
             random[i] = (byte) i;
         }
-        byte[] cookie = Dtls12HelloVerify.computeCookie(COOKIE_SECRET, random, CLIENT_ADDR);
+        byte[] cookie = Dtls12HelloVerify.computeCookie(COOKIE_SECRET, random, CLIENT_ADDR, new CryptoServices());
         assertTrue(cookie.length > 0);
-        assertTrue(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, CLIENT_ADDR, cookie));
-        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, WRONG_ADDR, cookie));
+        assertTrue(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, CLIENT_ADDR, cookie, new CryptoServices()));
+        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, WRONG_ADDR, cookie, new CryptoServices()));
         byte[] otherRandom = random.clone();
         otherRandom[0] ^= 0x01;
-        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, otherRandom, CLIENT_ADDR, cookie));
+        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, otherRandom, CLIENT_ADDR, cookie, new CryptoServices()));
     }
 
     @Test
     public void validateCookieRejectsMissingOrEmptyCookie() throws Exception {
         byte[] random = new byte[32];
-        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, CLIENT_ADDR, null));
-        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, CLIENT_ADDR, new byte[0]));
+        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, CLIENT_ADDR, null, new CryptoServices()));
+        assertFalse(Dtls12HelloVerify.validateCookie(COOKIE_SECRET, random, CLIENT_ADDR, new byte[0], new CryptoServices()));
     }
 
     @Test
     public void parseClientHelloFieldsExtractsRandomAndCookie() throws Exception {
-        Tls12HandshakeConfig clientCfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig clientCfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         clientCfg.setDtlsTransport(true);
         clientCfg.setServerName(SERVER_NAME);
         clientCfg.setTrustManager(trustManager);
@@ -110,7 +111,7 @@ public class Dtls12CookieExchangeTest {
 
     @Test
     public void parseClientHelloFieldsReadsFirstFragmentOfFragmentedClientHello() throws Exception {
-        Tls12HandshakeConfig clientCfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig clientCfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         clientCfg.setDtlsTransport(true);
         clientCfg.setServerName(SERVER_NAME);
         clientCfg.setTrustManager(trustManager);
@@ -133,12 +134,12 @@ public class Dtls12CookieExchangeTest {
 
     @Test
     public void clientRebuildsEngineAfterHelloVerifyRequestAndCompletesHandshake() throws Exception {
-        Tls12HandshakeConfig clientTemplate = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig clientTemplate = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         clientTemplate.setDtlsTransport(true);
         clientTemplate.setServerName(SERVER_NAME);
         clientTemplate.setTrustManager(trustManager);
 
-        Tls12HandshakeConfig serverCfg = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig serverCfg = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         serverCfg.setDtlsTransport(true);
         serverCfg.setServerCredentials(new ServerCredentials(ecChain, ecKey));
         Dtls12RecordEngine server = new Dtls12RecordEngine(serverCfg, 1024);
@@ -154,7 +155,7 @@ public class Dtls12CookieExchangeTest {
         assertNotNull(ch1);
         clientSink.outbound.clear();
 
-        byte[] cookie = Dtls12HelloVerify.computeCookie(COOKIE_SECRET, ch1.random, CLIENT_ADDR);
+        byte[] cookie = Dtls12HelloVerify.computeCookie(COOKIE_SECRET, ch1.random, CLIENT_ADDR, new CryptoServices());
         byte[] hvr = Dtls12HelloVerify.buildHelloVerifyRequestDatagram(cookie);
         activeClient.get().feedDatagram(hvr, clientSink);
 
@@ -175,7 +176,7 @@ public class Dtls12CookieExchangeTest {
     private static Dtls12RecordEngine buildClientEngine(byte[] cookie, byte[] preservedRandom,
             Tls12HandshakeConfig template, final RecordingSink sink, final AtomicReference<Dtls12RecordEngine> slot)
             throws Exception {
-        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         cfg.setDtlsTransport(true);
         cfg.setServerName(template.getServerName());
         cfg.setTrustManager(template.getTrustManager());

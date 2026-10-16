@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
@@ -49,7 +50,7 @@ public class QuicTlsClientEngineTest {
 
     private static List<NamedGroup> resolvedGroups(String namedGroups) throws Exception {
         QuicTlsClientEngine engine = new QuicTlsClientEngine(
-                new TransportParameters(), LISTENER, null, namedGroups);
+                new CryptoServices(), new TransportParameters(), LISTENER, null, namedGroups);
         Field f = QuicTlsClientEngine.class.getDeclaredField("config");
         f.setAccessible(true);
         HandshakeConfig config = (HandshakeConfig) f.get(engine);

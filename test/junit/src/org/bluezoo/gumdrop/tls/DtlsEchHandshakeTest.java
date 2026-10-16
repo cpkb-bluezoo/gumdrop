@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -121,7 +122,7 @@ public class DtlsEchHandshakeTest {
 
     private static HandshakeConfig server(boolean withKeys, int keyConfigId, boolean cookie,
             boolean echRequired, EchConfig retry) throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setCertificateCompressionEnabled(false);
         c.setServerCredentials(new ServerCredentials(TestCertificates.ec256().getChain(),
                 TestCertificates.ec256().getPrivateKey()));
@@ -139,11 +140,11 @@ public class DtlsEchHandshakeTest {
     }
 
     private static HandshakeConfig client(EchConfig ech, boolean grease, Retry retry) throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setCertificateCompressionEnabled(false);
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(
-                TestCertificates.ec256().getChain()));
+                TestCertificates.ec256().getChain(), new CryptoServices()));
         if (ech != null) {
             c.setEchEnabled(true);
             c.setEchConfig(ech);

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.util;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -62,7 +63,7 @@ public class PinnedCertTrustManagerTest {
 
     @Test
     public void fingerprintIsColonSeparatedSha256() throws Exception {
-        String fp = PinnedCertTrustManager.computeFingerprint(cert);
+        String fp = PinnedCertTrustManager.computeFingerprint(cert, new CryptoServices());
         assertEquals(32 * 3 - 1, fp.length());
         assertEquals(fp.toLowerCase(), fp);
         assertEquals(':', fp.charAt(2));
@@ -70,16 +71,16 @@ public class PinnedCertTrustManagerTest {
 
     @Test
     public void matchingFingerprintIsAccepted() throws Exception {
-        String fp = PinnedCertTrustManager.computeFingerprint(cert);
+        String fp = PinnedCertTrustManager.computeFingerprint(cert, new CryptoServices());
         PinnedCertTrustManager tm =
-            new PinnedCertTrustManager(new EmptyX509TrustManager(), fp);
+            new PinnedCertTrustManager(new EmptyX509TrustManager(), new CryptoServices(), fp);
         tm.checkServerTrusted(new X509Certificate[] { cert }, "ECDHE_ECDSA");
     }
 
     @Test
     public void mismatchedFingerprintIsRejected() throws Exception {
         PinnedCertTrustManager tm =
-            new PinnedCertTrustManager(new EmptyX509TrustManager(), "00:11");
+            new PinnedCertTrustManager(new EmptyX509TrustManager(), new CryptoServices(), "00:11");
         try {
             tm.checkServerTrusted(new X509Certificate[] { cert }, "ECDHE_ECDSA");
             fail("expected CertificateException");
@@ -91,14 +92,14 @@ public class PinnedCertTrustManagerTest {
     @Test(expected = CertificateException.class)
     public void emptyChainIsRejected() throws Exception {
         PinnedCertTrustManager tm =
-            new PinnedCertTrustManager(new EmptyX509TrustManager(), "00:11");
+            new PinnedCertTrustManager(new EmptyX509TrustManager(), new CryptoServices(), "00:11");
         tm.checkServerTrusted(new X509Certificate[0], "RSA");
     }
 
     @Test
     public void clientChecksAndIssuersDelegate() throws Exception {
         PinnedCertTrustManager tm =
-            new PinnedCertTrustManager(new EmptyX509TrustManager(), "00:11");
+            new PinnedCertTrustManager(new EmptyX509TrustManager(), new CryptoServices(), "00:11");
         tm.checkClientTrusted(new X509Certificate[] { cert }, "RSA");
         assertEquals(0, tm.getAcceptedIssuers().length);
     }

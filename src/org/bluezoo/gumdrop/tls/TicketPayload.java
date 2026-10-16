@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
@@ -72,9 +72,10 @@ final class TicketPayload {
      * sent in a NewSessionTicket.
      *
      * @param key the current ticket key, 16 bytes (AES-128-GCM)
+     * @param crypto the services the cipher and nonce come from
      * @return the sealed identity bytes
      */
-    byte[] seal(byte[] key) {
+    byte[] seal(byte[] key, CryptoServices crypto) {
         byte[] tp = (rememberedTransportParameters != null) ? rememberedTransportParameters : new byte[0];
         ByteBuffer plaintext = ByteBuffer.allocate(8 + 4 + 4 + 1 + psk.length + 4 + 2 + 2 + tp.length);
         plaintext.putLong(issuedAtMillis);
@@ -88,9 +89,9 @@ final class TicketPayload {
         plaintext.put(tp);
 
         byte[] nonce = new byte[NONCE_LENGTH];
-        new SecureRandom().nextBytes(nonce);
+        crypto.nextBytes(nonce);
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"),
                     new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce));
             byte[] ciphertext = cipher.doFinal(plaintext.array());
@@ -110,10 +111,11 @@ final class TicketPayload {
      *
      * @param key a candidate ticket key, 16 bytes
      * @param identity the opaque identity bytes presented in {@code pre_shared_key}
+     * @param crypto the services the cipher comes from
      * @return the payload, or null if the tag does not verify under this
      *         key, the identity is malformed, or its cipher suite is unrecognised
      */
-    static TicketPayload open(byte[] key, byte[] identity) {
+    static TicketPayload open(byte[] key, byte[] identity, CryptoServices crypto) {
         if (identity.length < NONCE_LENGTH + GCM_TAG_LENGTH) {
             return null;
         }
@@ -124,7 +126,7 @@ final class TicketPayload {
 
         byte[] plaintext;
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             // This is the decrypt side: nonce is read back from the
             // identity bytes above (whatever seal() actually generated
             // via SecureRandom for that specific ticket), which is the

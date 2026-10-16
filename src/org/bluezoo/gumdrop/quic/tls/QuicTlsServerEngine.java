@@ -30,6 +30,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
@@ -130,6 +131,7 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      * Creates a server-side TLS engine that offers no ALPN application
      * protocols.
      *
+     * @param crypto the services the handshake's cryptography comes from
      * @param serverCredentials the server's certificate chain and private key
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in EncryptedExtensions
@@ -139,10 +141,10 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      *                         {@link #setTicketKeys} for the other half
      *                         resumption needs (a ticket to resume)
      */
-    public QuicTlsServerEngine(ServerCredentials serverCredentials,
+    public QuicTlsServerEngine(CryptoServices crypto, ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled) {
-        this(serverCredentials, transportParameters, listener, earlyDataEnabled, null);
+        this(crypto, serverCredentials, transportParameters, listener, earlyDataEnabled, null);
     }
 
     /**
@@ -160,10 +162,10 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      *                             server supports (RFC 7301),
      *                             comma-separated, or null to support none
      */
-    public QuicTlsServerEngine(ServerCredentials serverCredentials,
+    public QuicTlsServerEngine(CryptoServices crypto, ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols) {
-        this(serverCredentials, transportParameters, listener, earlyDataEnabled, applicationProtocols, null);
+        this(crypto, serverCredentials, transportParameters, listener, earlyDataEnabled, applicationProtocols, null);
     }
 
     /**
@@ -188,10 +190,10 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      *                     layer actually implements are accepted -- see
      *                     {@link QuicCipherSuites#resolve}.
      */
-    public QuicTlsServerEngine(ServerCredentials serverCredentials,
+    public QuicTlsServerEngine(CryptoServices crypto, ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols, String cipherSuites) {
-        this(serverCredentials, null, transportParameters, listener, earlyDataEnabled,
+        this(crypto, serverCredentials, null, transportParameters, listener, earlyDataEnabled,
                 applicationProtocols, cipherSuites, false, null);
     }
 
@@ -199,6 +201,7 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      * Creates a server-side TLS engine with optional SNI credential
      * selection and client certificate authentication.
      *
+     * @param crypto the services the handshake's cryptography comes from
      * @param serverCredentials the default server credentials, or null if
      *                            {@code serverCredentialsResolver} selects them
      * @param serverCredentialsResolver resolves credentials from the client's
@@ -211,7 +214,7 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      * @param requireClientAuth whether client certificates are required
      * @param clientTrustManager trust manager for validating client certs
      */
-    public QuicTlsServerEngine(ServerCredentials serverCredentials,
+    public QuicTlsServerEngine(CryptoServices crypto, ServerCredentials serverCredentials,
             ServerCredentialsResolver serverCredentialsResolver,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols, String cipherSuites,
@@ -219,7 +222,7 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
         this.listener = listener;
         this.asyncOffload = new QuicHandshakeAsyncOffload(listener);
         this.deferredDispatch = new QuicTlsDeferredDispatch(asyncOffload, sink);
-        this.config = new HandshakeConfig(HandshakeRole.SERVER);
+        this.config = new HandshakeConfig(HandshakeRole.SERVER, crypto);
         config.setServerCredentials(serverCredentials);
         config.setServerCredentialsResolver(serverCredentialsResolver);
         if (requireClientAuth) {

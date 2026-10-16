@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * Push parser for the body of a TLS 1.3 {@code Certificate} message
@@ -60,12 +61,15 @@ final class CertificateMessageParser {
     private byte[] field;
     private int fieldPos;
     private byte[] context = new byte[0];
+    private final CryptoServices crypto;
 
     /**
      * @param messageLength the length of the message body to be parsed
+     * @param crypto the services the certificate factory comes from
      */
-    CertificateMessageParser(int messageLength) {
+    CertificateMessageParser(int messageLength, CryptoServices crypto) {
         this.messageRemaining = messageLength;
+        this.crypto = crypto;
     }
 
     /**
@@ -141,7 +145,7 @@ final class CertificateMessageParser {
                     pos += n;
                     if (fieldRemaining == 0) {
                         try {
-                            chain.add(CertificateVerifier.parseChain(Collections.singletonList(field)).get(0));
+                            chain.add(CertificateVerifier.parseChain(Collections.singletonList(field), crypto).get(0));
                         } catch (CertificateException e) {
                             throw new HandshakeFormatException(e.getMessage(), true);
                         }

@@ -970,17 +970,14 @@ final class HandshakeMessages {
      * client does even though it never receives more than one
      * {@code CertificateRequest} per handshake to need it for.
      *
+     * @param schemes the signature schemes the client may sign with
      * @return the complete framed message
      */
-    static byte[] buildCertificateRequest() {
+    static byte[] buildCertificateRequest(List<SignatureScheme> schemes) {
         WireWriter body = new WireWriter();
         body.opaque8(new byte[0]);
 
         WireWriter ext = new WireWriter();
-        List<SignatureScheme> schemes = new ArrayList<SignatureScheme>();
-        for (SignatureScheme scheme : SignatureScheme.values()) {
-            schemes.add(scheme);
-        }
         writeSignatureAlgorithmsExtension(ext, schemes);
         body.opaque16(ext.toByteArray());
 

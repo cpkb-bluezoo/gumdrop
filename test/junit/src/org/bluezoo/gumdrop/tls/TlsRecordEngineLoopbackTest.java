@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -75,13 +76,13 @@ public class TlsRecordEngineLoopbackTest {
     }
 
     private HandshakeConfig serverConfig() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         c.setServerCredentials(TlsBLoopbackSupport.ecCredentials());
         return c;
     }
 
     private HandshakeConfig clientConfig() throws Exception {
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         c.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.ecChain()));
         return c;
@@ -205,9 +206,9 @@ public class TlsRecordEngineLoopbackTest {
 
     @Test
     public void rsaServerCertificate() throws Exception {
-        HandshakeConfig sc = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig sc = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         sc.setServerCredentials(TlsBLoopbackSupport.rsaCredentials());
-        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         cc.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         cc.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.rsaChain()));
         Pair p = new Pair(cc, sc);
@@ -217,7 +218,7 @@ public class TlsRecordEngineLoopbackTest {
 
     @Test
     public void untrustedServerCertificateFails() throws Exception {
-        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         cc.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         cc.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.rsaChain()));
         Pair p = new Pair(cc, serverConfig());

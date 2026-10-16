@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
@@ -157,6 +158,7 @@ public final class TlsRecordEngine {
     }
 
     private final HandshakeEngine engine;
+    private final CryptoServices crypto;
     private final HandshakeRole role;
     private final InnerSink innerSink = new InnerSink();
     private final HandshakeRunner handshakeRunner = new HandshakeRunner();
@@ -210,6 +212,7 @@ public final class TlsRecordEngine {
     public TlsRecordEngine(HandshakeConfig config, HandshakeAsyncOffload offload) {
         config.setMode(HandshakeMode.TCP_RECORD_LAYER);
         this.role = config.getRole();
+        this.crypto = config.getCrypto();
         this.engine = new HandshakeEngine(config);
         this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls13DeferredDispatch(handshakeAsync, innerSink);
@@ -797,7 +800,7 @@ public final class TlsRecordEngine {
 
         @Override
         public void deliverKeyUpdate(KeyUpdateDirection direction, byte[] newSecret) {
-            DirectionalKeys updated = DirectionalKeys.fromSecret(engine.getNegotiatedCipherSuite(), newSecret);
+            DirectionalKeys updated = DirectionalKeys.fromSecret(engine.getNegotiatedCipherSuite(), newSecret, crypto);
             if (direction == KeyUpdateDirection.WRITE) {
                 write = updated;
             } else {
@@ -832,8 +835,8 @@ public final class TlsRecordEngine {
                 peerSecret = (role == HandshakeRole.CLIENT)
                         ? engine.getServerApplicationTrafficSecret() : engine.getClientApplicationTrafficSecret();
             }
-            write = DirectionalKeys.fromSecret(suite, ownSecret);
-            read = DirectionalKeys.fromSecret(suite, peerSecret);
+            write = DirectionalKeys.fromSecret(suite, ownSecret, crypto);
+            read = DirectionalKeys.fromSecret(suite, peerSecret, crypto);
             epoch = newEpoch;
         }
     }

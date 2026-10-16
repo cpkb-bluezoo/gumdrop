@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,7 +62,7 @@ public class DtlsHandshakeConfigWrapperTest {
 
     @Test
     public void dtls12WrapperDelegatesEverySetting() throws Exception {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         Dtls12HandshakeConfig w = new Dtls12HandshakeConfig(base);
         assertSame(base, w.getBase());
         assertEquals(HandshakeRole.SERVER, w.getRole());
@@ -115,7 +116,7 @@ public class DtlsHandshakeConfigWrapperTest {
 
     @Test
     public void dtls13WrapperDelegatesEverySetting() throws Exception {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         Dtls13HandshakeConfig w = new Dtls13HandshakeConfig(base);
         assertSame(base, w.getBase());
         assertEquals(HandshakeRole.CLIENT, w.getRole());
@@ -136,7 +137,7 @@ public class DtlsHandshakeConfigWrapperTest {
         w.setClientAuthPolicy(ClientAuthPolicy.REQUEST);
         assertEquals(ClientAuthPolicy.REQUEST, w.getClientAuthPolicy());
         javax.net.ssl.X509TrustManager tm = CertificateVerifier.trustManagerFromCertificates(
-                TestCertificates.ec256().getChain());
+                TestCertificates.ec256().getChain(), new CryptoServices());
         w.setClientTrustManager(tm);
         assertSame(tm, w.getClientTrustManager());
         w.setTrustManager(tm);
@@ -166,7 +167,7 @@ public class DtlsHandshakeConfigWrapperTest {
 
     @Test
     public void dtls13CopyKeepsEchServerKeys() {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         EchConfig ech = EchConfig.createV13(7, hex(PK_RM), "public.example", 32);
         base.addEchServerKey(ech, new byte[32]);
         base.setEchServerRequired(true);
@@ -202,7 +203,7 @@ public class DtlsHandshakeConfigWrapperTest {
     @Test
     public void echClientBootstrapAppliesFlags() {
         EchConfig ech = EchConfig.createV13(3, hex(PK_RM), "public.example", 32);
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         EchClientBootstrap.applyToHandshakeConfig(c, null, false, false);
         assertFalse(c.isEchEnabled());
         assertFalse(c.isEchRequired());

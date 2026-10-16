@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -79,13 +80,13 @@ public class TlsRecordStateEdgeTest {
     }
 
     private static TcpEndpoint tls13(Recorder h, int maxOut) throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint ep = new TcpEndpoint(h, cfg, false);
         return upgrade(ep, maxOut);
     }
 
     private static TcpEndpoint tls12(Recorder h, int maxOut) throws IOException {
-        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint ep = new TcpEndpoint(h, cfg, false);
         return upgrade(ep, maxOut);
     }

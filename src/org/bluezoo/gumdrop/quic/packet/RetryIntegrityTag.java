@@ -27,6 +27,8 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
+
 /**
  * The Retry Integrity Tag (RFC 9001 section 5.8): a 16-byte AEAD
  * authentication tag appended to every Retry packet (RFC 9000 section
@@ -56,9 +58,11 @@ public final class RetryIntegrityTag {
      * @param retryPacketWithoutTag the Retry packet as it will be sent,
      *        minus the tag itself (RFC 9000 section 17.2's header through
      *        the end of the Retry Token field)
+     * @param crypto the services the cipher comes from
      * @return the 16-byte tag
      */
-    public static byte[] compute(QuicVersion version, byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag) {
+    public static byte[] compute(QuicVersion version, byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag,
+            CryptoServices crypto) {
         // RFC 9001 section 5.8: the AEAD's associated data is a
         // pseudo-packet that is never itself transmitted -- the actual
         // Retry packet (minus the tag), with the Original Destination
@@ -70,7 +74,7 @@ public final class RetryIntegrityTag {
                 1 + originalDestinationConnectionId.length, retryPacketWithoutTag.length);
 
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             GCMParameterSpec spec = new GCMParameterSpec(LENGTH * 8, version.getRetryNonce());
             // RFC 9001 section 5.8 mandates this exact fixed key and nonce
             // -- both are published in the RFC itself and known to every
@@ -103,14 +107,15 @@ public final class RetryIntegrityTag {
      * @param retryPacketWithoutTag the received Retry packet, minus its
      *        trailing 16-byte tag
      * @param receivedTag the received 16-byte tag
+     * @param crypto the services the cipher comes from
      * @return true if the tag is valid
      */
     public static boolean verify(QuicVersion version, byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag,
-            byte[] receivedTag) {
+            byte[] receivedTag, CryptoServices crypto) {
         if (receivedTag.length != LENGTH) {
             return false;
         }
-        byte[] expected = compute(version, originalDestinationConnectionId, retryPacketWithoutTag);
+        byte[] expected = compute(version, originalDestinationConnectionId, retryPacketWithoutTag, crypto);
         // Constant-time comparison: this tag is attacker-observable data
         // (arrives on the wire), so timing differences in a naive
         // byte-by-byte compare-and-return-early could leak which prefix

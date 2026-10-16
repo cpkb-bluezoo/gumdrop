@@ -38,11 +38,11 @@ public class KeyExchangeTest {
     @Test
     public void everyGroupAgreesOnASharedSecret() throws Exception {
         for (NamedGroup group : NamedGroup.values()) {
-            KeyExchange client = KeyExchange.generate(group);
+            KeyExchange client = KeyExchange.generate(group, new CryptoServices());
             byte[] clientShare = client.getShareBytes();
             assertEquals(group + " client share length", group.getClientShareLength(), clientShare.length);
 
-            KeyExchange.ServerResult server = KeyExchange.agreeAsServer(group, clientShare);
+            KeyExchange.ServerResult server = KeyExchange.agreeAsServer(group, clientShare, new CryptoServices());
             assertEquals(group + " server share length", group.getServerShareLength(), server.getShareBytes().length);
 
             byte[] clientSecret = client.agree(server.getShareBytes());
@@ -52,8 +52,8 @@ public class KeyExchangeTest {
 
     @Test
     public void hybridGroupCombinesBothComponents() throws Exception {
-        KeyExchange client = KeyExchange.generate(NamedGroup.X25519_MLKEM768);
-        KeyExchange.ServerResult server = KeyExchange.agreeAsServer(NamedGroup.X25519_MLKEM768, client.getShareBytes());
+        KeyExchange client = KeyExchange.generate(NamedGroup.X25519_MLKEM768, new CryptoServices());
+        KeyExchange.ServerResult server = KeyExchange.agreeAsServer(NamedGroup.X25519_MLKEM768, client.getShareBytes(), new CryptoServices());
         byte[] secret = client.agree(server.getShareBytes());
         // ML-KEM-768's 32-byte shared secret concatenated with X25519's 32-byte shared secret.
         assertEquals(64, secret.length);
@@ -64,9 +64,9 @@ public class KeyExchangeTest {
         // Classical-first: P-256 ECDH shared secret (32 bytes) concatenated
         // with ML-KEM-768's 32-byte shared secret -- the opposite
         // concatenation order from X25519_MLKEM768.
-        KeyExchange client = KeyExchange.generate(NamedGroup.SECP256R1_MLKEM768);
+        KeyExchange client = KeyExchange.generate(NamedGroup.SECP256R1_MLKEM768, new CryptoServices());
         KeyExchange.ServerResult server =
-                KeyExchange.agreeAsServer(NamedGroup.SECP256R1_MLKEM768, client.getShareBytes());
+                KeyExchange.agreeAsServer(NamedGroup.SECP256R1_MLKEM768, client.getShareBytes(), new CryptoServices());
         byte[] secret = client.agree(server.getShareBytes());
         assertEquals(64, secret.length);
     }
@@ -75,9 +75,9 @@ public class KeyExchangeTest {
     public void secp384r1MlKem1024HybridCombinesBothComponents() throws Exception {
         // Classical-first: P-384 ECDH shared secret (48 bytes) concatenated
         // with ML-KEM-1024's 32-byte shared secret.
-        KeyExchange client = KeyExchange.generate(NamedGroup.SECP384R1_MLKEM1024);
+        KeyExchange client = KeyExchange.generate(NamedGroup.SECP384R1_MLKEM1024, new CryptoServices());
         KeyExchange.ServerResult server =
-                KeyExchange.agreeAsServer(NamedGroup.SECP384R1_MLKEM1024, client.getShareBytes());
+                KeyExchange.agreeAsServer(NamedGroup.SECP384R1_MLKEM1024, client.getShareBytes(), new CryptoServices());
         byte[] secret = client.agree(server.getShareBytes());
         assertEquals(80, secret.length);
     }

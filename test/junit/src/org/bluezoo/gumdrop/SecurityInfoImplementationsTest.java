@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -62,7 +63,7 @@ public class SecurityInfoImplementationsTest {
 
     @Test
     public void tls13InfoBeforeHandshake() {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TlsRecordEngine engine = new TlsRecordEngine(cfg);
         HandshakeSecurityInfo info = new HandshakeSecurityInfo(engine, cfg, 0L);
         assertEquals("TLSv1.3", info.getProtocol());
@@ -76,14 +77,14 @@ public class SecurityInfoImplementationsTest {
         assertEquals("TLS[TLSv1.3, null]", info.toString());
         HandshakeSecurityInfo timed = new HandshakeSecurityInfo(engine, cfg, 1L);
         assertTrue(timed.getHandshakeDurationMs() >= 0);
-        HandshakeConfig server = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig server = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         HandshakeSecurityInfo serverInfo = new HandshakeSecurityInfo(engine, server, 0L);
         assertNull(serverInfo.getLocalCertificates());
     }
 
     @Test
     public void tls12InfoBeforeHandshake() {
-        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         Tls12RecordEngine engine = new Tls12RecordEngine(cfg);
         Tls12SecurityInfo info = new Tls12SecurityInfo(engine, cfg, 0L);
         assertEquals("TLSv1.2", info.getProtocol());
@@ -97,13 +98,13 @@ public class SecurityInfoImplementationsTest {
         assertNotNull(info.toString());
         Tls12SecurityInfo timed = new Tls12SecurityInfo(engine, cfg, 5L);
         assertTrue(timed.getHandshakeDurationMs() >= 0);
-        Tls12HandshakeConfig server = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig server = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         assertNull(new Tls12SecurityInfo(engine, server, 0L).getLocalCertificates());
     }
 
     @Test
     public void dtls12InfoBeforeHandshake() {
-        Dtls12HandshakeConfig cfg = new Dtls12HandshakeConfig(new Tls12HandshakeConfig(HandshakeRole.CLIENT));
+        Dtls12HandshakeConfig cfg = new Dtls12HandshakeConfig(new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices()));
         Dtls12RecordEngine engine = new Dtls12RecordEngine(cfg.getBase(), 1200);
         Dtls12SecurityInfo info = new Dtls12SecurityInfo(engine, cfg, 0L);
         assertEquals("DTLSv1.2", info.getProtocol());
@@ -120,7 +121,7 @@ public class SecurityInfoImplementationsTest {
 
     @Test
     public void dtls13InfoBeforeHandshake() {
-        Dtls13HandshakeConfig cfg = new Dtls13HandshakeConfig(new HandshakeConfig(HandshakeRole.CLIENT));
+        Dtls13HandshakeConfig cfg = new Dtls13HandshakeConfig(new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices()));
         Dtls13RecordEngine engine = new Dtls13RecordEngine(cfg, 1200);
         Dtls13SecurityInfo info = new Dtls13SecurityInfo(engine, cfg, 0L);
         assertEquals("DTLSv1.3", info.getProtocol());

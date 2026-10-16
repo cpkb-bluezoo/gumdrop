@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 
 /**
@@ -45,7 +45,8 @@ public final class InitialSecrets {
 
     private static final byte[] EMPTY_CONTEXT = new byte[0];
 
-    private static final Hkdf HKDF = Hkdf.sha256();
+    /** RFC 9001 section 5.2: Initial secrets always use HKDF-SHA256. */
+    private static final String HASH = "SHA-256";
 
     private InitialSecrets() {
     }
@@ -56,10 +57,12 @@ public final class InitialSecrets {
      * @param version the QUIC version, which selects the salt
      * @param clientDestinationConnectionId the Destination Connection ID
      *        of the client's first Initial packet
+     * @param crypto the services the HKDF comes from
      * @return the 32-byte client Initial secret
      */
-    public static byte[] clientSecret(QuicVersion version, byte[] clientDestinationConnectionId) {
-        return derive(version, clientDestinationConnectionId, "client in");
+    public static byte[] clientSecret(QuicVersion version, byte[] clientDestinationConnectionId,
+            CryptoServices crypto) {
+        return derive(version, clientDestinationConnectionId, "client in", crypto);
     }
 
     /**
@@ -68,14 +71,16 @@ public final class InitialSecrets {
      * @param version the QUIC version, which selects the salt
      * @param clientDestinationConnectionId the Destination Connection ID
      *        of the client's first Initial packet
+     * @param crypto the services the HKDF comes from
      * @return the 32-byte server Initial secret
      */
-    public static byte[] serverSecret(QuicVersion version, byte[] clientDestinationConnectionId) {
-        return derive(version, clientDestinationConnectionId, "server in");
+    public static byte[] serverSecret(QuicVersion version, byte[] clientDestinationConnectionId,
+            CryptoServices crypto) {
+        return derive(version, clientDestinationConnectionId, "server in", crypto);
     }
 
-    private static byte[] derive(QuicVersion version, byte[] connectionId, String label) {
-        byte[] initialSecret = HKDF.extract(version.getInitialSalt(), connectionId);
-        return HKDF.expandLabel(initialSecret, label, EMPTY_CONTEXT, HKDF.getHashLength());
+    private static byte[] derive(QuicVersion version, byte[] connectionId, String label, CryptoServices crypto) {
+        byte[] initialSecret = crypto.hkdfExtract(HASH, version.getInitialSalt(), connectionId);
+        return crypto.hkdfExpandLabel(HASH, initialSecret, label, EMPTY_CONTEXT, CryptoServices.hashLength(HASH));
     }
 }

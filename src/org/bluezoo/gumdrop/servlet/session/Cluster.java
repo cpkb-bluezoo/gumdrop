@@ -371,7 +371,7 @@ public class Cluster {
 
     public void open(Gumdrop gumdrop) throws IOException {
         transportFactory = new UdpTransportFactory();
-        transportFactory.start();
+        transportFactory.start(gumdrop);
 
         for (Member member : members) {
             try {

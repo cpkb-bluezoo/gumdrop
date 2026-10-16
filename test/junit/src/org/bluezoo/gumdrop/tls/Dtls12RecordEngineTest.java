@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -149,7 +150,7 @@ public class Dtls12RecordEngineTest {
     }
 
     private Tls12HandshakeConfig serverBase(int maxFragment) {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setDtlsTransport(true);
         config.setServerCredentials(new ServerCredentials(ecChain, ecKey));
         return config;
@@ -160,25 +161,25 @@ public class Dtls12RecordEngineTest {
     }
 
     private Tls12HandshakeConfig clientBase(int maxFragmentIgnored) throws Exception {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setDtlsTransport(true);
         config.setServerName(SERVER_NAME);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain, new CryptoServices()));
         return config;
     }
 
     private Tls12HandshakeConfig serverConfig(List<X509Certificate> chain, PrivateKey key) {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setDtlsTransport(true);
         config.setServerCredentials(new ServerCredentials(chain, key));
         return config;
     }
 
     private Tls12HandshakeConfig clientConfig(List<X509Certificate> trustedChain, String serverName) throws Exception {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setDtlsTransport(true);
         config.setServerName(serverName);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(trustedChain));
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(trustedChain, new CryptoServices()));
         return config;
     }
 
@@ -412,7 +413,7 @@ public class Dtls12RecordEngineTest {
     public void clientCertificateRequiredAndPresentedCompletes() throws Exception {
         Tls12HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(rsaChain));
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(rsaChain, new CryptoServices()));
         Tls12HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setClientCredentials(new ServerCredentials(rsaChain, rsaKey));
 

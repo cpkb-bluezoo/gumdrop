@@ -62,7 +62,7 @@ class SocketSocksTransport implements SocksTransport {
             InetAddress address, int port, ProtocolHandler handler)
             throws IOException {
         TcpTransportFactory factory = new TcpTransportFactory();
-        factory.start();
+        factory.start(gumdrop);
         ClientEndpoint client = new ClientEndpoint(factory, loop, address, port);
         client.connect(gumdrop, handler);
     }
@@ -117,7 +117,12 @@ class SocketSocksTransport implements SocksTransport {
     public Endpoint adoptBindPeer(SelectorLoop loop, SocketChannel channel,
             ProtocolHandler handler) throws IOException {
         TcpTransportFactory factory = new TcpTransportFactory();
-        factory.start();
+        Gumdrop runtime = loop.getGumdrop();
+        if (runtime != null) {
+            factory.start(runtime);
+        } else {
+            factory.start();
+        }
         TcpEndpoint peer = factory.createServerEndpoint(channel, handler);
         loop.registerTCP(channel, peer);
         return peer;
@@ -127,7 +132,7 @@ class SocketSocksTransport implements SocksTransport {
     public UdpPort openUdp(Gumdrop gumdrop, SelectorLoop loop,
             ProtocolHandler handler) throws IOException {
         UdpTransportFactory factory = new UdpTransportFactory();
-        factory.start();
+        factory.start(gumdrop);
         final UdpEndpoint endpoint = factory.createServerEndpoint(
                 gumdrop, null, 0, handler, loop);
         return new UdpPort() {

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -127,7 +128,7 @@ public class Dtls13CookieTest {
     }
 
     private HandshakeConfig serverConfig() {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setMode(HandshakeMode.DTLS);
         config.setServerCredentials(new ServerCredentials(ecChain, ecKey));
         config.setNamedGroups(Arrays.asList(NamedGroup.SECP256R1, NamedGroup.X25519));
@@ -136,7 +137,7 @@ public class Dtls13CookieTest {
     }
 
     private HandshakeConfig clientConfig() throws Exception {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setMode(HandshakeMode.DTLS);
         config.setServerName(SERVER_NAME);
         config.setTrustManager(trustManager);
@@ -259,7 +260,7 @@ public class Dtls13CookieTest {
 
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);
-        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519);
+        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.dtlsTransport = true;
         params.random = random;
@@ -288,7 +289,7 @@ public class Dtls13CookieTest {
 
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);
-        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519);
+        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
         HandshakeMessages.ClientHelloParams params = clientHelloParams(random, NamedGroup.X25519, true);
         params.keyShares.put(NamedGroup.X25519, x25519Kx.getShareBytes());
 
@@ -313,7 +314,7 @@ public class Dtls13CookieTest {
         }
         params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
         try {
-            params.keyShares.put(shareGroup, KeyExchange.generate(shareGroup).getShareBytes());
+            params.keyShares.put(shareGroup, KeyExchange.generate(shareGroup, new CryptoServices()).getShareBytes());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

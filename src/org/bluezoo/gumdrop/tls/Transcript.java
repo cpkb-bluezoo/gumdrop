@@ -21,8 +21,11 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * The running TLS 1.3 handshake transcript hash (RFC 8446 section 4.4.1):
@@ -52,10 +55,11 @@ public final class Transcript {
      *
      * @param suite the negotiated (or, before negotiation, tentatively
      *              assumed) cipher suite
+     * @param crypto the services the digest comes from
      * @return a fresh transcript
      */
-    public static Transcript create(CipherSuite suite) {
-        return create(suite.getHashAlgorithm());
+    public static Transcript create(CipherSuite suite, CryptoServices crypto) {
+        return create(suite.getHashAlgorithm(), crypto);
     }
 
     /**
@@ -65,12 +69,13 @@ public final class Transcript {
      * transcript hash a different way.
      *
      * @param hashAlgorithm the JCA digest algorithm name, e.g. {@code "SHA-256"}
+     * @param crypto the services the digest comes from
      * @return a fresh transcript
      */
-    public static Transcript create(String hashAlgorithm) {
+    public static Transcript create(String hashAlgorithm, CryptoServices crypto) {
         try {
-            return new Transcript(MessageDigest.getInstance(hashAlgorithm));
-        } catch (NoSuchAlgorithmException e) {
+            return new Transcript(crypto.messageDigest(hashAlgorithm));
+        } catch (GeneralSecurityException e) {
             // Programming error: every JDK bundles SHA-256/SHA-384.
             throw new IllegalStateException("Hash algorithm not available: " + hashAlgorithm, e);
         }

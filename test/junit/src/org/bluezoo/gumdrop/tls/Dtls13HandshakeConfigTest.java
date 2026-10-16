@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.Collections;
 
 import org.junit.Test;
@@ -37,7 +38,7 @@ public class Dtls13HandshakeConfigTest {
 
     @Test
     public void copyBaseForEnginePreservesCertificateCompressionPolicy() {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         base.setCertificateCompressionEnabled(false);
         base.setCertificateCompressionAlgorithms(
                 Collections.singletonList(CertificateCompressionAlgorithm.ZLIB));

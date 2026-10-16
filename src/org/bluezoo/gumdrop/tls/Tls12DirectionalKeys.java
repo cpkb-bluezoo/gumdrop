@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.GeneralSecurityException;
 import java.security.spec.AlgorithmParameterSpec;
 
@@ -64,15 +65,15 @@ final class Tls12DirectionalKeys {
     // actually protecting 23 million records.
     long seq;
 
-    private Tls12DirectionalKeys(Tls12CipherSuite suite, byte[] key, byte[] fixedIv) {
+    private Tls12DirectionalKeys(Tls12CipherSuite suite, byte[] key, byte[] fixedIv, CryptoServices crypto) {
         this.suite = suite;
         this.key = key;
         this.fixedIv = fixedIv;
         this.keySpec = new SecretKeySpec(key, suite.getAeadKeyAlgorithm());
         try {
             String transformation = suite.getAeadTransformation();
-            this.encryptCipher = Cipher.getInstance(transformation);
-            this.decryptCipher = Cipher.getInstance(transformation);
+            this.encryptCipher = crypto.cipher(transformation);
+            this.decryptCipher = crypto.cipher(transformation);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Could not initialize AEAD ciphers", e);
         }
@@ -87,10 +88,12 @@ final class Tls12DirectionalKeys {
      *
      * @param suite the negotiated cipher suite
      * @param material the key and fixed IV for this direction
+     * @param crypto the services the ciphers come from
      * @return the directional keys
      */
-    static Tls12DirectionalKeys fromMaterial(Tls12CipherSuite suite, DirectionalKeyMaterial material) {
-        return new Tls12DirectionalKeys(suite, material.key, material.fixedIv);
+    static Tls12DirectionalKeys fromMaterial(Tls12CipherSuite suite, DirectionalKeyMaterial material,
+            CryptoServices crypto) {
+        return new Tls12DirectionalKeys(suite, material.key, material.fixedIv, crypto);
     }
 
     /**

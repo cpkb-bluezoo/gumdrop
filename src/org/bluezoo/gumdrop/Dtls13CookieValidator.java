@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import java.net.InetSocketAddress;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.tls.CookieValidator;
 import org.bluezoo.gumdrop.tls.Dtls12HelloVerify;
 
@@ -34,16 +35,18 @@ final class Dtls13CookieValidator implements CookieValidator {
 
     private final byte[] secret;
     private final InetSocketAddress source;
+    private final CryptoServices crypto;
 
-    Dtls13CookieValidator(byte[] secret, InetSocketAddress source) {
+    Dtls13CookieValidator(byte[] secret, InetSocketAddress source, CryptoServices crypto) {
         this.secret = secret;
         this.source = source;
+        this.crypto = crypto;
     }
 
     @Override
     public byte[] computeCookie(byte[] clientHelloRandom) {
         try {
-            return Dtls12HelloVerify.computeCookie(secret, clientHelloRandom, source);
+            return Dtls12HelloVerify.computeCookie(secret, clientHelloRandom, source, crypto);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to compute DTLS cookie", e);
         }
@@ -51,6 +54,6 @@ final class Dtls13CookieValidator implements CookieValidator {
 
     @Override
     public boolean validateCookie(byte[] clientHelloRandom, byte[] cookie) {
-        return Dtls12HelloVerify.validateCookie(secret, clientHelloRandom, source, cookie);
+        return Dtls12HelloVerify.validateCookie(secret, clientHelloRandom, source, cookie, crypto);
     }
 }

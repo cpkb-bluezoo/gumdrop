@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * The TLS 1.3 key schedule (RFC 8446 section 7.1): the ordered sequence
@@ -59,8 +59,10 @@ import org.bluezoo.gumdrop.crypto.Hkdf;
  */
 public final class KeySchedule {
 
-    private final Hkdf hkdf;
+    private final CryptoServices crypto;
+    private final String hash;
     private final int hashLength;
+    private final byte[] zeroSalt;
     private final byte[] emptyHash;
 
     private byte[] earlySecret;
@@ -76,10 +78,13 @@ public final class KeySchedule {
      * Creates a key schedule for a negotiated cipher suite.
      *
      * @param suite the negotiated cipher suite
+     * @param crypto the services the HMACs come from
      */
-    public KeySchedule(CipherSuite suite) {
-        this.hkdf = suite.newHkdf();
+    public KeySchedule(CipherSuite suite, CryptoServices crypto) {
+        this.crypto = crypto;
+        this.hash = suite.getHashAlgorithm();
         this.hashLength = suite.getHashLength();
+        this.zeroSalt = new byte[hashLength];
         this.emptyHash = Transcript.emptyHash(suite);
     }
 
@@ -95,8 +100,8 @@ public final class KeySchedule {
      *         {@link #deriveHandshakeSecret}'s salt derivation
      */
     public byte[] deriveEarlySecret(byte[] psk) {
-        byte[] ikm = (psk != null) ? psk : hkdf.zeroSalt();
-        earlySecret = hkdf.extract(hkdf.zeroSalt(), ikm);
+        byte[] ikm = (psk != null) ? psk : zeroSalt;
+        earlySecret = crypto.hkdfExtract(hash, zeroSalt, ikm);
         return earlySecret;
     }
 
@@ -111,7 +116,7 @@ public final class KeySchedule {
      */
     public void deriveHandshakeSecret(byte[] sharedSecret, byte[] clientHelloThroughServerHello) {
         byte[] salt = deriveSecret(earlySecret, "derived", emptyHash);
-        handshakeSecret = hkdf.extract(salt, sharedSecret);
+        handshakeSecret = crypto.hkdfExtract(hash, salt, sharedSecret);
         clientHandshakeTrafficSecret = deriveSecret(handshakeSecret, "c hs traffic", clientHelloThroughServerHello);
         serverHandshakeTrafficSecret = deriveSecret(handshakeSecret, "s hs traffic", clientHelloThroughServerHello);
     }
@@ -122,7 +127,7 @@ public final class KeySchedule {
      */
     public void deriveMasterSecret() {
         byte[] salt = deriveSecret(handshakeSecret, "derived", emptyHash);
-        masterSecret = hkdf.extract(salt, hkdf.zeroSalt());
+        masterSecret = crypto.hkdfExtract(hash, salt, zeroSalt);
     }
 
     /**
@@ -178,7 +183,7 @@ public final class KeySchedule {
      * @return the resumption PSK
      */
     public byte[] deriveResumptionPsk(byte[] resumptionMasterSecret, byte[] ticketNonce) {
-        return hkdf.expandLabel(resumptionMasterSecret, "resumption", ticketNonce, hashLength);
+        return crypto.hkdfExpandLabel(hash, resumptionMasterSecret, "resumption", ticketNonce, hashLength);
     }
 
     /**
@@ -215,7 +220,7 @@ public final class KeySchedule {
      * @return the binder value, {@code hashLength} bytes
      */
     public byte[] computePskBinder(byte[] psk, byte[] truncatedClientHelloHash) {
-        byte[] earlySecretForPsk = hkdf.extract(hkdf.zeroSalt(), psk);
+        byte[] earlySecretForPsk = crypto.hkdfExtract(hash, zeroSalt, psk);
         byte[] binderKey = deriveResumptionBinderKey(earlySecretForPsk);
         return computeFinishedVerifyData(binderKey, truncatedClientHelloHash);
     }
@@ -233,7 +238,7 @@ public final class KeySchedule {
      * @return the client early traffic secret
      */
     public byte[] deriveEarlyTrafficSecret(byte[] psk, byte[] clientHelloHash) {
-        byte[] earlySecretForPsk = hkdf.extract(hkdf.zeroSalt(), psk);
+        byte[] earlySecretForPsk = crypto.hkdfExtract(hash, zeroSalt, psk);
         return deriveSecret(earlySecretForPsk, "c e traffic", clientHelloHash);
     }
 
@@ -247,7 +252,7 @@ public final class KeySchedule {
      * @return the next application traffic secret for that direction
      */
     public byte[] updateTrafficSecret(byte[] currentSecret) {
-        return hkdf.expandLabel(currentSecret, "traffic upd", new byte[0], hashLength);
+        return crypto.hkdfExpandLabel(hash, currentSecret, "traffic upd", new byte[0], hashLength);
     }
 
     /**
@@ -285,7 +290,7 @@ public final class KeySchedule {
      * @return the derived secret, {@code hashLength} bytes
      */
     public byte[] deriveSecret(byte[] secret, String label, byte[] transcriptHash) {
-        return hkdf.expandLabel(secret, label, transcriptHash, hashLength);
+        return crypto.hkdfExpandLabel(hash, secret, label, transcriptHash, hashLength);
     }
 
     /**
@@ -303,8 +308,8 @@ public final class KeySchedule {
      * @return the verify-data
      */
     public byte[] computeFinishedVerifyData(byte[] baseKey, byte[] transcriptHash) {
-        byte[] finishedKey = hkdf.expandLabel(baseKey, "finished", new byte[0], hashLength);
-        return hkdf.hmac(finishedKey, transcriptHash);
+        byte[] finishedKey = crypto.hkdfExpandLabel(hash, baseKey, "finished", new byte[0], hashLength);
+        return crypto.hmac(hash, finishedKey, transcriptHash);
     }
 
     /**

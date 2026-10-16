@@ -27,6 +27,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 
 /**
@@ -40,6 +41,10 @@ import org.bluezoo.gumdrop.crypto.NamedGroup;
 public final class HandshakeConfig {
 
     private final HandshakeRole role;
+    private final CryptoServices crypto;
+    // Under a FIPS runtime every list is filtered to FipsProfile, ECH is
+    // refused and key logging is off
+    private final boolean fips;
 
     private HandshakeMode mode = HandshakeMode.QUIC;
     private ServerCredentials serverCredentials;
@@ -126,9 +131,42 @@ public final class HandshakeConfig {
      * Creates a configuration for one side of a handshake.
      *
      * @param role client or server
+     * @param crypto the services every cipher, digest, signature, key
+     *        exchange and random value of handshakes under this
+     *        configuration comes from: the runtime's own
      */
-    public HandshakeConfig(HandshakeRole role) {
+    public HandshakeConfig(HandshakeRole role, CryptoServices crypto) {
+        if (crypto == null) {
+            throw new NullPointerException("crypto");
+        }
         this.role = role;
+        this.crypto = crypto;
+        this.fips = crypto.getProvider() != null;
+        if (fips) {
+            cipherSuites = FipsProfile.filterSuites(cipherSuites);
+            namedGroups = FipsProfile.filterGroups(namedGroups);
+        }
+    }
+
+    /**
+     * Returns the services handshakes under this configuration draw
+     * their cryptography from.
+     *
+     * @return the services
+     */
+    public CryptoServices getCrypto() {
+        return crypto;
+    }
+
+    /**
+     * Whether this configuration belongs to a runtime in FIPS mode, and so
+     * is held to the approved profile: AES-GCM suites, NIST curves, no
+     * Ed25519 or ML-DSA, no Encrypted Client Hello and no key logging.
+     *
+     * @return true under a FIPS runtime
+     */
+    boolean isFipsMode() {
+        return fips;
     }
 
     /**
@@ -380,10 +418,22 @@ public final class HandshakeConfig {
 
     /**
      * Sets the key-exchange groups to offer/accept, in preference order.
+     * Under a FIPS runtime, groups outside the approved profile are
+     * dropped from the list.
      *
      * @param namedGroups the named groups
+     * @throws IllegalArgumentException under a FIPS runtime, if no group in
+     *         the list is in the approved profile
      */
     public void setNamedGroups(List<NamedGroup> namedGroups) {
+        if (fips) {
+            List<NamedGroup> permitted = FipsProfile.filterGroups(namedGroups);
+            if (permitted.isEmpty()) {
+                throw new IllegalArgumentException("No named group in " + namedGroups
+                        + " is permitted in FIPS mode");
+            }
+            namedGroups = permitted;
+        }
         this.namedGroups = namedGroups;
     }
 
@@ -419,11 +469,23 @@ public final class HandshakeConfig {
     }
 
     /**
-     * Sets the cipher suites to offer/accept, in preference order.
+     * Sets the cipher suites to offer/accept, in preference order. Under a
+     * FIPS runtime, suites outside the approved profile are dropped from
+     * the list.
      *
      * @param cipherSuites the cipher suites
+     * @throws IllegalArgumentException under a FIPS runtime, if no suite in
+     *         the list is in the approved profile
      */
     public void setCipherSuites(List<CipherSuite> cipherSuites) {
+        if (fips) {
+            List<CipherSuite> permitted = FipsProfile.filterSuites(cipherSuites);
+            if (permitted.isEmpty()) {
+                throw new IllegalArgumentException("No cipher suite in " + cipherSuites
+                        + " is permitted in FIPS mode");
+            }
+            cipherSuites = permitted;
+        }
         this.cipherSuites = cipherSuites;
     }
 
@@ -634,7 +696,23 @@ public final class HandshakeConfig {
      * @param echEnabled true to offer ECH when a config is configured
      */
     public void setEchEnabled(boolean echEnabled) {
+        if (echEnabled) {
+            refuseEchInFipsMode();
+        }
         this.echEnabled = echEnabled;
+    }
+
+    /**
+     * Encrypted Client Hello encapsulates to an X25519 key (RFC 9849 with
+     * the HPKE suite every published configuration uses), which is outside
+     * the approved profile.
+     *
+     * @throws IllegalStateException under a FIPS runtime
+     */
+    private void refuseEchInFipsMode() {
+        if (fips) {
+            throw new IllegalStateException("Encrypted Client Hello is not available in FIPS mode");
+        }
     }
 
     /**
@@ -654,6 +732,9 @@ public final class HandshakeConfig {
      * @param echConfig the config, or null to disable
      */
     public void setEchConfig(EchConfig echConfig) {
+        if (echConfig != null) {
+            refuseEchInFipsMode();
+        }
         this.echConfig = echConfig;
     }
 
@@ -691,6 +772,9 @@ public final class HandshakeConfig {
      * @param echGreaseEnabled true to send GREASE ECH
      */
     public void setEchGreaseEnabled(boolean echGreaseEnabled) {
+        if (echGreaseEnabled) {
+            refuseEchInFipsMode();
+        }
         this.echGreaseEnabled = echGreaseEnabled;
     }
 
@@ -744,6 +828,7 @@ public final class HandshakeConfig {
      * @param echServerPrivateKey 32-byte X25519 private key matching the config
      */
     public void addEchServerKey(EchConfig echServerConfig, byte[] echServerPrivateKey) {
+        refuseEchInFipsMode();
         echServerKeys.add(new EchServerKey(echServerConfig, echServerPrivateKey));
     }
 
@@ -900,7 +985,8 @@ public final class HandshakeConfig {
 
     /**
      * Sets the key log this connection's secrets are reported to; null
-     * falls back to {@link KeyLog#getDefault}.
+     * falls back to {@link KeyLog#getDefault}. Under a FIPS runtime
+     * nothing is ever logged, whatever is set here or as the default.
      *
      * @param keyLog the key log
      */
@@ -913,6 +999,9 @@ public final class HandshakeConfig {
      * process default, else null for no logging.
      */
     KeyLog resolvedKeyLog() {
+        if (fips) {
+            return null;
+        }
         KeyLog log = keyLog;
         return log != null ? log : KeyLog.getDefault();
     }

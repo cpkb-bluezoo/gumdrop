@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
@@ -32,7 +33,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * The packet- and header-protection keys derived from a single traffic
@@ -62,6 +63,9 @@ import org.bluezoo.gumdrop.crypto.Hkdf;
  */
 public final class PacketProtectionKeys {
 
+    /** RFC 9147 section 5.9: DTLS 1.3 labels use {@code "dtls13"} in place of {@code "tls13 "}. */
+    public static final byte[] DTLS13_LABEL_PREFIX = "dtls13".getBytes(StandardCharsets.US_ASCII);
+
     private static final byte[] EMPTY_CONTEXT = new byte[0];
     private static final byte[] HEADER_MASK_ZEROS = new byte[5];
 
@@ -89,9 +93,12 @@ public final class PacketProtectionKeys {
     private final byte[] lastChachaHpSample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
     private boolean chachaHpMaskCached;
 
+    private final CryptoServices crypto;
+
     private PacketProtectionKeys(QuicAeadAlgorithm algorithm, SecretKeySpec aeadKey,
-            byte[] iv, SecretKeySpec headerProtectionKey) {
+            byte[] iv, SecretKeySpec headerProtectionKey, CryptoServices crypto) {
         this.algorithm = algorithm;
+        this.crypto = crypto;
         this.aeadKey = aeadKey;
         this.iv = iv;
         this.headerProtectionKey = headerProtectionKey;
@@ -100,7 +107,8 @@ public final class PacketProtectionKeys {
     /**
      * Derives packet- and header-protection keys from a traffic secret.
      *
-     * @param hkdf the HKDF instance for the hash bound to this secret
+     * @param crypto the services the HKDF and ciphers come from
+     * @param hash the JCA digest name of the hash bound to this secret
      *             (SHA-256 for Initial secrets and for the SHA-256 cipher
      *             suites; SHA-384 for {@code TLS_AES_256_GCM_SHA384})
      * @param secret the traffic secret for this direction and level
@@ -109,36 +117,38 @@ public final class PacketProtectionKeys {
      *                (RFC 9369 section 3.3.2)
      * @return the derived keys
      */
-    public static PacketProtectionKeys derive(Hkdf hkdf, byte[] secret, QuicAeadAlgorithm algorithm,
-            QuicVersion version) {
+    public static PacketProtectionKeys derive(CryptoServices crypto, String hash, byte[] secret,
+            QuicAeadAlgorithm algorithm, QuicVersion version) {
         int keyLength = algorithm.getKeyLength();
         String prefix = version.getLabelPrefix();
-        byte[] keyBytes = hkdf.expandLabel(secret, prefix + " key", EMPTY_CONTEXT, keyLength);
-        byte[] ivBytes = hkdf.expandLabel(secret, prefix + " iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
-        byte[] hpBytes = hkdf.expandLabel(secret, prefix + " hp", EMPTY_CONTEXT, keyLength);
+        byte[] keyBytes = crypto.hkdfExpandLabel(hash, secret, prefix + " key", EMPTY_CONTEXT, keyLength);
+        byte[] ivBytes = crypto.hkdfExpandLabel(hash, secret, prefix + " iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
+        byte[] hpBytes = crypto.hkdfExpandLabel(hash, secret, prefix + " hp", EMPTY_CONTEXT, keyLength);
 
         SecretKeySpec aeadKey = new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm());
         SecretKeySpec headerProtectionKey = new SecretKeySpec(hpBytes, algorithm.getKeyAlgorithm());
-        return new PacketProtectionKeys(algorithm, aeadKey, ivBytes, headerProtectionKey);
+        return new PacketProtectionKeys(algorithm, aeadKey, ivBytes, headerProtectionKey, crypto);
     }
 
     /**
      * Derives DTLS 1.3 record protection keys (RFC 9147 section 5.9).
      *
-     * @param hkdf the HKDF instance for the negotiated hash
+     * @param crypto the services the HKDF and ciphers come from
+     * @param hash the JCA digest name of the negotiated hash
      * @param secret the traffic secret for this direction and epoch
      * @param algorithm the negotiated AEAD algorithm
      * @return the derived keys
      */
-    public static PacketProtectionKeys deriveForDtls(Hkdf hkdf, byte[] secret, QuicAeadAlgorithm algorithm) {
-        byte[] prefix = Hkdf.dtls13LabelPrefix();
+    public static PacketProtectionKeys deriveForDtls(CryptoServices crypto, String hash, byte[] secret,
+            QuicAeadAlgorithm algorithm) {
+        byte[] prefix = DTLS13_LABEL_PREFIX;
         int keyLength = algorithm.getKeyLength();
-        byte[] keyBytes = hkdf.expandLabelWithPrefix(prefix, secret, "key", EMPTY_CONTEXT, keyLength);
-        byte[] ivBytes = hkdf.expandLabelWithPrefix(prefix, secret, "iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
-        byte[] hpBytes = hkdf.expandLabelWithPrefix(prefix, secret, "hp", EMPTY_CONTEXT, keyLength);
+        byte[] keyBytes = crypto.hkdfExpandLabel(hash, prefix, secret, "key", EMPTY_CONTEXT, keyLength);
+        byte[] ivBytes = crypto.hkdfExpandLabel(hash, prefix, secret, "iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
+        byte[] hpBytes = crypto.hkdfExpandLabel(hash, prefix, secret, "hp", EMPTY_CONTEXT, keyLength);
         SecretKeySpec aeadKey = new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm());
         SecretKeySpec headerProtectionKey = new SecretKeySpec(hpBytes, algorithm.getKeyAlgorithm());
-        return new PacketProtectionKeys(algorithm, aeadKey, ivBytes, headerProtectionKey);
+        return new PacketProtectionKeys(algorithm, aeadKey, ivBytes, headerProtectionKey, crypto);
     }
 
     /**
@@ -151,12 +161,14 @@ public final class PacketProtectionKeys {
      * {@code HKDF-Expand-Label(secret, "quic ku", "", Hash.length)} (with
      * {@code "quicv2 ku"} for QUIC version 2, RFC 9369 section 3.3.3).
      *
-     * @param hkdf the HKDF of the negotiated hash
+     * @param crypto the services the HKDF comes from
+     * @param hash the JCA digest name of the negotiated hash
      * @param secret the current generation's secret
      * @param version the QUIC version, which selects the label prefix
      */
-    public static byte[] nextSecret(Hkdf hkdf, byte[] secret, QuicVersion version) {
-        return hkdf.expandLabel(secret, version.getLabelPrefix() + " ku", EMPTY_CONTEXT, hkdf.getHashLength());
+    public static byte[] nextSecret(CryptoServices crypto, String hash, byte[] secret, QuicVersion version) {
+        return crypto.hkdfExpandLabel(hash, secret, version.getLabelPrefix() + " ku", EMPTY_CONTEXT,
+                CryptoServices.hashLength(hash));
     }
 
     /**
@@ -164,19 +176,20 @@ public final class PacketProtectionKeys {
      * AEAD key and IV from {@code secret}, and the header protection key
      * of {@code current}, which a key update does not change.
      *
-     * @param hkdf the HKDF of the negotiated hash
+     * @param crypto the services the HKDF and ciphers come from
+     * @param hash the JCA digest name of the negotiated hash
      * @param secret the next generation's secret, from {@link #nextSecret}
      * @param version the QUIC version in use
      * @param current the keys of the generation being replaced
      */
-    public static PacketProtectionKeys update(Hkdf hkdf, byte[] secret, QuicVersion version,
+    public static PacketProtectionKeys update(CryptoServices crypto, String hash, byte[] secret, QuicVersion version,
             PacketProtectionKeys current) {
         QuicAeadAlgorithm algorithm = current.algorithm;
         String prefix = version.getLabelPrefix();
-        byte[] keyBytes = hkdf.expandLabel(secret, prefix + " key", EMPTY_CONTEXT, algorithm.getKeyLength());
-        byte[] ivBytes = hkdf.expandLabel(secret, prefix + " iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
+        byte[] keyBytes = crypto.hkdfExpandLabel(hash, secret, prefix + " key", EMPTY_CONTEXT, algorithm.getKeyLength());
+        byte[] ivBytes = crypto.hkdfExpandLabel(hash, secret, prefix + " iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
         return new PacketProtectionKeys(algorithm, new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm()),
-                ivBytes, current.headerProtectionKey);
+                ivBytes, current.headerProtectionKey, crypto);
     }
 
     public QuicAeadAlgorithm getAlgorithm() {
@@ -239,7 +252,7 @@ public final class PacketProtectionKeys {
                 }
             }
             if (cipher == null) {
-                cipher = Cipher.getInstance(algorithm.getAeadTransformation());
+                cipher = crypto.cipher(algorithm.getAeadTransformation());
                 cipher.init(Cipher.ENCRYPT_MODE, aeadKey, parameters);
             }
             cipher.updateAAD(associatedData);
@@ -291,7 +304,7 @@ public final class PacketProtectionKeys {
         try {
             Cipher cipher = idleOpenCipher.getAndSet(null);
             if (cipher == null) {
-                cipher = Cipher.getInstance(algorithm.getAeadTransformation());
+                cipher = crypto.cipher(algorithm.getAeadTransformation());
             }
             cipher.init(Cipher.DECRYPT_MODE, aeadKey, aeadParameterSpec(algorithm, nonce));
             cipher.updateAAD(aad, aadOffset, aadLength);
@@ -348,7 +361,7 @@ public final class PacketProtectionKeys {
                 byte[] hpNonce = Arrays.copyOfRange(sample, sampleOffset + 4, sampleOffset + 16);
                 Cipher cipher = idleHeaderCipher.getAndSet(null);
                 if (cipher == null) {
-                    cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
+                    cipher = crypto.cipher(algorithm.getHeaderProtectionTransformation());
                 }
                 cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey,
                         new ChaCha20ParameterSpec(hpNonce, counter));
@@ -361,7 +374,7 @@ public final class PacketProtectionKeys {
             }
             Cipher cipher = idleHeaderCipher.getAndSet(null);
             if (cipher == null) {
-                cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
+                cipher = crypto.cipher(algorithm.getHeaderProtectionTransformation());
                 cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey);
             }
             byte[] block = cipher.doFinal(sample, sampleOffset, QuicAeadAlgorithm.SAMPLE_LENGTH);

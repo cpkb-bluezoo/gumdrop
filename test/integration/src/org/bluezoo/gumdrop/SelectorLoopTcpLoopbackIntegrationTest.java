@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -462,9 +463,9 @@ public class SelectorLoopTcpLoopbackIntegrationTest {
 
     @Test
     public void tls13SessionOverRealChannels() throws Exception {
-        HandshakeConfig s = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig s = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         s.setServerCredentials(TestCertificates.ec256().credentials());
-        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.ec256().trustManager());
         tlsSession(s, null, c, null, TlsVersion.TLS_1_3, TlsVersion.TLS_1_3);
@@ -472,9 +473,9 @@ public class SelectorLoopTcpLoopbackIntegrationTest {
 
     @Test
     public void tls12SessionOverRealChannels() throws Exception {
-        Tls12HandshakeConfig s = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig s = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         s.setServerCredentials(TestCertificates.ec256().credentials());
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TestCertificates.SERVER_NAME);
         c.setTrustManager(TestCertificates.ec256().trustManager());
         tlsSession(null, s, null, c, TlsVersion.TLS_1_2, TlsVersion.TLS_1_2);
@@ -482,14 +483,14 @@ public class SelectorLoopTcpLoopbackIntegrationTest {
 
     @Test
     public void negotiatedSessionOverRealChannels() throws Exception {
-        HandshakeConfig s13 = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig s13 = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         s13.setServerCredentials(TestCertificates.ec256().credentials());
-        Tls12HandshakeConfig s12 = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig s12 = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         s12.setServerCredentials(TestCertificates.ec256().credentials());
-        HandshakeConfig c13 = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig c13 = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c13.setServerName(TestCertificates.SERVER_NAME);
         c13.setTrustManager(TestCertificates.ec256().trustManager());
-        Tls12HandshakeConfig c12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c12.setServerName(TestCertificates.SERVER_NAME);
         c12.setTrustManager(TestCertificates.ec256().trustManager());
         tlsSession(s13, s12, c13, c12, TlsVersion.NEGOTIATE, TlsVersion.NEGOTIATE);

@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
@@ -67,6 +68,7 @@ public final class Dtls13RecordEngine {
     private static final int AEAD_TAG_LENGTH = 16;
 
     private final HandshakeEngine engine;
+    private final CryptoServices crypto;
     private final HandshakeRole role;
     private final DtlsReassembler reassembler = new DtlsReassembler();
     private final int maxFragmentSize;
@@ -104,6 +106,7 @@ public final class Dtls13RecordEngine {
         this.role = config.getBase().getRole();
         HandshakeConfig base = config.getBase();
         base.setMode(HandshakeMode.DTLS);
+        this.crypto = base.getCrypto();
         this.engine = new HandshakeEngine(base);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
         this.handshakeOffload = offload;
@@ -717,8 +720,8 @@ public final class Dtls13RecordEngine {
         }
         readEpoch = newEpoch;
         writeEpoch = newEpoch;
-        write = Dtls13DirectionalKeys.fromSecret(suite, ownSecret, newEpoch);
-        read = Dtls13DirectionalKeys.fromSecret(suite, peerSecret, newEpoch);
+        write = Dtls13DirectionalKeys.fromSecret(suite, ownSecret, newEpoch, crypto);
+        read = Dtls13DirectionalKeys.fromSecret(suite, peerSecret, newEpoch, crypto);
         readReplay = new DtlsReplayWindow();
     }
 

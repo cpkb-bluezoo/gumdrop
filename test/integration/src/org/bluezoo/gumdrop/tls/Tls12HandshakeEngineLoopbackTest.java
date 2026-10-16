@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -230,15 +231,15 @@ public class Tls12HandshakeEngineLoopbackTest {
     }
 
     private Tls12HandshakeConfig serverConfig(List<X509Certificate> chain, PrivateKey key) {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setServerCredentials(new ServerCredentials(chain, key));
         return config;
     }
 
     private Tls12HandshakeConfig clientConfig(List<X509Certificate> trustedChain, String serverName) throws Exception {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setServerName(serverName);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(trustedChain));
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(trustedChain, new CryptoServices()));
         return config;
     }
 
@@ -325,7 +326,7 @@ public class Tls12HandshakeEngineLoopbackTest {
     @Test
     public void untrustedChainFailsClientVerification() throws Exception {
         Tls12HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
-        X509TrustManager wrongTrustManager = CertificateVerifier.trustManagerFromCertificates(rsaChain);
+        X509TrustManager wrongTrustManager = CertificateVerifier.trustManagerFromCertificates(rsaChain, new CryptoServices());
         cc.setTrustManager(wrongTrustManager);
         Tls12HandshakeEngine client = new Tls12HandshakeEngine(cc);
         Tls12HandshakeEngine server = new Tls12HandshakeEngine(serverConfig(ecChain, ecKey));
@@ -344,7 +345,7 @@ public class Tls12HandshakeEngineLoopbackTest {
     public void clientCertificateRequiredAndPresentedCompletes() throws Exception {
         Tls12HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(rsaChain));
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(rsaChain, new CryptoServices()));
         Tls12HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setClientCredentials(new ServerCredentials(rsaChain, rsaKey));
 
@@ -366,7 +367,7 @@ public class Tls12HandshakeEngineLoopbackTest {
     public void clientCertificateRequiredButUntrustedFailsHandshake() throws Exception {
         Tls12HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain)); // does not trust rsaChain
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain, new CryptoServices())); // does not trust rsaChain
         Tls12HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setClientCredentials(new ServerCredentials(rsaChain, rsaKey));
 

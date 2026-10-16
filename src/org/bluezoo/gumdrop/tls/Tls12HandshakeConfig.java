@@ -26,6 +26,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 
 /**
@@ -48,6 +49,10 @@ import org.bluezoo.gumdrop.crypto.NamedGroup;
 public final class Tls12HandshakeConfig {
 
     private final HandshakeRole role;
+    private final CryptoServices crypto;
+    // Under a FIPS runtime every list is filtered to FipsProfile and key
+    // logging is off
+    private final boolean fips;
 
     private ServerCredentials serverCredentials;
     private ServerCredentialsResolver serverCredentialsResolver;
@@ -93,9 +98,42 @@ public final class Tls12HandshakeConfig {
      * Creates a configuration for one side of a handshake.
      *
      * @param role client or server
+     * @param crypto the services every cipher, digest, signature, key
+     *        exchange and random value of handshakes under this
+     *        configuration comes from: the runtime's own
      */
-    public Tls12HandshakeConfig(HandshakeRole role) {
+    public Tls12HandshakeConfig(HandshakeRole role, CryptoServices crypto) {
+        if (crypto == null) {
+            throw new NullPointerException("crypto");
+        }
         this.role = role;
+        this.crypto = crypto;
+        this.fips = crypto.getProvider() != null;
+        if (fips) {
+            cipherSuites = FipsProfile.filterTls12Suites(cipherSuites);
+            namedGroups = FipsProfile.filterGroups(namedGroups);
+        }
+    }
+
+    /**
+     * Returns the services handshakes under this configuration draw
+     * their cryptography from.
+     *
+     * @return the services
+     */
+    public CryptoServices getCrypto() {
+        return crypto;
+    }
+
+    /**
+     * Whether this configuration belongs to a runtime in FIPS mode, and so
+     * is held to the approved profile: AES-GCM suites, secp256r1, no
+     * Ed25519 and no key logging.
+     *
+     * @return true under a FIPS runtime
+     */
+    boolean isFipsMode() {
+        return fips;
     }
 
     /**
@@ -319,6 +357,14 @@ public final class Tls12HandshakeConfig {
                 throw new IllegalArgumentException("Unsupported TLS 1.2 named group: " + g);
             }
         }
+        if (fips) {
+            List<NamedGroup> permitted = FipsProfile.filterGroups(namedGroups);
+            if (permitted.isEmpty()) {
+                throw new IllegalArgumentException("No named group in " + namedGroups
+                        + " is permitted in FIPS mode");
+            }
+            namedGroups = permitted;
+        }
         this.namedGroups = namedGroups;
     }
 
@@ -332,11 +378,23 @@ public final class Tls12HandshakeConfig {
     }
 
     /**
-     * Sets the cipher suites to offer/accept, in preference order.
+     * Sets the cipher suites to offer/accept, in preference order. Under a
+     * FIPS runtime, suites outside the approved profile are dropped from
+     * the list.
      *
      * @param cipherSuites the cipher suites
+     * @throws IllegalArgumentException under a FIPS runtime, if no suite in
+     *         the list is in the approved profile
      */
     public void setCipherSuites(List<Tls12CipherSuite> cipherSuites) {
+        if (fips) {
+            List<Tls12CipherSuite> permitted = FipsProfile.filterTls12Suites(cipherSuites);
+            if (permitted.isEmpty()) {
+                throw new IllegalArgumentException("No cipher suite in " + cipherSuites
+                        + " is permitted in FIPS mode");
+            }
+            cipherSuites = permitted;
+        }
         this.cipherSuites = cipherSuites;
     }
 
@@ -513,6 +571,9 @@ public final class Tls12HandshakeConfig {
      * process default, else null for no logging.
      */
     KeyLog resolvedKeyLog() {
+        if (fips) {
+            return null;
+        }
         KeyLog log = keyLog;
         return log != null ? log : KeyLog.getDefault();
     }

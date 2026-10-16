@@ -31,7 +31,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
-import java.security.SecureRandom;
+
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
@@ -121,7 +122,6 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     /** RFC 9000 section 5.1: the fixed length this implementation uses for every connection ID it generates. */
     static final int CONNECTION_ID_LENGTH = 20;
@@ -166,6 +166,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     boolean freshConnectionIdAfterRetry;
     private final boolean serverMode;
     private final byte[] connectionIdStaticKey;
+    private final CryptoServices crypto;
 
     // Non-null only for a channel-backed engine (see init(DatagramChannel))
     // -- used solely by onReadable()'s pull-based receive, which only
@@ -207,6 +208,18 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         this.factory = factory;
         this.serverMode = serverMode;
         this.connectionIdStaticKey = factory.getConnectionIdStaticKey();
+        this.crypto = factory.getCryptoServices();
+    }
+
+    /**
+     * Returns the services this engine's connections draw their
+     * cryptography and random numbers from: the factory's, and through it
+     * the runtime's.
+     *
+     * @return the services
+     */
+    CryptoServices getCryptoServices() {
+        return crypto;
     }
 
     void init(DatagramChannel channel) {
@@ -519,7 +532,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                     byte[] token = prefix.getToken();
                     if (token.length > 0) {
                         originalDcid = RetryToken.unseal(factory.getRetryTokenKey(), token, source.getAddress(),
-                                RETRY_TOKEN_MAX_AGE_MILLIS);
+                                RETRY_TOKEN_MAX_AGE_MILLIS, crypto);
                     }
                     if (originalDcid == null) {
                         sendRetry(version, prefix.getSourceConnectionId(), dcid, source, via);
@@ -627,7 +640,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             events().warn("warn.no_server_cert").emit();
             return null;
         }
-        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(serverCredentials,
+        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(crypto, serverCredentials,
                 serverCredentialsResolver, localParams, conn,
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
                 factory.getCipherSuites(), factory.isNeedClientAuth(),
@@ -745,8 +758,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (!limiter.tryAcquire()) {
             return;
         }
-        byte[] token = StatelessResetToken.generate(connectionIdStaticKey, dcid);
-        byte[] reset = StatelessResetPacket.build(received.length, token, RANDOM);
+        byte[] token = StatelessResetToken.generate(connectionIdStaticKey, dcid, crypto);
+        byte[] reset = StatelessResetPacket.build(received.length, token, crypto.secureRandom());
         if (reset == null) {
             return;
         }
@@ -783,9 +796,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             QuicDatagramPath via) {
         byte[] retryScid = generateServerConnectionId();
         byte[] token = RetryToken.seal(factory.getRetryTokenKey(), originalClientDcid, source.getAddress(),
-                System.currentTimeMillis());
+                System.currentTimeMillis(), crypto);
         byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(version, clientScid, retryScid, token);
-        byte[] tag = RetryIntegrityTag.compute(version, originalClientDcid, withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(version, originalClientDcid, withoutTag, crypto);
         byte[] packet = new byte[withoutTag.length + tag.length];
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
@@ -840,7 +853,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         versionNegotiationSentInWindow++;
         sendTo(via, source, VersionNegotiationPacket.build(invariants.getSourceConnectionId(),
                 invariants.getDestinationConnectionId(), supportedWireValues(),
-                RANDOM.nextInt()));
+                crypto.secureRandom().nextInt()));
         QuicServerMetrics m = getMetrics();
         if (m != null) {
             m.versionNegotiationSent();
@@ -975,7 +988,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
         QuicConnection conn = new QuicConnection(this, false, local, remote, clientScid, clientInitialDcid,
                 clientInitialDcid, localParams, connectionIdStaticKey, startVersion, afterVersionNegotiation);
-        QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn,
+        QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(crypto, localParams, conn,
                 factory.getApplicationProtocols(), factory.getNamedGroups(), factory.getCipherSuites());
         factory.applyEchClientSettings(tlsEngine);
         X509TrustManager trustManager = factory.getTrustManager();
@@ -1059,7 +1072,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private byte[] generateServerConnectionId() {
         QuicLbConfig lb = factory.getQuicLbConfig();
         if (lb != null) {
-            return lb.generate(RANDOM);
+            return lb.generate(crypto.secureRandom());
         }
         return generateConnectionId();
     }
@@ -1136,9 +1149,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return lb != null && lb.isOwn(dcid);
     }
 
-    private static byte[] generateConnectionId() {
+    private byte[] generateConnectionId() {
         byte[] id = new byte[CONNECTION_ID_LENGTH];
-        RANDOM.nextBytes(id);
+        crypto.nextBytes(id);
         return id;
     }
 

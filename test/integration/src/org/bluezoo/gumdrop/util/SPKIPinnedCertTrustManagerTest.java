@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.util;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Test;
 
 import javax.net.ssl.KeyManagerFactory;
@@ -48,7 +49,7 @@ public class SPKIPinnedCertTrustManagerTest {
     public void testComputeSPKIFingerprintFormat() throws Exception {
         X509Certificate cert = generateSelfSignedCert();
         String fingerprint =
-                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert);
+                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert, new CryptoServices());
 
         assertNotNull(fingerprint);
         // SHA-256 produces 32 bytes = 32 hex pairs separated by 31 colons
@@ -60,9 +61,9 @@ public class SPKIPinnedCertTrustManagerTest {
     public void testSPKIDiffersFromFullCert() throws Exception {
         X509Certificate cert = generateSelfSignedCert();
         String spki =
-                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert);
+                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert, new CryptoServices());
         String full =
-                PinnedCertTrustManager.computeFingerprint(cert);
+                PinnedCertTrustManager.computeFingerprint(cert, new CryptoServices());
 
         // SPKI fingerprint and full-certificate fingerprint must differ
         assertNotEquals(spki, full);
@@ -72,9 +73,9 @@ public class SPKIPinnedCertTrustManagerTest {
     public void testSPKIConsistentForSameKey() throws Exception {
         X509Certificate cert = generateSelfSignedCert();
         String fp1 =
-                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert);
+                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert, new CryptoServices());
         String fp2 =
-                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert);
+                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert, new CryptoServices());
         assertEquals(fp1, fp2);
     }
 
@@ -82,11 +83,11 @@ public class SPKIPinnedCertTrustManagerTest {
     public void testMatchingFingerprintAccepted() throws Exception {
         X509Certificate cert = generateSelfSignedCert();
         String fingerprint =
-                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert);
+                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert, new CryptoServices());
 
         // Use an accept-all delegate so we only test the pinning logic
         SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(
-                new EmptyX509TrustManager(), fingerprint);
+                new EmptyX509TrustManager(), new CryptoServices(), fingerprint);
 
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
@@ -96,7 +97,7 @@ public class SPKIPinnedCertTrustManagerTest {
         X509Certificate cert = generateSelfSignedCert();
 
         SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(
-                new EmptyX509TrustManager(),
+                new EmptyX509TrustManager(), new CryptoServices(),
                 "00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff"
                         + ":00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff");
 
@@ -106,7 +107,7 @@ public class SPKIPinnedCertTrustManagerTest {
     @Test(expected = CertificateException.class)
     public void testEmptyChainRejected() throws Exception {
         SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(
-                new EmptyX509TrustManager(), "aa:bb:cc:dd:ee:ff"
+                new EmptyX509TrustManager(), new CryptoServices(), "aa:bb:cc:dd:ee:ff"
                 + ":00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff"
                 + ":00:11:22:33:44:55:66:77:88:99:aa:bb");
 
@@ -117,13 +118,13 @@ public class SPKIPinnedCertTrustManagerTest {
     public void testMultiplePinsOneMatches() throws Exception {
         X509Certificate cert = generateSelfSignedCert();
         String actual =
-                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert);
+                SpkiPinnedCertTrustManager.computeSPKIFingerprint(cert, new CryptoServices());
 
         String bogus = "00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff"
                 + ":00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff";
 
         SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(
-                new EmptyX509TrustManager(), bogus, actual);
+                new EmptyX509TrustManager(), new CryptoServices(), bogus, actual);
 
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }

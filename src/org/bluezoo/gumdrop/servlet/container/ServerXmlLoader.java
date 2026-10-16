@@ -26,7 +26,9 @@ import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXNotSupportedException;
 
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.auth.BasicRealm;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
@@ -666,8 +668,12 @@ public final class ServerXmlLoader {
                 throw new SAXException("client trust takes ca-file or truststore-file, not both");
             }
             try {
+                // Read with the services the runtime this file configures
+                // will boot with (GumdropConfig reads the FIPS settings from
+                // the same system properties Gumdrop.serve does)
+                CryptoServices crypto = GumdropConfig.create().createCryptoServices();
                 if (caFile != null) {
-                    return PemCredentials.loadTrustManager(resolve(caFile).toPath());
+                    return PemCredentials.loadTrustManager(resolve(caFile).toPath(), crypto);
                 }
                 if (trustFile == null) {
                     return null;
@@ -677,7 +683,7 @@ public final class ServerXmlLoader {
                 KeystoreFormat keystoreFormat = format == null
                         ? KeystoreFormat.PKCS12 : KeystoreFormat.parse(format);
                 TrustManager[] managers = TlsUtils.loadTrustManagers(
-                        resolve(trustFile).toPath(), pass, keystoreFormat);
+                        resolve(trustFile).toPath(), pass, keystoreFormat, crypto);
                 for (TrustManager manager : managers) {
                     if (manager instanceof X509TrustManager) {
                         return (X509TrustManager) manager;

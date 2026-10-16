@@ -43,7 +43,7 @@ public class HpkeTest {
 
     @Test
     public void rfc9180AppendixA1BaseSetupAndEncryption() throws GeneralSecurityException {
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices());
         byte[] skEm = hex("52c4a758a802cd8b936eceea314432798d5baf2d7e9235dc084ab1b9cfa2f736");
         byte[] pkEm = hex("37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf4431");
         byte[] skRm = hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
@@ -54,19 +54,19 @@ public class HpkeTest {
         byte[] expectedBaseNonce = hex("56d890e5accaaf011cff4b7d");
 
         byte[] encapSecret = hpke.encapSharedSecretForTest(
-                Hpke.rawX25519PrivateForTest(skEm),
-                Hpke.rawX25519PublicForTest(pkRm),
+                Hpke.rawX25519PrivateForTest(skEm, new CryptoServices()),
+                Hpke.rawX25519PublicForTest(pkRm, new CryptoServices()),
                 pkEm,
                 pkRm);
         byte[] decapSecret = hpke.decapSharedSecretForTest(
-                Hpke.rawX25519PrivateForTest(skRm), pkEm, pkRm);
+                Hpke.rawX25519PrivateForTest(skRm, new CryptoServices()), pkEm, pkRm);
         assertArrayEquals(expectedSharedSecret, encapSecret);
         assertArrayEquals(expectedSharedSecret, decapSecret);
 
         Hpke.SenderContext sender = hpke.setupBaseSForTest(
-                Hpke.rawX25519PrivateForTest(skEm),
-                Hpke.rawX25519PublicForTest(pkEm),
-                Hpke.rawX25519PublicForTest(pkRm),
+                Hpke.rawX25519PrivateForTest(skEm, new CryptoServices()),
+                Hpke.rawX25519PublicForTest(pkEm, new CryptoServices()),
+                Hpke.rawX25519PublicForTest(pkRm, new CryptoServices()),
                 info);
         Hpke.RecipientContext recipientCtx = hpke.setupBaseR(pkEm, skRm, pkRm, info);
         assertArrayEquals(expectedKey, Hpke.scheduleKeyForTest(sender));
@@ -85,20 +85,20 @@ public class HpkeTest {
     public void wirePublicKeyRoundTripsThroughX509Header() throws GeneralSecurityException {
         KeyPair ephemeral = KeyPairGenerator.getInstance("X25519").generateKeyPair();
         byte[] enc = Hpke.extractRawPublicForTest(ephemeral.getPublic());
-        byte[] expected = Hpke.dhForTest(ephemeral.getPrivate(), ephemeral.getPublic());
-        byte[] actual = Hpke.dhForTest(ephemeral.getPrivate(), Hpke.rawX25519PublicForTest(enc));
+        byte[] expected = Hpke.dhForTest(ephemeral.getPrivate(), ephemeral.getPublic(), new CryptoServices());
+        byte[] actual = Hpke.dhForTest(ephemeral.getPrivate(), Hpke.rawX25519PublicForTest(enc, new CryptoServices()), new CryptoServices());
         assertArrayEquals(expected, actual);
     }
 
     @Test
     public void kemSharedSecretMatchesOnBothSides() throws GeneralSecurityException {
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices());
         KeyPair recipient = KeyPairGenerator.getInstance("X25519").generateKeyPair();
         KeyPair ephemeral = KeyPairGenerator.getInstance("X25519").generateKeyPair();
         byte[] enc = Hpke.extractRawPublicForTest(ephemeral.getPublic());
         byte[] pkRm = Hpke.extractRawPublicForTest(recipient.getPublic());
-        byte[] encapDh = Hpke.dhForTest(ephemeral.getPrivate(), recipient.getPublic());
-        byte[] decapDh = Hpke.dhForTest(recipient.getPrivate(), Hpke.rawX25519PublicForTest(enc));
+        byte[] encapDh = Hpke.dhForTest(ephemeral.getPrivate(), recipient.getPublic(), new CryptoServices());
+        byte[] decapDh = Hpke.dhForTest(recipient.getPrivate(), Hpke.rawX25519PublicForTest(enc, new CryptoServices()), new CryptoServices());
         assertArrayEquals(encapDh, decapDh);
         byte[] encapSecret = hpke.encapSharedSecretForTest(ephemeral.getPrivate(), recipient.getPublic(), enc, pkRm);
         byte[] decapSecret = hpke.decapSharedSecretForTest(recipient.getPrivate(), enc, pkRm);
@@ -107,11 +107,11 @@ public class HpkeTest {
 
     @Test
     public void roundTripSealOpenWithJceKeys() throws GeneralSecurityException {
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices());
         SecureRandom random = new SecureRandom();
         KeyPair keys = KeyPairGenerator.getInstance("X25519").generateKeyPair();
         byte[] info = new byte[] { 1, 2, 3 };
-        Hpke.SenderContext sender = hpke.setupBaseS(keys.getPublic(), info, random);
+        Hpke.SenderContext sender = hpke.setupBaseS(keys.getPublic(), info);
         byte[] enc = sender.getEnc();
         Hpke.RecipientContext recipient = hpke.setupBaseR(enc, keys.getPrivate(), keys.getPublic(), info);
         assertArrayEquals(Hpke.scheduleKeyForTest(sender), Hpke.scheduleKeyForTest(recipient));
@@ -124,11 +124,11 @@ public class HpkeTest {
 
     @Test
     public void roundTripSealOpenWithRawKeys() throws GeneralSecurityException {
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices());
         SecureRandom random = new SecureRandom();
-        Hpke.RawKeyPair keys = Hpke.generateX25519KeyPair(random);
+        Hpke.RawKeyPair keys = Hpke.generateX25519KeyPair(new CryptoServices());
         byte[] info = new byte[] { 1, 2, 3 };
-        Hpke.SenderContext sender = hpke.setupBaseS(keys.getPublicKey(), info, random);
+        Hpke.SenderContext sender = hpke.setupBaseS(keys.getPublicKey(), info);
         byte[] enc = sender.getEnc();
         Hpke.RecipientContext recipient = hpke.setupBaseR(enc, keys.getPrivateKey(), keys.getPublicKey(), info);
         byte[] aad = "aad".getBytes(StandardCharsets.US_ASCII);
@@ -153,10 +153,10 @@ public class HpkeTest {
     public void everySupportedAeadRoundTrips() throws GeneralSecurityException {
         SecureRandom random = new SecureRandom();
         for (int aead : AEADS) {
-            Hpke hpke = Hpke.x25519HkdfSha256(aead);
-            Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(random);
+            Hpke hpke = Hpke.x25519HkdfSha256(aead, new CryptoServices());
+            Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(new CryptoServices());
             byte[] info = "tls ech".getBytes(StandardCharsets.US_ASCII);
-            Hpke.SenderContext sender = hpke.setupBaseS(recipient.getPublicKey(), info, random);
+            Hpke.SenderContext sender = hpke.setupBaseS(recipient.getPublicKey(), info);
             Hpke.RecipientContext recipientCtx = hpke.setupBaseR(sender.getEnc(),
                     recipient.getPrivateKey(), recipient.getPublicKey(), info);
             assertEquals(Hpke.KDF_HKDF_SHA256, sender.getKdfId());
@@ -174,11 +174,11 @@ public class HpkeTest {
     @Test
     public void aeadMismatchBetweenSenderAndRecipientFailsToOpen() throws GeneralSecurityException {
         SecureRandom random = new SecureRandom();
-        Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(random);
+        Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(new CryptoServices());
         byte[] info = new byte[] { 1 };
-        Hpke.SenderContext sender = Hpke.x25519HkdfSha256(Hpke.AEAD_CHACHA20_POLY1305)
-                .setupBaseS(recipient.getPublicKey(), info, random);
-        Hpke.RecipientContext wrong = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM)
+        Hpke.SenderContext sender = Hpke.x25519HkdfSha256(Hpke.AEAD_CHACHA20_POLY1305, new CryptoServices())
+                .setupBaseS(recipient.getPublicKey(), info);
+        Hpke.RecipientContext wrong = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices())
                 .setupBaseR(sender.getEnc(), recipient.getPrivateKey(), recipient.getPublicKey(), info);
         byte[] ct = sender.seal(new byte[0], new byte[] { 9, 9, 9 });
         try {
@@ -202,7 +202,7 @@ public class HpkeTest {
     @Test
     public void unsupportedAeadIsRejected() {
         try {
-            Hpke.x25519HkdfSha256(0xffff);
+            Hpke.x25519HkdfSha256(0xffff, new CryptoServices());
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             // not a supported AEAD
@@ -215,11 +215,11 @@ public class HpkeTest {
         // RFC 9180 appendix A.1 recipient key pair
         assertArrayEquals(hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d"),
                 Hpke.deriveX25519PublicKey(
-                        hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8")));
+                        hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8"), new CryptoServices()));
         // RFC 7748 section 6.1, Alice
         assertArrayEquals(hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"),
                 Hpke.deriveX25519PublicKey(
-                        hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")));
+                        hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"), new CryptoServices()));
     }
 }
 

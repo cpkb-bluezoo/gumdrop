@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -74,7 +75,7 @@ public class Tls12RecordEngineLoopbackTest {
     }
 
     private Tls12HandshakeConfig serverConfig(boolean rsa) throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         if (rsa) {
             c.setServerCredentials(TlsBLoopbackSupport.rsaCredentials());
         } else {
@@ -84,7 +85,7 @@ public class Tls12RecordEngineLoopbackTest {
     }
 
     private Tls12HandshakeConfig clientConfig(boolean rsa) throws Exception {
-        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig c = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         c.setServerName(TlsBLoopbackSupport.SERVER_NAME);
         if (rsa) {
             c.setTrustManager(TlsBLoopbackSupport.trust(TlsBLoopbackSupport.rsaChain()));

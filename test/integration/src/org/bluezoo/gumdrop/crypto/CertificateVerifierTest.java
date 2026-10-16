@@ -116,7 +116,7 @@ public class CertificateVerifierTest {
     @Test
     public void trustedChainWithCorrectHostnameVerifies() throws Exception {
         List<X509Certificate> chain = Collections.singletonList(certificate);
-        X509TrustManager trustManager = CertificateVerifier.trustManagerFromCertificates(chain);
+        X509TrustManager trustManager = CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices());
         CertificateVerifier.Result result = CertificateVerifier.verifyChain(chain, trustManager, SERVER_NAME);
         assertTrue(result.getError(), result.isOk());
     }
@@ -124,7 +124,7 @@ public class CertificateVerifierTest {
     @Test
     public void wrongHostnameIsRejected() throws Exception {
         List<X509Certificate> chain = Collections.singletonList(certificate);
-        X509TrustManager trustManager = CertificateVerifier.trustManagerFromCertificates(chain);
+        X509TrustManager trustManager = CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices());
         CertificateVerifier.Result result = CertificateVerifier.verifyChain(chain, trustManager, "wrong.example.com");
         assertFalse(result.isOk());
     }
@@ -230,7 +230,7 @@ public class CertificateVerifierTest {
 
         List<X509Certificate> chain = Collections.singletonList(certificate);
         X509TrustManager trustManager = CertificateVerifier.trustManagerFromCertificates(
-                Collections.singletonList(unrelated));
+                Collections.singletonList(unrelated), new CryptoServices());
         CertificateVerifier.Result result = CertificateVerifier.verifyChain(chain, trustManager, SERVER_NAME);
         assertFalse(result.isOk());
     }

@@ -21,7 +21,8 @@
 
 package org.bluezoo.gumdrop.quic.cid;
 
-import java.security.SecureRandom;
+
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -79,7 +80,7 @@ public final class ConnectionIdManager {
     private final List<ConnectionIdEntry> pendingIssuance = new ArrayList<ConnectionIdEntry>();
     private final List<Long> pendingRetirement = new ArrayList<Long>();
     private final byte[] staticKey;
-    private final SecureRandom random = new SecureRandom();
+    private final CryptoServices crypto;
 
     private QuicLbConfig lbConfig;
     private long retirePriorTo;
@@ -113,11 +114,15 @@ public final class ConnectionIdManager {
      *                                  during the handshake
      * @param staticKey this endpoint's static key for
      *                  {@link StatelessResetToken} derivation
+     * @param crypto the services token derivation and random connection
+     *               identifiers come from
      */
-    public ConnectionIdManager(byte[] ourHandshakeConnectionId, byte[] peerHandshakeConnectionId, byte[] staticKey) {
+    public ConnectionIdManager(byte[] ourHandshakeConnectionId, byte[] peerHandshakeConnectionId, byte[] staticKey,
+            CryptoServices crypto) {
         ours.add(new ConnectionIdEntry(0, ourHandshakeConnectionId, null));
         peers.add(new ConnectionIdEntry(0, peerHandshakeConnectionId, null));
         this.staticKey = staticKey;
+        this.crypto = crypto;
     }
 
     /**
@@ -130,10 +135,11 @@ public final class ConnectionIdManager {
      * @param peerHandshakeConnectionId the connection ID the peer used during the handshake
      * @param staticKey this endpoint's static key for {@link StatelessResetToken} derivation
      * @param lbConfig the active QUIC-LB configuration, or {@code null} for opaque random IDs
+     * @param crypto the services token derivation and random connection identifiers come from
      */
     public ConnectionIdManager(byte[] ourHandshakeConnectionId, byte[] peerHandshakeConnectionId, byte[] staticKey,
-            QuicLbConfig lbConfig) {
-        this(ourHandshakeConnectionId, peerHandshakeConnectionId, staticKey);
+            QuicLbConfig lbConfig, CryptoServices crypto) {
+        this(ourHandshakeConnectionId, peerHandshakeConnectionId, staticKey, crypto);
         this.lbConfig = lbConfig;
     }
 
@@ -320,13 +326,13 @@ public final class ConnectionIdManager {
     private ConnectionIdEntry mint() {
         byte[] connectionId;
         if (lbConfig != null) {
-            connectionId = lbConfig.generate(random);
+            connectionId = lbConfig.generate(crypto.secureRandom());
         } else {
             connectionId = new byte[MAX_CONNECTION_ID_LENGTH];
-            random.nextBytes(connectionId);
+            crypto.nextBytes(connectionId);
         }
         long sequenceNumber = nextSequenceNumber++;
-        byte[] token = StatelessResetToken.generate(staticKey, connectionId);
+        byte[] token = StatelessResetToken.generate(staticKey, connectionId, crypto);
         ConnectionIdEntry entry = new ConnectionIdEntry(sequenceNumber, connectionId, token);
         ours.add(entry);
         highestIssuedSequenceNumber = sequenceNumber;

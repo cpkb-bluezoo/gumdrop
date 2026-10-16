@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -224,7 +225,7 @@ public class HandshakeAsyncSchedulerTest {
 
     @Test
     public void handshakeInputDispatchesEachKindToTheEngine() throws Exception {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         HandshakeEngine engine = new HandshakeEngine(cfg);
         final List<String> errors = new ArrayList<String>();
         TlsEventSink sink = new TlsEventSink() {

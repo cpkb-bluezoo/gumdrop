@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -250,7 +251,7 @@ public class TcpEndpointEdgeTest {
 
     @Test
     public void startTlsOnAnEndpointFlaggedSecureButNotInitialisedIsRejected() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint ep = new TcpEndpoint(new Recorder(), cfg, true);
         try {
             ep.startTLS();
@@ -262,7 +263,7 @@ public class TcpEndpointEdgeTest {
 
     @Test
     public void negotiatingPolicyWithOnlyTls12ConfigUpgradesWithTls12() throws IOException {
-        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint ep = new TcpEndpoint(new Recorder(), null, cfg12, TlsVersion.NEGOTIATE, false);
         ep.setClientMode(true);
         ep.setSelectorLoop(new InlineSelectorLoop());
@@ -275,8 +276,8 @@ public class TcpEndpointEdgeTest {
 
     @Test
     public void nullPolicyDefaultsToNegotiate() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
-        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
+        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint ep = new TcpEndpoint(new Recorder(), cfg, cfg12, null, true);
         ep.setChannel(new StubSocketChannel(LOCAL, REMOTE));
         ep.setClientMode(true);
@@ -288,7 +289,7 @@ public class TcpEndpointEdgeTest {
 
     @Test
     public void secureTls12OnlyEndpointReportsTls12SecurityInfo() throws IOException {
-        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint ep = new TcpEndpoint(new Recorder(), null, cfg12, TlsVersion.TLS_1_2, true);
         ep.setChannel(new StubSocketChannel(LOCAL, REMOTE));
         ep.setClientMode(true);
@@ -311,7 +312,7 @@ public class TcpEndpointEdgeTest {
 
     @Test
     public void secondConnectedDoesNotRearmTheHandshakeTimeout() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         Recorder h = new Recorder();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, null, TlsVersion.TLS_1_3, true);
         ep.setChannel(new StubSocketChannel(LOCAL, REMOTE));

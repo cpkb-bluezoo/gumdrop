@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.quic.packet.PacketProtection;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionException;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys;
@@ -46,10 +46,10 @@ final class Dtls13DirectionalKeys {
         this.algorithm = algorithm;
     }
 
-    static Dtls13DirectionalKeys fromSecret(CipherSuite suite, byte[] secret, int epoch) {
-        Hkdf hkdf = suite.newHkdf();
+    static Dtls13DirectionalKeys fromSecret(CipherSuite suite, byte[] secret, int epoch, CryptoServices crypto) {
         QuicAeadAlgorithm algorithm = toAeadAlgorithm(suite);
-        PacketProtectionKeys keys = PacketProtectionKeys.deriveForDtls(hkdf, secret, algorithm);
+        PacketProtectionKeys keys = PacketProtectionKeys.deriveForDtls(crypto, suite.getHashAlgorithm(), secret,
+                algorithm);
         return new Dtls13DirectionalKeys(epoch, keys, algorithm);
     }
 

@@ -186,7 +186,7 @@ public final class Dtls12HandshakeConfig {
      * @return a fresh {@link Tls12HandshakeConfig}
      */
     public Tls12HandshakeConfig copyBaseForEngine() {
-        Tls12HandshakeConfig copy = new Tls12HandshakeConfig(base.getRole());
+        Tls12HandshakeConfig copy = new Tls12HandshakeConfig(base.getRole(), base.getCrypto());
         copy.setDtlsTransport(true);
         copy.setServerCredentials(base.getServerCredentials());
         copy.setServerCredentialsResolver(base.getServerCredentialsResolver());

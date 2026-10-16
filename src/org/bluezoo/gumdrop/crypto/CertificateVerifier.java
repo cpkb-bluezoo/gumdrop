@@ -77,11 +77,21 @@ public final class CertificateVerifier {
      * first) into {@link X509Certificate} objects.
      *
      * @param derChain the DER-encoded certificates, leaf first
+     * @param crypto the services the certificate factory comes from
      * @return the parsed certificates, in the same order
-     * @throws CertificateException if any certificate is malformed
+     * @throws CertificateException if any certificate is malformed, or no
+     *         X.509 certificate factory is available
      */
-    public static List<X509Certificate> parseChain(List<byte[]> derChain) throws CertificateException {
-        CertificateFactory factory = CertificateFactory.getInstance("X.509");
+    public static List<X509Certificate> parseChain(List<byte[]> derChain, CryptoServices crypto)
+            throws CertificateException {
+        CertificateFactory factory;
+        try {
+            factory = crypto.certificateFactory("X.509");
+        } catch (CertificateException e) {
+            throw e;
+        } catch (GeneralSecurityException e) {
+            throw new CertificateException("No X.509 certificate factory available", e);
+        }
         List<X509Certificate> result = new ArrayList<X509Certificate>(derChain.size());
         for (int i = 0; i < derChain.size(); i++) {
             byte[] der = derChain.get(i);
@@ -99,12 +109,13 @@ public final class CertificateVerifier {
      * key-store-from-certificates construction).
      *
      * @param certificates the trusted CA certificates
+     * @param crypto the services the key store and trust manager factory come from
      * @return a trust manager trusting exactly these certificates
      * @throws GeneralSecurityException if the trust manager cannot be built
      */
-    public static X509TrustManager trustManagerFromCertificates(List<X509Certificate> certificates)
-            throws GeneralSecurityException {
-        KeyStore trustStore = KeyStore.getInstance("PKCS12");
+    public static X509TrustManager trustManagerFromCertificates(List<X509Certificate> certificates,
+            CryptoServices crypto) throws GeneralSecurityException {
+        KeyStore trustStore = crypto.keyStore("PKCS12");
         try {
             trustStore.load(null, null);
         } catch (java.io.IOException e) {
@@ -114,7 +125,7 @@ public final class CertificateVerifier {
         for (int i = 0; i < certificates.size(); i++) {
             trustStore.setCertificateEntry("ca" + i, certificates.get(i));
         }
-        TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        TrustManagerFactory factory = crypto.trustManagerFactory();
         factory.init(trustStore);
         for (TrustManager manager : factory.getTrustManagers()) {
             if (manager instanceof X509TrustManager) {

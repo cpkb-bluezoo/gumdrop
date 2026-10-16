@@ -26,7 +26,6 @@ import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -78,7 +77,7 @@ import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.recovery.SentPacket;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
@@ -508,7 +507,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private ProtocolHandler datagramHandler;
 
     private final LossDetector lossDetector;
-    private Hkdf hkdf = Hkdf.sha256();
+    private final CryptoServices crypto;
+    // The negotiated suite's hash, which selects the HKDF for key derivation
+    private String hash = "SHA-256";
     private QuicAeadAlgorithm aead = QuicAeadAlgorithm.AES_128_GCM;
 
     // RFC 9000 section 2.1: four independent counters by (initiator, directionality).
@@ -707,7 +708,6 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private boolean sawValidOneRttThisReceive;
     private boolean decryptFailedOrUnparseableThisDatagram;
 
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
@@ -813,6 +813,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             TransportParameters localTransportParameters, byte[] connectionIdStaticKey, QuicVersion version,
             boolean afterVersionNegotiation) {
         this.engine = engine;
+        this.crypto = engine.getCryptoServices();
         this.version = version;
         this.initialVersion = version;
         this.initialKeyDcid = initialSecretDcid;
@@ -831,7 +832,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             sentCrypto.put(level, new HashMap<Long, List<PendingChunk>>());
         }
 
-        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, initialSecretDcid);
+        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, initialSecretDcid, crypto);
         PacketProtectionKeys clientKeys = initialKeys[0];
         PacketProtectionKeys serverKeys = initialKeys[1];
         if (isServer) {
@@ -852,7 +853,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
         this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE, engine.getFactory().getCongestionAlgorithm());
         this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey,
-                isServer ? engine.getQuicLbConfig() : null);
+                isServer ? engine.getQuicLbConfig() : null, crypto);
         this.localMaxData = localTransportParameters.getInitialMaxData();
         this.connectionReceiveWindow = localMaxData;
         this.localMaxStreamsBidi = localTransportParameters.getInitialMaxStreamsBidi();
@@ -2210,12 +2211,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     // Derives the Initial protection keys (RFC 9001 section 5.2, RFC 9369
     // section 3.3.1) for both directions: {client, server}.
-    private static PacketProtectionKeys[] deriveInitialKeys(QuicVersion version, byte[] dcid) {
-        Hkdf hkdf = Hkdf.sha256();
+    private static PacketProtectionKeys[] deriveInitialKeys(QuicVersion version, byte[] dcid, CryptoServices crypto) {
         return new PacketProtectionKeys[] {
-            PacketProtectionKeys.derive(hkdf, InitialSecrets.clientSecret(version, dcid),
+            PacketProtectionKeys.derive(crypto, "SHA-256", InitialSecrets.clientSecret(version, dcid, crypto),
                     QuicAeadAlgorithm.AES_128_GCM, version),
-            PacketProtectionKeys.derive(hkdf, InitialSecrets.serverSecret(version, dcid),
+            PacketProtectionKeys.derive(crypto, "SHA-256", InitialSecrets.serverSecret(version, dcid, crypto),
                     QuicAeadAlgorithm.AES_128_GCM, version)
         };
     }
@@ -2447,7 +2447,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         if (!Arrays.equals(retry.getDestinationConnectionId(), ourConnectionId)) {
             return;
         }
-        if (!RetryIntegrityTag.verify(version, originalDcid, retry.getPacketWithoutTag(), retry.getTag())) {
+        if (!RetryIntegrityTag.verify(version, originalDcid, retry.getPacketWithoutTag(), retry.getTag(), crypto)) {
             return; // corrupted, or forged by an off-path attacker without the fixed key
         }
 
@@ -2466,7 +2466,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // After a Retry, that DCID changes to the Retry packet's own
         // Source Connection ID, so Initial keys must be re-derived to match.
         initialKeyDcid = peerConnectionId;
-        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, initialKeyDcid);
+        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, initialKeyDcid, crypto);
         sendKeys.put(EncryptionLevel.INITIAL, initialKeys[0]);
         recvKeys.put(EncryptionLevel.INITIAL, initialKeys[1]);
 
@@ -2550,7 +2550,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 // long header of another version (RFC 9369 section 4.1);
                 // adopted below only if the packet then authenticates.
                 switchTo = packetVersion;
-                switchKeys = deriveInitialKeys(switchTo, initialKeyDcid);
+                switchKeys = deriveInitialKeys(switchTo, initialKeyDcid, crypto);
                 keys = switchKeys[1];
             } else {
                 keys = null;
@@ -3988,7 +3988,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private void sendPathChallengeAndScheduleRetry(final PathKey candidate,
             final PathValidationAttempt attempt, long pto) {
         attempt.challengeData = new byte[QuicFrameHandler.PATH_DATA_LENGTH];
-        RANDOM.nextBytes(attempt.challengeData);
+        crypto.nextBytes(attempt.challengeData);
         sendPathChallenge(attempt.challengeData, candidate,
                 attempt.destinationConnectionId != null ? attempt.destinationConnectionId : peerConnectionId);
 
@@ -5699,7 +5699,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, clientSecret, serverSecret);
     }
 
-    // Sets this.hkdf/this.aead from the negotiated cipher suite. Extracted
+    // Sets this.hash/this.aead from the negotiated cipher suite. Extracted
     // from handshakeSecretsAvailable so earlySecretsAvailable can also use
     // it -- 0-RTT keys must be derivable earlier than that method runs
     // (right after ClientHello, before HANDSHAKE keys exist at all), but
@@ -5716,15 +5716,15 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // fail decryption in a confusing way instead of here).
         switch (cipher) {
             case TLS_AES_128_GCM_SHA256:
-                hkdf = Hkdf.sha256();
+                hash = "SHA-256";
                 aead = QuicAeadAlgorithm.AES_128_GCM;
                 break;
             case TLS_AES_256_GCM_SHA384:
-                hkdf = Hkdf.sha384();
+                hash = "SHA-384";
                 aead = QuicAeadAlgorithm.AES_256_GCM;
                 break;
             case TLS_CHACHA20_POLY1305_SHA256:
-                hkdf = Hkdf.sha256();
+                hash = "SHA-256";
                 aead = QuicAeadAlgorithm.CHACHA20_POLY1305;
                 break;
             default:
@@ -5914,7 +5914,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             QuicVersion negotiated = QuicVersion.selectCompatible(initialVersion, available,
                     engine.getSupportedVersions());
             if (negotiated != version) {
-                adoptVersion(negotiated, deriveInitialKeys(negotiated, initialKeyDcid));
+                adoptVersion(negotiated, deriveInitialKeys(negotiated, initialKeyDcid, crypto));
             }
             return true;
         }
@@ -5976,7 +5976,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
         selectHkdfAead(cipher);
         byte[] clientEarlyTrafficSecret = tlsEngine.getClientEarlyTrafficSecret();
-        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, clientEarlyTrafficSecret, aead, initialVersion);
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(crypto, hash, clientEarlyTrafficSecret, aead, initialVersion);
         if (isServer) {
             zeroRttRecvKeys = keys;
         } else {
@@ -6070,8 +6070,8 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     }
 
     private void deriveDirectionalKeys(EncryptionLevel level, byte[] clientSecret, byte[] serverSecret) {
-        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead, version);
-        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead, version);
+        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(crypto, hash, clientSecret, aead, version);
+        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(crypto, hash, serverSecret, aead, version);
         if (isServer) {
             sendKeys.put(level, serverKeys);
             recvKeys.put(level, clientKeys);
@@ -6134,13 +6134,13 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     }
 
     private void prepareNextRecvKeys() {
-        nextRecvSecret = PacketProtectionKeys.nextSecret(hkdf, oneRttRecvSecret, version);
-        nextRecvKeys = PacketProtectionKeys.update(hkdf, nextRecvSecret, version, recvKeys.get(EncryptionLevel.ONE_RTT));
+        nextRecvSecret = PacketProtectionKeys.nextSecret(crypto, hash, oneRttRecvSecret, version);
+        nextRecvKeys = PacketProtectionKeys.update(crypto, hash, nextRecvSecret, version, recvKeys.get(EncryptionLevel.ONE_RTT));
     }
 
     private void advanceSendKeys(String trigger) {
-        oneRttSendSecret = PacketProtectionKeys.nextSecret(hkdf, oneRttSendSecret, version);
-        sendKeys.put(EncryptionLevel.ONE_RTT, PacketProtectionKeys.update(hkdf, oneRttSendSecret, version,
+        oneRttSendSecret = PacketProtectionKeys.nextSecret(crypto, hash, oneRttSendSecret, version);
+        sendKeys.put(EncryptionLevel.ONE_RTT, PacketProtectionKeys.update(crypto, hash, oneRttSendSecret, version,
                 sendKeys.get(EncryptionLevel.ONE_RTT)));
         sendKeyPhase = !sendKeyPhase;
         firstPnOfCurrentSendPhase = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];

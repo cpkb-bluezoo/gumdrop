@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.SecureRandom;
 import java.util.Collections;
 
@@ -45,11 +46,11 @@ public class EchAcceptConfirmationTest {
     public void serverEmbedMatchesClientVerify() throws Exception {
         EchConfig ech = EchConfig.createV13(2, PK_RM, "public.example", 32);
         HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
-        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new CryptoServices());
 
         byte[] innerFramed = offer.getClientHelloInnerFramed();
         byte[] outerFramed = offer.getClientHelloOuterFramed();
-        byte[] innerOpened = EchServer.openInnerClientHello(outerFramed, ech, SK_RM, null)
+        byte[] innerOpened = EchServer.openInnerClientHello(outerFramed, ech, SK_RM, null, new CryptoServices())
                 .getInnerClientHelloFramed();
         HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(innerOpened);
         HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(outerFramed);
@@ -59,9 +60,9 @@ public class EchAcceptConfirmationTest {
         new SecureRandom().nextBytes(serverRandom);
         byte[] draft = HandshakeMessages.buildServerHello(serverRandom, inner.legacySessionId, suite,
                 NamedGroup.X25519, inner.keyShares.get(NamedGroup.X25519), false);
-        byte[] serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(suite, innerFramed, draft);
+        byte[] serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(suite, innerFramed, draft, new CryptoServices());
 
-        assertTrue(EchAcceptConfirmation.verifyServerHello(suite, innerFramed, serverHello));
+        assertTrue(EchAcceptConfirmation.verifyServerHello(suite, innerFramed, serverHello, new CryptoServices()));
         assertTrue(outer.serverName.equals("public.example"));
         assertTrue(inner.serverName.equals("backend.example"));
     }
@@ -70,17 +71,17 @@ public class EchAcceptConfirmationTest {
     public void helloRetryRequestEmbedMatchesClientVerify() throws Exception {
         EchConfig ech = EchConfig.createV13(3, PK_RM, "public.example", 32);
         HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
-        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new CryptoServices());
         byte[] innerFramed = offer.getClientHelloInnerFramed();
 
         CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
         byte[] hrrDraft = HandshakeMessages.buildHelloRetryRequest(new byte[0], suite,
                 NamedGroup.X25519, null, true);
-        byte[] hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(suite, innerFramed, hrrDraft);
+        byte[] hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(suite, innerFramed, hrrDraft, new CryptoServices());
         HandshakeMessages.HelloRetryRequest parsed = HandshakeMessages.parseHelloRetryRequest(hrr);
 
         assertTrue(EchAcceptConfirmation.verifyHelloRetryRequest(
-                suite, innerFramed, hrr, parsed.echHrrConfirmation));
+                suite, innerFramed, hrr, parsed.echHrrConfirmation, new CryptoServices()));
     }
 
     private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {

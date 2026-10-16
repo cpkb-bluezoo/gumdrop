@@ -175,7 +175,7 @@ public final class Dtls13HandshakeConfig {
     }
 
     public HandshakeConfig copyBaseForEngine() {
-        HandshakeConfig copy = new HandshakeConfig(base.getRole());
+        HandshakeConfig copy = new HandshakeConfig(base.getRole(), base.getCrypto());
         copy.setMode(HandshakeMode.DTLS);
         copy.setServerCredentials(base.getServerCredentials());
         copy.setServerCredentialsResolver(base.getServerCredentialsResolver());

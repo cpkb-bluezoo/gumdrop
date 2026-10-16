@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
+import org.bluezoo.gumdrop.testsupport.CompositeTestProvider;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -138,15 +140,15 @@ public class Dtls13RecordEngineTest {
     }
 
     private HandshakeConfig serverBaseHandshake() {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setServerCredentials(new ServerCredentials(ecChain, ecKey));
         return config;
     }
 
     private HandshakeConfig clientBaseHandshake() throws Exception {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setServerName(SERVER_NAME);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain, new CryptoServices()));
         return config;
     }
 
@@ -159,6 +161,23 @@ public class Dtls13RecordEngineTest {
 
     private Loopback runLoopback() throws Exception {
         return runLoopback(clientBaseHandshake(), serverBaseHandshake(), 1024);
+    }
+
+    @Test
+    public void handshakeCompletesUnderAFipsRuntime() throws Exception {
+        CompositeTestProvider provider = CompositeTestProvider.install();
+        CryptoServices crypto = CryptoServices.pinned(CompositeTestProvider.NAME, null);
+        int kdf = provider.handedOut("KDF");
+        int ciphers = provider.handedOut("Cipher");
+        HandshakeConfig serverCfg = new HandshakeConfig(HandshakeRole.SERVER, crypto);
+        serverCfg.setServerCredentials(new ServerCredentials(ecChain, ecKey));
+        HandshakeConfig clientCfg = new HandshakeConfig(HandshakeRole.CLIENT, crypto);
+        clientCfg.setServerName(SERVER_NAME);
+        clientCfg.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain, crypto));
+        Loopback lb = runLoopback(clientCfg, serverCfg, 1024);
+        assertTrue(FipsProfile.permits(lb.client.getNegotiatedCipherSuite()));
+        assertTrue(provider.handedOut("KDF") > kdf);
+        assertTrue(provider.handedOut("Cipher") > ciphers);
     }
 
     private Loopback runAesGcmLoopback() throws Exception {
@@ -287,15 +306,15 @@ public class Dtls13RecordEngineTest {
     }
 
     private HandshakeConfig compressedLargeCertClientConfig() throws Exception {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         config.setServerName(SERVER_NAME);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(largeRsaChain));
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(largeRsaChain, new CryptoServices()));
         config.setCertificateCompressionEnabled(true);
         return new Dtls13HandshakeConfig(config).copyBaseForEngine();
     }
 
     private HandshakeConfig compressedLargeCertServerConfig() {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         config.setServerCredentials(new ServerCredentials(largeRsaChain, largeRsaKey));
         config.setCertificateCompressionEnabled(true);
         return new Dtls13HandshakeConfig(config).copyBaseForEngine();

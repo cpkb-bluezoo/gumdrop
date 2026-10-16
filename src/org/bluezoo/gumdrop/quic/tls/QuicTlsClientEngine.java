@@ -31,6 +31,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.AlertDescription;
@@ -127,13 +128,15 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
      * Creates a client-side TLS engine, offering no ALPN application
      * protocols and no named-group preference.
      *
+     * @param crypto the services the handshake's cryptography comes from
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in the ClientHello
      *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
      */
-    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener) {
-        this(transportParameters, listener, null);
+    public QuicTlsClientEngine(CryptoServices crypto, TransportParameters transportParameters,
+            QuicTlsEngineListener listener) {
+        this(crypto, transportParameters, listener, null);
     }
 
     /**
@@ -147,9 +150,9 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
      *                             offer (RFC 7301), comma-separated, or
      *                             null to offer none
      */
-    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
-            String applicationProtocols) {
-        this(transportParameters, listener, applicationProtocols, null);
+    public QuicTlsClientEngine(CryptoServices crypto, TransportParameters transportParameters,
+            QuicTlsEngineListener listener, String applicationProtocols) {
+        this(crypto, transportParameters, listener, applicationProtocols, null);
     }
 
     /**
@@ -173,9 +176,9 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
      *                    warning rather than silently substituted or
      *                    failing the connection.
      */
-    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
-            String applicationProtocols, String namedGroups) {
-        this(transportParameters, listener, applicationProtocols, namedGroups, null);
+    public QuicTlsClientEngine(CryptoServices crypto, TransportParameters transportParameters,
+            QuicTlsEngineListener listener, String applicationProtocols, String namedGroups) {
+        this(crypto, transportParameters, listener, applicationProtocols, namedGroups, null);
     }
 
     /**
@@ -199,13 +202,13 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
      *                     layer actually implements are offered -- see
      *                     {@link QuicCipherSuites#resolve}.
      */
-    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
-            String applicationProtocols, String namedGroups, String cipherSuites) {
+    public QuicTlsClientEngine(CryptoServices crypto, TransportParameters transportParameters,
+            QuicTlsEngineListener listener, String applicationProtocols, String namedGroups, String cipherSuites) {
         this.listener = listener;
         this.asyncOffload = new QuicHandshakeAsyncOffload(listener);
         this.deferredDispatch = new QuicTlsDeferredDispatch(asyncOffload, sink);
 
-        this.config = new HandshakeConfig(HandshakeRole.CLIENT);
+        this.config = new HandshakeConfig(HandshakeRole.CLIENT, crypto);
         config.setLocalTransportParameters(transportParameters.encode());
         config.setCipherSuites(QuicCipherSuites.resolve(cipherSuites));
         config.setApplicationProtocols(applicationProtocols != null && !applicationProtocols.isEmpty()

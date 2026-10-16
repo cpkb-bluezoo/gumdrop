@@ -21,13 +21,13 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import java.util.Arrays;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.junit.Test;
 
 /**
@@ -50,29 +50,29 @@ public class PacketProtectionKeysUpdateTest {
 
     @Test
     public void nextSecretIsOneHashLongAndDiffersPerVersion() {
-        Hkdf hkdf = Hkdf.sha256();
-        byte[] v1 = PacketProtectionKeys.nextSecret(hkdf, secret(), QuicVersion.V1);
-        byte[] v2 = PacketProtectionKeys.nextSecret(hkdf, secret(), QuicVersion.V2);
+        CryptoServices crypto = new CryptoServices();
+        byte[] v1 = PacketProtectionKeys.nextSecret(crypto, "SHA-256", secret(), QuicVersion.V1);
+        byte[] v2 = PacketProtectionKeys.nextSecret(crypto, "SHA-256", secret(), QuicVersion.V2);
         assertEquals(32, v1.length);
         assertFalse(Arrays.equals(secret(), v1));
         assertFalse("v2 uses the quicv2 label prefix", Arrays.equals(v1, v2));
         assertArrayEquals("derivation is deterministic", v1,
-                PacketProtectionKeys.nextSecret(hkdf, secret(), QuicVersion.V1));
+                PacketProtectionKeys.nextSecret(crypto, "SHA-256", secret(), QuicVersion.V1));
     }
 
     @Test
     public void updatedKeysKeepHeaderProtectionAndChangeTheRest() {
-        Hkdf hkdf = Hkdf.sha256();
-        PacketProtectionKeys current = PacketProtectionKeys.derive(hkdf, secret(), QuicAeadAlgorithm.AES_128_GCM,
+        CryptoServices crypto = new CryptoServices();
+        PacketProtectionKeys current = PacketProtectionKeys.derive(crypto, "SHA-256", secret(), QuicAeadAlgorithm.AES_128_GCM,
                 QuicVersion.V1);
-        byte[] next = PacketProtectionKeys.nextSecret(hkdf, secret(), QuicVersion.V1);
-        PacketProtectionKeys updated = PacketProtectionKeys.update(hkdf, next, QuicVersion.V1, current);
+        byte[] next = PacketProtectionKeys.nextSecret(crypto, "SHA-256", secret(), QuicVersion.V1);
+        PacketProtectionKeys updated = PacketProtectionKeys.update(crypto, "SHA-256", next, QuicVersion.V1, current);
         assertArrayEquals(current.getHeaderProtectionKey().getEncoded(), updated.getHeaderProtectionKey().getEncoded());
         assertFalse(Arrays.equals(current.getAeadKey().getEncoded(), updated.getAeadKey().getEncoded()));
         assertFalse(Arrays.equals(current.getIv(), updated.getIv()));
         assertEquals(current.getAlgorithm(), updated.getAlgorithm());
         // The same as deriving afresh from the next secret, except for header protection.
-        PacketProtectionKeys fresh = PacketProtectionKeys.derive(hkdf, next, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
+        PacketProtectionKeys fresh = PacketProtectionKeys.derive(crypto, "SHA-256", next, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         assertArrayEquals(fresh.getAeadKey().getEncoded(), updated.getAeadKey().getEncoded());
         assertArrayEquals(fresh.getIv(), updated.getIv());
     }

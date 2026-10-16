@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
 import org.bluezoo.gumdrop.tls.Dtls13HandshakeConfig;
 import org.bluezoo.gumdrop.tls.EchConfig;
@@ -102,14 +103,14 @@ public class Dtls13SessionTest {
     }
 
     private static Dtls13HandshakeConfig clientConfig() throws Exception {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         base.setServerName(SERVER_NAME);
-        base.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        base.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         return new Dtls13HandshakeConfig(base);
     }
 
     private static Dtls13HandshakeConfig serverConfig() {
-        HandshakeConfig base = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig base = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         base.setServerCredentials(new ServerCredentials(chain, privateKey));
         return new Dtls13HandshakeConfig(base);
     }
@@ -243,10 +244,10 @@ public class Dtls13SessionTest {
         for (int i = 0; i < random.length; i++) {
             random[i] = (byte) i;
         }
-        Dtls13CookieValidator validator = new Dtls13CookieValidator(COOKIE_SECRET, CLIENT_ADDR);
+        Dtls13CookieValidator validator = new Dtls13CookieValidator(COOKIE_SECRET, CLIENT_ADDR, new CryptoServices());
         byte[] cookie = validator.computeCookie(random);
         assertTrue(validator.validateCookie(random, cookie));
-        Dtls13CookieValidator wrongAddress = new Dtls13CookieValidator(COOKIE_SECRET, WRONG_ADDR);
+        Dtls13CookieValidator wrongAddress = new Dtls13CookieValidator(COOKIE_SECRET, WRONG_ADDR, new CryptoServices());
         assertFalse(wrongAddress.validateCookie(random, cookie));
     }
 
@@ -255,7 +256,7 @@ public class Dtls13SessionTest {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.setDtlsVersion(DtlsVersion.DTLS_1_3);
         factory.setServerCredentials(new ServerCredentials(chain, privateKey));
-        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         factory.setSecure(true);
         factory.start();
         assertNotNull(factory.buildClientConfig13(SERVER_NAME));
@@ -285,7 +286,7 @@ public class Dtls13SessionTest {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.setDtlsVersion(DtlsVersion.DTLS_1_3);
         factory.setServerCredentials(new ServerCredentials(chain, privateKey));
-        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         factory.setSecure(true);
         factory.setEchConfigListFile(list);
         factory.setEchPrivateKeyFile(key);
@@ -336,7 +337,7 @@ public class Dtls13SessionTest {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.setDtlsVersion(DtlsVersion.DTLS_1_3);
         factory.setServerCredentials(new ServerCredentials(chain, privateKey));
-        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         factory.setSecure(true);
         factory.start();
         HandshakeConfig base = factory.getSharedServerConfig13().getBase();

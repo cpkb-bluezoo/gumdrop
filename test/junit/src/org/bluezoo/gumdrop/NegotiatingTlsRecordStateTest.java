@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertNull;
 
 import java.io.ByteArrayOutputStream;
@@ -102,14 +103,14 @@ public class NegotiatingTlsRecordStateTest {
      */
     @Test
     public void activatingReadDoesNotFeedSpareNetInCapacity() throws Exception {
-        HandshakeConfig clientConfig = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig clientConfig = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         clientConfig.setServerName(TestCertificates.SERVER_NAME);
         TlsRecordEngine client = new TlsRecordEngine(clientConfig);
         ClientHelloSink clientSink = new ClientHelloSink();
         client.start(clientSink);
         byte[] clientHello = clientSink.wire.toByteArray();
 
-        HandshakeConfig serverConfig = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig serverConfig = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         serverConfig.setServerCredentials(TestCertificates.ec256().credentials());
         TcpEndpoint endpoint = new TcpEndpoint(new NullHandler(), serverConfig, null,
                 TlsVersion.NEGOTIATE, false);

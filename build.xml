@@ -171,7 +171,7 @@
     <delete dir='build-mdns' quiet='true'/>
   </target>
 
-  <target name='clean' depends='clean-junit,clean-guard,clean-integration,clean-legacy-dirs'>
+  <target name='clean' depends='clean-junit,clean-guard,integration-clean,clean-legacy-dirs'>
     <delete dir='${build.dir}'/>
     <delete dir='${dist}'/>
     <delete dir='${manager}/WEB-INF/classes'/>
@@ -195,13 +195,6 @@
   <target name='clean-guard'>
     <delete dir='${guard.classes.dir}'/>
     <delete dir='${guard.results.dir}'/>
-  </target>
-
-  <target name='clean-integration'>
-    <delete dir='${testdir}/integration/classes'/>
-    <delete dir='${testdir}/integration/results'/>
-    <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>
-    <delete dir='${testdir}/integration/webapp-examples/WEB-INF/classes'/>
   </target>
 
   <!-- Download compile/runtime dependencies (versions from boms/versions.properties).
@@ -1619,12 +1612,16 @@
 
   <!-- Clean integration test results -->
   <target name='integration-clean'
-          description='Clean integration test results'>
+          description='Clean integration test classes, results, coverage and scratch data'>
     <delete dir='${integration.coverage.dir}'/>
     <delete dir='${coverage.report.dir}'/>
     <delete dir='${testdir}/integration/classes'/>
     <delete dir='${testdir}/integration/results'/>
     <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>
+    <delete dir='${testdir}/integration/webapp-examples/WEB-INF/classes'/>
+    <!-- Scratch files the FTP server tests create under their root
+         directory and never remove; hundreds of thousands accumulate -->
+    <delete dir='${testdir}/integration/ftp-server-data' quiet='true'/>
   </target>
 
 </project>

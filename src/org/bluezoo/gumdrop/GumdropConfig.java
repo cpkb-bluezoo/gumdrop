@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
+
 /**
  * Configuration for {@link Gumdrop#boot(GumdropConfig)}.
  *
@@ -34,6 +36,8 @@ public final class GumdropConfig {
                     Runtime.getRuntime().availableProcessors() * 2);
     private long drainTimeoutMs =
             Long.getLong("gumdrop.drainTimeoutMs", 25_000L);
+    private String fipsProvider = System.getProperty("gumdrop.fipsProvider");
+    private String fipsSecureRandomAlgorithm = System.getProperty("gumdrop.fipsSecureRandom");
 
     private GumdropConfig() {
     }
@@ -45,7 +49,10 @@ public final class GumdropConfig {
      * the {@code gumdrop.drainTimeoutMs} system property (falling back to
      * 25 seconds). If {@code GUMDROP_DRAIN_TIMEOUT_MS} is set in the
      * environment, it overrides the drain timeout (same as the former
-     * {@code Gumdrop.main} launcher).
+     * {@code Gumdrop.main} launcher). FIPS mode is off unless the
+     * {@code gumdrop.fipsProvider} system property names a provider, with
+     * {@code gumdrop.fipsSecureRandom} optionally naming its random source
+     * algorithm (see {@link #fipsProvider}).
      */
     public static GumdropConfig create() {
         GumdropConfig config = new GumdropConfig();
@@ -80,6 +87,66 @@ public final class GumdropConfig {
     public GumdropConfig drainTimeoutMs(long drainTimeoutMs) {
         this.drainTimeoutMs = drainTimeoutMs;
         return this;
+    }
+
+    /**
+     * Turns FIPS mode on, naming the installed JCA provider that every
+     * cipher, digest, signature, key exchange, key derivation and random
+     * value of the runtime's TLS, DTLS and QUIC connections must come from.
+     * Gumdrop requests each service from that provider and never falls back
+     * to another; {@link Gumdrop#boot(GumdropConfig)} fails if the provider
+     * is not installed or cannot supply a required service. Which provider
+     * is validated, and in which mode, is the operator's responsibility:
+     * Gumdrop does not detect it.
+     *
+     * @param providerName the provider's name as registered with
+     *        {@link java.security.Security}, or null to turn the mode off
+     */
+    public GumdropConfig fipsProvider(String providerName) {
+        this.fipsProvider = providerName;
+        return this;
+    }
+
+    /**
+     * Names the FIPS provider's random source algorithm, since providers
+     * do not agree on one ({@code "DRBG"} for the JDK's own, for example).
+     * Unset, the provider's first registered {@code SecureRandom} service
+     * is used. Only meaningful with {@link #fipsProvider}.
+     *
+     * @param algorithm the algorithm name, or null for the provider's first
+     */
+    public GumdropConfig fipsSecureRandomAlgorithm(String algorithm) {
+        this.fipsSecureRandomAlgorithm = algorithm;
+        return this;
+    }
+
+    /**
+     * Returns whether a runtime booted from this configuration runs in
+     * FIPS mode, that is, whether {@link #fipsProvider} names a provider.
+     *
+     * @return true if FIPS mode is on
+     */
+    public boolean isFipsMode() {
+        return fipsProvider != null;
+    }
+
+    /**
+     * Resolves the cryptographic services a runtime booted from this
+     * configuration uses: pinned to the FIPS provider when the mode is on,
+     * the JVM's provider list otherwise. {@link Gumdrop#boot(GumdropConfig)}
+     * calls this; so may code that loads TLS material before the runtime
+     * exists, such as a configuration file loader, so that the material is
+     * read with the same services the runtime will use.
+     *
+     * @return the services
+     * @throws IllegalStateException if the FIPS provider is not installed
+     *         or cannot supply a required service
+     */
+    public CryptoServices createCryptoServices() {
+        if (fipsProvider == null) {
+            return new CryptoServices();
+        }
+        return CryptoServices.pinned(fipsProvider, fipsSecureRandomAlgorithm);
     }
 
     int getWorkerThreads() {

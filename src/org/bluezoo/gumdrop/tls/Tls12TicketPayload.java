@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
@@ -92,9 +92,10 @@ final class Tls12TicketPayload {
      * in a {@code NewSessionTicket}.
      *
      * @param key the current ticket key, 16 bytes (AES-128-GCM)
+     * @param crypto the services the cipher and nonce come from
      * @return the sealed ticket bytes
      */
-    byte[] seal(byte[] key) {
+    byte[] seal(byte[] key, CryptoServices crypto) {
         ByteBuffer plaintext = ByteBuffer.allocate(PLAINTEXT_LENGTH);
         plaintext.put(PAYLOAD_VERSION);
         plaintext.put(masterSecret);
@@ -103,9 +104,9 @@ final class Tls12TicketPayload {
         plaintext.putInt((int) lifetimeSecs);
 
         byte[] nonce = new byte[NONCE_LENGTH];
-        new SecureRandom().nextBytes(nonce);
+        crypto.nextBytes(nonce);
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"),
                     new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce));
             byte[] ciphertext = cipher.doFinal(plaintext.array());
@@ -125,10 +126,11 @@ final class Tls12TicketPayload {
      *
      * @param key a candidate ticket key, 16 bytes
      * @param ticket the opaque ticket bytes presented in {@code SessionTicket}
+     * @param crypto the services the cipher comes from
      * @return the payload, or null if the tag does not verify under this
      *         key or the ticket is malformed
      */
-    static Tls12TicketPayload open(byte[] key, byte[] ticket) {
+    static Tls12TicketPayload open(byte[] key, byte[] ticket, CryptoServices crypto) {
         if (ticket.length < NONCE_LENGTH + GCM_TAG_LENGTH) {
             return null;
         }
@@ -139,7 +141,7 @@ final class Tls12TicketPayload {
 
         byte[] plaintext;
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             // Decrypt side: nonce is read back from the ticket bytes above
             // (whatever seal() actually generated via SecureRandom for
             // this specific ticket), the only way to decrypt a GCM

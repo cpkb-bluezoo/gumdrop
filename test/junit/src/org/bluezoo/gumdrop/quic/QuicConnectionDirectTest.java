@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -68,7 +69,7 @@ public class QuicConnectionDirectTest {
     private static byte[] retryPacket(QuicVersion version, byte[] dcid, byte[] originalDcid) {
         byte[] scid = new byte[] {9, 9, 9, 9, 9, 9, 9, 9};
         byte[] without = LongHeaderCodec.buildRetryWithoutTag(version, dcid, scid, new byte[] {5, 5, 5});
-        byte[] tag = RetryIntegrityTag.compute(version, originalDcid, without);
+        byte[] tag = RetryIntegrityTag.compute(version, originalDcid, without, new CryptoServices());
         byte[] packet = new byte[without.length + tag.length];
         System.arraycopy(without, 0, packet, 0, without.length);
         System.arraycopy(tag, 0, packet, without.length, tag.length);

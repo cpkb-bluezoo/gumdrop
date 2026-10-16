@@ -31,7 +31,6 @@ import java.nio.channels.DatagramChannel;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
-import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
@@ -50,6 +49,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.quic.recovery.CongestionAlgorithm;
 import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
@@ -143,9 +143,10 @@ public class QuicTransportFactory extends TransportFactory {
     private boolean needClientAuth;
     private X509TrustManager explicitTrustManager;
     private X509TrustManager trustManager;
-    private final byte[] connectionIdStaticKey = new byte[32];
-    private final byte[] retryTokenKey = new byte[32];
-    private final TicketKeys ticketKeys;
+    // Random per factory, generated from the runtime's services on first use
+    private byte[] connectionIdStaticKey;
+    private byte[] retryTokenKey;
+    private TicketKeys ticketKeys;
     private boolean requireRetry;
     private volatile QuicLbConfig quicLbConfig;
     private final List<QuicLbConfig> retiredQuicLbConfigs = new CopyOnWriteArrayList<QuicLbConfig>();
@@ -163,11 +164,28 @@ public class QuicTransportFactory extends TransportFactory {
 
     public QuicTransportFactory() {
         this.secure = true;
-        new SecureRandom().nextBytes(connectionIdStaticKey);
-        new SecureRandom().nextBytes(retryTokenKey);
+    }
+
+    /**
+     * Generates this factory's per-instance secrets (the connection ID
+     * static key, the retry token key and the session ticket key) from the
+     * runtime's random source, once. Called from {@link #start()} and from
+     * the accessors, so an engine created without a start still has them.
+     */
+    private synchronized void ensureSecrets() {
+        if (connectionIdStaticKey != null) {
+            return;
+        }
+        CryptoServices crypto = getCryptoServices();
+        byte[] cidKey = new byte[32];
+        crypto.nextBytes(cidKey);
+        byte[] retryKey = new byte[32];
+        crypto.nextBytes(retryKey);
         byte[] ticketKey = new byte[16];
-        new SecureRandom().nextBytes(ticketKey);
-        this.ticketKeys = new TicketKeys(ticketKey);
+        crypto.nextBytes(ticketKey);
+        retryTokenKey = retryKey;
+        ticketKeys = new TicketKeys(ticketKey);
+        connectionIdStaticKey = cidKey;
     }
 
     // ── QUIC-specific configuration ──
@@ -751,10 +769,12 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     byte[] getConnectionIdStaticKey() {
+        ensureSecrets();
         return connectionIdStaticKey;
     }
 
     byte[] getRetryTokenKey() {
+        ensureSecrets();
         return retryTokenKey;
     }
 
@@ -765,6 +785,7 @@ public class QuicTransportFactory extends TransportFactory {
      * on another. Random per factory instance, like the retry token key.
      */
     TicketKeys getTicketKeys() {
+        ensureSecrets();
         return ticketKeys;
     }
 
@@ -808,7 +829,8 @@ public class QuicTransportFactory extends TransportFactory {
         params.setMinAckDelay(AckFrequencyDraft.LOCAL_MIN_ACK_DELAY_MICROS);
         if (server) {
             params.setStatelessResetToken(
-                    StatelessResetToken.generate(connectionIdStaticKey, initialSourceConnectionId));
+                    StatelessResetToken.generate(getConnectionIdStaticKey(), initialSourceConnectionId,
+                            getCryptoServices()));
         }
         return params;
     }
@@ -818,14 +840,15 @@ public class QuicTransportFactory extends TransportFactory {
     @Override
     public void start() {
         super.start();
+        ensureSecrets();
         try {
             if (serverCredentials == null && serverCredentialsResolver == null) {
                 if (certFile != null && keyFile != null) {
-                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile, getCryptoServices());
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
                         KeyStore keyStore = TlsUtils.loadKeyStore(
-                                keystoreFile, keystorePass, keystoreFormat);
+                                keystoreFile, keystorePass, keystoreFormat, getCryptoServices());
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                         if (LOGGER.isLoggable(Level.INFO)) {
@@ -834,7 +857,7 @@ public class QuicTransportFactory extends TransportFactory {
                         }
                     } else {
                         serverCredentials = TlsUtils.loadServerCredentials(
-                                keystoreFile, keystorePass, keystoreFormat);
+                                keystoreFile, keystorePass, keystoreFormat, getCryptoServices());
                     }
                 }
             }
@@ -861,19 +884,18 @@ public class QuicTransportFactory extends TransportFactory {
             base = explicitTrustManager;
         } else if (truststoreFile != null && truststorePass != null) {
             base = firstX509TrustManager(TlsUtils.loadTrustManagers(
-                    truststoreFile, truststorePass, truststoreFormat));
+                    truststoreFile, truststorePass, truststoreFormat, getCryptoServices()));
         } else if (caFile != null) {
-            base = PemCredentials.loadTrustManager(caFile);
+            base = PemCredentials.loadTrustManager(caFile, getCryptoServices());
         } else if (!verifyPeer) {
             return PermissiveTrustManager.INSTANCE;
         } else {
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                    TrustManagerFactory.getDefaultAlgorithm());
+            TrustManagerFactory tmf = getCryptoServices().trustManagerFactory();
             tmf.init((KeyStore) null);
             base = firstX509TrustManager(tmf.getTrustManagers());
         }
         if (pinnedCertFingerprint != null) {
-            return new PinnedCertTrustManager(base, new String[] { pinnedCertFingerprint });
+            return new PinnedCertTrustManager(base, getCryptoServices(), new String[] { pinnedCertFingerprint });
         }
         return base;
     }
@@ -968,6 +990,18 @@ public class QuicTransportFactory extends TransportFactory {
         });
     }
 
+    /**
+     * {@link #checkRuntime(org.bluezoo.gumdrop.Gumdrop)} against the
+     * runtime that owns a loop, when it has one; a standalone loop belongs
+     * to no runtime and so to no FIPS mode.
+     */
+    private void checkRuntime(SelectorLoop loop) {
+        org.bluezoo.gumdrop.Gumdrop runtime = loop.getGumdrop();
+        if (runtime != null) {
+            checkRuntime(runtime);
+        }
+    }
+
     // ── Server engine creation ──
 
     /**
@@ -1009,6 +1043,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private QuicEngine newBoundServerEngine(InetAddress bindAddress, int port, SelectorLoop loop) throws IOException {
+        checkRuntime(loop);
         DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
         configureSocket(dc);
@@ -1085,6 +1120,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private QuicEngine newPathServerEngine(QuicDatagramPath path, SelectorLoop loop) {
+        checkRuntime(loop);
         QuicEngine engine = new QuicEngine(this, true);
         engine.init(path);
         engine.setSelectorLoop(loop);
@@ -1179,6 +1215,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private QuicEngine newClientEngine(InetAddress host, SelectorLoop loop) throws IOException {
+        checkRuntime(loop);
         DatagramChannel dc = DatagramChannel.open(host instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
         configureSocket(dc);
@@ -1268,6 +1305,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private QuicEngine newPathClientEngine(QuicDatagramPath path, SelectorLoop loop) {
+        checkRuntime(loop);
         QuicEngine engine = new QuicEngine(this, false);
         engine.init(path);
         engine.setSelectorLoop(loop);

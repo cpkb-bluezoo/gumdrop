@@ -22,8 +22,8 @@
 package org.bluezoo.gumdrop.crypto;
 
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -35,7 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
  * {@code A(i) = HMAC(secret, A(i-1))}, truncated to the requested length.
  * {@code PRF(secret, label, seed) = P_hash(secret, label + seed)}.
  *
- * <p>Structurally distinct from {@link Hkdf} (TLS 1.3's HKDF-Expand-Label)
+ * <p>Structurally distinct from HKDF-Expand-Label (TLS 1.3, see {@link CryptoServices#hkdfExpandLabel})
  * -- this is the older, plain-HMAC-iteration key schedule TLS 1.2 uses
  * instead, not a variant of HKDF.
  *
@@ -51,14 +51,14 @@ public final class Prf {
     private final String macAlgorithm;
     private final ThreadLocal<Mac> macHolder;
 
-    private Prf(String macAlgorithm) {
+    private Prf(final CryptoServices crypto, final String macAlgorithm) {
         this.macAlgorithm = macAlgorithm;
         this.macHolder = new ThreadLocal<Mac>() {
             @Override
             protected Mac initialValue() {
                 try {
-                    return Mac.getInstance(macAlgorithm);
-                } catch (NoSuchAlgorithmException e) {
+                    return crypto.mac(macAlgorithm);
+                } catch (GeneralSecurityException e) {
                     throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
                 }
             }
@@ -69,20 +69,22 @@ public final class Prf {
      * Returns a PRF instance for SHA-256, used by every TLS 1.2 cipher
      * suite this engine offers except the AES-256-GCM pair.
      *
+     * @param crypto the services the HMACs come from
      * @return a PRF instance backed by HMAC-SHA-256
      */
-    public static Prf sha256() {
-        return new Prf("HmacSHA256");
+    public static Prf sha256(CryptoServices crypto) {
+        return new Prf(crypto, "HmacSHA256");
     }
 
     /**
      * Returns a PRF instance for SHA-384, used by the AES-256-GCM cipher
      * suites (RFC 5289).
      *
+     * @param crypto the services the HMACs come from
      * @return a PRF instance backed by HMAC-SHA-384
      */
-    public static Prf sha384() {
-        return new Prf("HmacSHA384");
+    public static Prf sha384(CryptoServices crypto) {
+        return new Prf(crypto, "HmacSHA384");
     }
 
     /**
@@ -90,13 +92,14 @@ public final class Prf {
      * algorithm name (e.g. {@link org.bluezoo.gumdrop.tls.Tls12CipherSuite#getPrfHashAlgorithm}).
      *
      * @param digestAlgorithm {@code "SHA-256"} or {@code "SHA-384"}
+     * @param crypto the services the HMACs come from
      * @return the matching PRF instance
      */
-    public static Prf forDigest(String digestAlgorithm) {
+    public static Prf forDigest(String digestAlgorithm, CryptoServices crypto) {
         if ("SHA-384".equals(digestAlgorithm)) {
-            return sha384();
+            return sha384(crypto);
         }
-        return sha256();
+        return sha256(crypto);
     }
 
     /**

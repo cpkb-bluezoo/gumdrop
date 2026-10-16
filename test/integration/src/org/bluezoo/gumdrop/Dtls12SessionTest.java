@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
 import org.bluezoo.gumdrop.tls.Dtls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls12RecordEngine;
@@ -103,14 +104,14 @@ public class Dtls12SessionTest {
     }
 
     private static Dtls12HandshakeConfig clientConfig() throws Exception {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         base.setServerName(SERVER_NAME);
-        base.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        base.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         return new Dtls12HandshakeConfig(base);
     }
 
     private static Dtls12HandshakeConfig serverConfig() {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         base.setServerCredentials(new ServerCredentials(chain, privateKey));
         return new Dtls12HandshakeConfig(base);
     }
@@ -233,10 +234,10 @@ public class Dtls12SessionTest {
         serverCfg.setCookieSecret("dtls12-cookie-test-secret".getBytes(StandardCharsets.US_ASCII));
         Dtls12Session server = new Dtls12Session(serverCfg, serverEp, CLIENT_ADDR);
 
-        Tls12HandshakeConfig bareClient = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig bareClient = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         bareClient.setDtlsTransport(true);
         bareClient.setServerName(SERVER_NAME);
-        bareClient.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        bareClient.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         DatagramCaptureSink rogueSink = new DatagramCaptureSink();
         Dtls12RecordEngine rogueClient = new Dtls12RecordEngine(bareClient, 1024);
         rogueClient.start(rogueSink);

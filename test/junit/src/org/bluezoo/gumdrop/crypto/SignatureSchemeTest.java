@@ -98,9 +98,9 @@ public class SignatureSchemeTest {
         assertFalse(SignatureScheme.MLDSA65.isCompatible(kp44.getPublic()));
         assertFalse(SignatureScheme.MLDSA87.isCompatible(kp44.getPublic()));
         // Not merely a policy check: the verifier itself refuses the key.
-        byte[] signature = SignatureScheme.MLDSA44.sign(kp44.getPrivate(), MESSAGE);
+        byte[] signature = SignatureScheme.MLDSA44.sign(kp44.getPrivate(), MESSAGE, new CryptoServices());
         try {
-            assertFalse(SignatureScheme.MLDSA65.verify(kp44.getPublic(), MESSAGE, signature));
+            assertFalse(SignatureScheme.MLDSA65.verify(kp44.getPublic(), MESSAGE, signature, new CryptoServices()));
         } catch (GeneralSecurityException expected) {
             // refusing the key outright is equally acceptable
         }
@@ -143,9 +143,9 @@ public class SignatureSchemeTest {
     }
 
     private void checkRoundTrip(SignatureScheme scheme, KeyPair kp) throws Exception {
-        byte[] signature = scheme.sign(kp.getPrivate(), MESSAGE);
-        assertTrue(scheme + " valid signature verifies", scheme.verify(kp.getPublic(), MESSAGE, signature));
-        assertFalse(scheme + " tampered message is rejected", scheme.verify(kp.getPublic(), TAMPERED, signature));
+        byte[] signature = scheme.sign(kp.getPrivate(), MESSAGE, new CryptoServices());
+        assertTrue(scheme + " valid signature verifies", scheme.verify(kp.getPublic(), MESSAGE, signature, new CryptoServices()));
+        assertFalse(scheme + " tampered message is rejected", scheme.verify(kp.getPublic(), TAMPERED, signature, new CryptoServices()));
     }
 
 }

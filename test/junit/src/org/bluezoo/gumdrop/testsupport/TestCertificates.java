@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.testsupport;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
@@ -221,7 +222,7 @@ public final class TestCertificates {
          * @return the trust manager
          */
         public X509TrustManager trustManager() throws Exception {
-            return CertificateVerifier.trustManagerFromCertificates(chain);
+            return CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices());
         }
     }
 
@@ -491,7 +492,7 @@ public final class TestCertificates {
      */
     public static X509TrustManager trustManager(List<X509Certificate> chain)
             throws Exception {
-        return CertificateVerifier.trustManagerFromCertificates(chain);
+        return CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices());
     }
 
     /**

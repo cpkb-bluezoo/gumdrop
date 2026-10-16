@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -39,6 +40,7 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolvConf;
@@ -131,6 +133,9 @@ public class Gumdrop {
     private ScheduledTimer scheduledTimer;
     private StorageExecutor storageExecutor;
     private CryptoExecutor cryptoExecutor;
+
+    // The JCA services every TLS, DTLS and QUIC engine of this runtime draws on
+    private final CryptoServices crypto;
 
     /**
      * Non-null for an {@linkplain #embedded embedded} instance: where its
@@ -238,7 +243,7 @@ public class Gumdrop {
      * @return a new, started Gumdrop instance
      */
     public static Gumdrop boot(GumdropConfig config) {
-        Gumdrop gumdrop = new Gumdrop(config.getWorkerThreads());
+        Gumdrop gumdrop = new Gumdrop(config.getWorkerThreads(), config.createCryptoServices());
         gumdrop.drainTimeoutMs(config.getDrainTimeoutMs());
         gumdrop.start();
         return gumdrop;
@@ -274,10 +279,27 @@ public class Gumdrop {
      * @return a new, not yet started instance
      */
     public static Gumdrop embedded(SelectorLoop loop, Executor work) {
-        if (loop == null || work == null) {
+        return embedded(loop, work, GumdropConfig.create());
+    }
+
+    /**
+     * {@link #embedded(SelectorLoop, Executor)} with the runtime settings a
+     * configuration carries that apply to an instance without threads of
+     * its own: at present the FIPS provider ({@link GumdropConfig#fipsProvider}).
+     * Worker thread count and drain timeout do not apply.
+     *
+     * @param loop the worker loop (never started or stopped by this instance)
+     * @param work where storage and crypto work runs
+     * @param config the configuration
+     * @return a new, not yet started instance
+     * @throws IllegalStateException if the configuration names a FIPS
+     *         provider that is not installed or cannot supply a required service
+     */
+    public static Gumdrop embedded(SelectorLoop loop, Executor work, GumdropConfig config) {
+        if (loop == null || work == null || config == null) {
             throw new NullPointerException();
         }
-        return new Gumdrop(loop, work);
+        return new Gumdrop(loop, work, config.createCryptoServices());
     }
 
     /**
@@ -309,10 +331,11 @@ public class Gumdrop {
      * Private constructor - use {@link #boot()} / {@link #boot(GumdropConfig)}
      * to create an instance.
      */
-    private Gumdrop(int workerCount) {
+    private Gumdrop(int workerCount, CryptoServices crypto) {
         if (workerCount < 1) {
             throw new IllegalArgumentException("workerCount must be at least 1");
         }
+        this.crypto = crypto;
 
         this.servers = Collections.synchronizedList(new ArrayList<Server>());
         this.serverListeners =
@@ -340,7 +363,8 @@ public class Gumdrop {
     }
 
     /** Constructor for {@link #embedded}: no threads, no shutdown hook. */
-    private Gumdrop(SelectorLoop loop, Executor work) {
+    private Gumdrop(SelectorLoop loop, Executor work, CryptoServices crypto) {
+        this.crypto = crypto;
         this.servers = Collections.synchronizedList(new ArrayList<Server>());
         this.serverListeners =
                 Collections.synchronizedList(new ArrayList<TcpListener>());
@@ -741,6 +765,15 @@ public class Gumdrop {
         readyLatch = new CountDownLatch(1);
         ready = false;
         draining = false;
+        if (isFipsMode()) {
+            // The operator's signal that the mode took effect, and with what
+            SecureRandom random = crypto.secureRandom();
+            events().info("info.fips_mode")
+                    .attr("provider", crypto.getProvider().getName())
+                    .attr("provider_version", crypto.getProvider().getVersionStr())
+                    .attr("secure_random", random.getAlgorithm())
+                    .emit();
+        }
         if (embeddedWork != null) {
             doStartEmbedded();
             return;
@@ -1486,6 +1519,31 @@ public class Gumdrop {
     public Gumdrop drainTimeoutMs(long drainTimeoutMs) {
         this.drainTimeoutMs = drainTimeoutMs;
         return this;
+    }
+
+    /**
+     * Returns the cryptographic services this runtime's TLS, DTLS and QUIC
+     * engines draw on: the provider their ciphers, digests, signatures and
+     * key exchanges come from, and their source of random numbers.
+     * Transport factories take it from the runtime they start under.
+     *
+     * @return the services
+     */
+    public CryptoServices getCryptoServices() {
+        return crypto;
+    }
+
+    /**
+     * Returns whether this runtime is in FIPS mode: every cryptographic
+     * service of its TLS, DTLS and QUIC connections comes from the one
+     * provider named in {@link GumdropConfig#fipsProvider}, and a transport
+     * factory that was not {@link TransportFactory#start(Gumdrop) started
+     * under this runtime} is refused.
+     *
+     * @return true if FIPS mode is on
+     */
+    public boolean isFipsMode() {
+        return crypto.getProvider() != null;
     }
 
     /**

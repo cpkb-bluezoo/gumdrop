@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 
@@ -69,10 +70,10 @@ public class EchConfigTest {
     @Test
     public void hpkeSetupInfoSealsClientHelloInnerPlaceholder() throws Exception {
         EchConfig config = EchConfig.createV13(7, RFC9180_PK_RM, "ech.example", 32);
-        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM, new CryptoServices());
         byte[] skRm = hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
         SecureRandom random = new SecureRandom();
-        Hpke.SenderContext sender = hpke.setupBaseS(RFC9180_PK_RM, config.hpkeSetupInfo(), random);
+        Hpke.SenderContext sender = hpke.setupBaseS(RFC9180_PK_RM, config.hpkeSetupInfo());
         Hpke.RecipientContext recipient = hpke.setupBaseR(sender.getEnc(), skRm, RFC9180_PK_RM,
                 config.hpkeSetupInfo());
         byte[] inner = new byte[] { 1, 2, 3, 4 };

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -44,14 +45,14 @@ import static org.junit.Assert.fail;
 public class DtlsVersionPickTest {
 
     private static byte[] clientHelloBody() throws Exception {
-        HandshakeConfig defaults = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig defaults = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.random = new byte[32];
         params.cipherSuites = defaults.getCipherSuites();
         params.groups = defaults.getNamedGroups();
         params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
         NamedGroup shareGroup = params.groups.get(0);
-        KeyExchange kx = KeyExchange.generate(shareGroup);
+        KeyExchange kx = KeyExchange.generate(shareGroup, new CryptoServices());
         params.keyShares.put(shareGroup, kx.getShareBytes());
         params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
         params.applicationProtocols = Collections.emptyList();
@@ -188,7 +189,7 @@ public class DtlsVersionPickTest {
         Tls12HandshakeMessages.ClientHelloParams params = new Tls12HandshakeMessages.ClientHelloParams();
         params.random = new byte[32];
         params.sessionId = new byte[0];
-        params.cipherSuites = new Tls12HandshakeConfig(HandshakeRole.CLIENT).getCipherSuites();
+        params.cipherSuites = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices()).getCipherSuites();
         params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
         params.dtlsTransport = true;
         params.dtlsCookie = cookie;

@@ -42,7 +42,6 @@ import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TlsUtils;
 
-import java.security.SecureRandom;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -132,12 +131,21 @@ public class TcpTransportFactory extends TransportFactory {
     // each factory: tickets do not outlive the process or cross listeners.
     // Not used when client certificates are required: a ticket does not
     // carry the client's identity, so a resumed session would have none.
-    private final TicketKeys ticketKeys = newTicketKeys();
+    private TicketKeys ticketKeys;
 
-    private static TicketKeys newTicketKeys() {
-        byte[] key = new byte[16];
-        new SecureRandom().nextBytes(key);
-        return new TicketKeys(key);
+    /**
+     * Generates this factory's session ticket key from the runtime's random
+     * source, once. Called from {@link #start()} and from the server
+     * configuration builder, so a server endpoint created without a start
+     * still has one.
+     */
+    private synchronized TicketKeys ticketKeys() {
+        if (ticketKeys == null) {
+            byte[] key = new byte[16];
+            getCryptoServices().nextBytes(key);
+            ticketKeys = new TicketKeys(key);
+        }
+        return ticketKeys;
     }
 
     private EchConfig clientEchConfig;
@@ -370,19 +378,20 @@ public class TcpTransportFactory extends TransportFactory {
     @Override
     public void start() {
         super.start();
+        ticketKeys();
         try {
             if (serverCredentials == null && serverCredentialsResolver == null) {
                 if (certFile != null && keyFile != null) {
-                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile, getCryptoServices());
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
+                        KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat, getCryptoServices());
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                         eventTelemetry().getLogger(TcpTransportFactory.class, Gumdrop.L10N)
                                 .info("info.sni_enabled").attr("hostnames", sniHostnameToAlias.size()).emit();
                     } else {
-                        serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
+                        serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat, getCryptoServices());
                     }
                 }
             }
@@ -421,14 +430,14 @@ public class TcpTransportFactory extends TransportFactory {
         if (trustManager != null) {
             base = trustManager;
         } else if (truststoreFile != null && truststorePass != null) {
-            base = firstX509TrustManager(TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
+            base = firstX509TrustManager(TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat, getCryptoServices()));
         } else {
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            TrustManagerFactory tmf = getCryptoServices().trustManagerFactory();
             tmf.init((KeyStore) null);
             base = firstX509TrustManager(tmf.getTrustManagers());
         }
         if (pinnedCertFingerprint != null) {
-            return new PinnedCertTrustManager(base, new String[] { pinnedCertFingerprint });
+            return new PinnedCertTrustManager(base, getCryptoServices(), new String[] { pinnedCertFingerprint });
         }
         return base;
     }
@@ -584,6 +593,7 @@ public class TcpTransportFactory extends TransportFactory {
     public TcpEndpoint connect(Gumdrop gumdrop, InetAddress host, int port, String tlsServerNameHint,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
+        checkRuntime(gumdrop);
         SocketChannel channel = SocketChannel.open();
         channel.configureBlocking(false);
 
@@ -687,6 +697,7 @@ public class TcpTransportFactory extends TransportFactory {
      */
     public TcpEndpoint connect(Gumdrop gumdrop, String path, ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
+        checkRuntime(gumdrop);
         SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
         channel.configureBlocking(false);
 
@@ -727,7 +738,7 @@ public class TcpTransportFactory extends TransportFactory {
     // -- HandshakeConfig construction --
 
     private HandshakeConfig buildServerConfig() {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, getCryptoServices());
         config.setServerCredentials(serverCredentials);
         config.setServerCredentialsResolver(serverCredentialsResolver);
         if (needClientAuth) {
@@ -737,7 +748,7 @@ public class TcpTransportFactory extends TransportFactory {
             config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
             config.setClientTrustManager(effectiveTrustManager);
         } else {
-            config.setTicketKeys(ticketKeys);
+            config.setTicketKeys(ticketKeys());
         }
         applyCommonConfig(config);
         EchDeployment.applyServer(config, echConfigListFile, echPrivateKeyFile, echServerRequired);
@@ -745,7 +756,7 @@ public class TcpTransportFactory extends TransportFactory {
     }
 
     HandshakeConfig buildClientConfig(String serverName) {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, getCryptoServices());
         config.setServerName(serverName);
         config.setTrustManager(effectiveTrustManager);
         if (clientCredentials != null) {
@@ -784,21 +795,21 @@ public class TcpTransportFactory extends TransportFactory {
     // -- Tls12HandshakeConfig construction --
 
     private Tls12HandshakeConfig buildServerConfig12() {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER, getCryptoServices());
         config.setServerCredentials(serverCredentials);
         config.setServerCredentialsResolver(serverCredentialsResolver);
         if (needClientAuth) {
             config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
             config.setClientTrustManager(effectiveTrustManager);
         } else {
-            config.setTicketKeys(ticketKeys);
+            config.setTicketKeys(ticketKeys());
         }
         applyCommonConfig12(config);
         return config;
     }
 
     private Tls12HandshakeConfig buildClientConfig12(String serverName) {
-        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT, getCryptoServices());
         config.setServerName(serverName);
         config.setTrustManager(effectiveTrustManager);
         if (clientCredentials != null) {

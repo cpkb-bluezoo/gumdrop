@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -155,7 +156,7 @@ public class TlsValueClassesTest {
 
     @Test
     public void transcriptHashMatchesDigest() throws Exception {
-        Transcript t = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256);
+        Transcript t = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256, new CryptoServices());
         byte[] empty = t.hash();
         assertArrayEquals(Transcript.emptyHash(CipherSuite.TLS_AES_128_GCM_SHA256), empty);
         t.update(new byte[] {1, 2, 3});
@@ -171,7 +172,7 @@ public class TlsValueClassesTest {
 
     @Test
     public void transcriptSha384AndEmptyHashes() {
-        Transcript t = Transcript.create("SHA-384");
+        Transcript t = Transcript.create("SHA-384", new CryptoServices());
         assertEquals(48, t.hash().length);
         assertEquals(48, Transcript.emptyHash("SHA-384").length);
         assertEquals(32, Transcript.emptyHash("SHA-256").length);
@@ -180,7 +181,7 @@ public class TlsValueClassesTest {
 
     @Test
     public void transcriptRetryReplacesHistoryWithMessageHash() throws Exception {
-        Transcript t = Transcript.create("SHA-256");
+        Transcript t = Transcript.create("SHA-256", new CryptoServices());
         t.update(new byte[] {9, 9, 9});
         byte[] ch1 = filled(32, 0x55);
         t.retry(ch1);
@@ -193,7 +194,7 @@ public class TlsValueClassesTest {
     @Test
     public void transcriptUnknownAlgorithmIsRejected() {
         try {
-            Transcript.create("NoSuchHash");
+            Transcript.create("NoSuchHash", new CryptoServices());
             fail();
         } catch (IllegalStateException expected) {
             // expected
@@ -290,8 +291,8 @@ public class TlsValueClassesTest {
         byte[] tp = new byte[] {1, 2, 3};
         TicketPayload p = new TicketPayload(1234567L, 86400, -5, psk, 4096,
                 CipherSuite.TLS_AES_128_GCM_SHA256, tp);
-        byte[] sealed = p.seal(key);
-        TicketPayload q = TicketPayload.open(key, sealed);
+        byte[] sealed = p.seal(key, new CryptoServices());
+        TicketPayload q = TicketPayload.open(key, sealed, new CryptoServices());
         assertNotNull(q);
         assertEquals(1234567L, q.issuedAtMillis);
         assertEquals(86400, q.lifetimeSeconds);
@@ -307,7 +308,7 @@ public class TlsValueClassesTest {
         byte[] key = filled(16, 7);
         TicketPayload p = new TicketPayload(1L, 1, 1, filled(48, 1), 0,
                 CipherSuite.TLS_AES_256_GCM_SHA384, null);
-        TicketPayload q = TicketPayload.open(key, p.seal(key));
+        TicketPayload q = TicketPayload.open(key, p.seal(key, new CryptoServices()), new CryptoServices());
         assertNotNull(q);
         assertNull(q.rememberedTransportParameters);
     }
@@ -317,17 +318,17 @@ public class TlsValueClassesTest {
         byte[] key = filled(16, 7);
         TicketPayload p = new TicketPayload(1L, 1, 1, filled(32, 1), 0,
                 CipherSuite.TLS_AES_128_GCM_SHA256, null);
-        byte[] sealed = p.seal(key);
-        assertNull(TicketPayload.open(key, new byte[10]));
-        assertNull(TicketPayload.open(filled(16, 8), sealed));
+        byte[] sealed = p.seal(key, new CryptoServices());
+        assertNull(TicketPayload.open(key, new byte[10], new CryptoServices()));
+        assertNull(TicketPayload.open(filled(16, 8), sealed, new CryptoServices()));
         for (int i = 0; i < sealed.length; i++) {
             byte[] bad = sealed.clone();
             bad[i] ^= 0x40;
-            assertNull("flip " + i, TicketPayload.open(key, bad));
+            assertNull("flip " + i, TicketPayload.open(key, bad, new CryptoServices()));
         }
         byte[] shortened = new byte[sealed.length - 1];
         System.arraycopy(sealed, 0, shortened, 0, shortened.length);
-        assertNull(TicketPayload.open(key, shortened));
+        assertNull(TicketPayload.open(key, shortened, new CryptoServices()));
     }
 
     // Section: Tls12TicketPayload / Tls12SessionTicket / Tls12ClientTicketStore
@@ -338,18 +339,18 @@ public class TlsValueClassesTest {
         byte[] ms = filled(48, 5);
         Tls12TicketPayload p = new Tls12TicketPayload(ms, 0xC02B, System.currentTimeMillis(), 600);
         assertFalse(p.isExpired());
-        byte[] sealed = p.seal(key);
-        Tls12TicketPayload q = Tls12TicketPayload.open(key, sealed);
+        byte[] sealed = p.seal(key, new CryptoServices());
+        Tls12TicketPayload q = Tls12TicketPayload.open(key, sealed, new CryptoServices());
         assertNotNull(q);
         assertArrayEquals(ms, q.masterSecret);
         assertEquals(0xC02B, q.cipherSuiteCode);
         assertEquals(600, q.lifetimeSecs);
-        assertNull(Tls12TicketPayload.open(key, new byte[5]));
-        assertNull(Tls12TicketPayload.open(filled(16, 4), sealed));
+        assertNull(Tls12TicketPayload.open(key, new byte[5], new CryptoServices()));
+        assertNull(Tls12TicketPayload.open(filled(16, 4), sealed, new CryptoServices()));
         for (int i = 0; i < sealed.length; i++) {
             byte[] bad = sealed.clone();
             bad[i] ^= 1;
-            assertNull("flip " + i, Tls12TicketPayload.open(key, bad));
+            assertNull("flip " + i, Tls12TicketPayload.open(key, bad, new CryptoServices()));
         }
     }
 
@@ -374,7 +375,7 @@ public class TlsValueClassesTest {
         byte[] ticket = new byte[12 + ct.length];
         System.arraycopy(nonce, 0, ticket, 0, 12);
         System.arraycopy(ct, 0, ticket, 12, ct.length);
-        assertNull(Tls12TicketPayload.open(key, ticket));
+        assertNull(Tls12TicketPayload.open(key, ticket, new CryptoServices()));
         byte[] shortPlain = new byte[10];
         c.init(javax.crypto.Cipher.ENCRYPT_MODE, new javax.crypto.spec.SecretKeySpec(key, "AES"),
                 new javax.crypto.spec.GCMParameterSpec(128, filled(12, 2)));
@@ -382,7 +383,7 @@ public class TlsValueClassesTest {
         byte[] ticket2 = new byte[12 + ct2.length];
         System.arraycopy(filled(12, 2), 0, ticket2, 0, 12);
         System.arraycopy(ct2, 0, ticket2, 12, ct2.length);
-        assertNull(Tls12TicketPayload.open(key, ticket2));
+        assertNull(Tls12TicketPayload.open(key, ticket2, new CryptoServices()));
     }
 
     @Test
@@ -436,7 +437,7 @@ public class TlsValueClassesTest {
     private static Tls12DirectionalKeys keys12(Tls12CipherSuite suite) {
         DirectionalKeyMaterial m = new DirectionalKeyMaterial(filled(suite.getAeadKeyLength(), 1),
                 filled(suite.getFixedIvLength(), 2));
-        return Tls12DirectionalKeys.fromMaterial(suite, m);
+        return Tls12DirectionalKeys.fromMaterial(suite, m, new CryptoServices());
     }
 
     @Test

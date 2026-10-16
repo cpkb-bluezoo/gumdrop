@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.SecureRandom;
 
 /**
@@ -36,13 +37,13 @@ public final class EchConfigListGrease {
     /**
      * Returns {@code listBytes} prefixed with one GREASE config clients must ignore.
      */
-    public static byte[] withServerGrease(byte[] listBytes) {
+    public static byte[] withServerGrease(byte[] listBytes, CryptoServices crypto) {
         if (listBytes == null || listBytes.length == 0) {
             return listBytes;
         }
         try {
             EchConfig[] configs = EchConfig.parseList(listBytes);
-            SecureRandom random = new SecureRandom();
+            SecureRandom random = crypto.secureRandom();
             byte[] publicKey = new byte[32];
             random.nextBytes(publicKey);
             int configId = random.nextInt(256);

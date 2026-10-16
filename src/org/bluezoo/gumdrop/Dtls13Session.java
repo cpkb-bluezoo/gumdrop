@@ -202,7 +202,7 @@ final class Dtls13Session implements TlsRecordSink {
                 fail("DTLS cookie exchange enabled but no cookie secret configured");
                 return;
             }
-            base.setCookieValidator(new Dtls13CookieValidator(secret, remoteAddress));
+            base.setCookieValidator(new Dtls13CookieValidator(secret, remoteAddress, base.getCrypto()));
         }
         Dtls13HandshakeConfig engineConfig = wrapConfig(base);
         engine = new Dtls13RecordEngine(engineConfig, config.getMaxFragmentSize(), handshakeOffload(endpoint));

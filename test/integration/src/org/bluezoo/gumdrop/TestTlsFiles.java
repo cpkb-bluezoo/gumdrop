@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -139,18 +140,18 @@ public final class TestTlsFiles {
     /** The server certificate chain from {@code cert.pem}. */
     public static List<X509Certificate> certificateChain()
             throws IOException, GeneralSecurityException {
-        return PemCredentials.loadCertificateChain(certFile());
+        return PemCredentials.loadCertificateChain(certFile(), new CryptoServices());
     }
 
     /** The server private key from {@code key.pem}. */
     public static PrivateKey privateKey() throws IOException, GeneralSecurityException {
-        return PemCredentials.loadPrivateKey(keyFile());
+        return PemCredentials.loadPrivateKey(keyFile(), new CryptoServices());
     }
 
     /** A trust manager that trusts the CA in {@code ca.pem}, and nothing else. */
     public static X509TrustManager trustManager()
             throws IOException, GeneralSecurityException {
-        return PemCredentials.loadTrustManager(caFile());
+        return PemCredentials.loadTrustManager(caFile(), new CryptoServices());
     }
 
     /**

@@ -391,6 +391,7 @@ public class ClientEndpoint {
             throw new NullPointerException("handler");
         }
 
+        factory.checkRuntime(gumdrop);
         this.gumdrop = gumdrop;
         this.events = gumdrop.getTelemetryConfig().getLogger(ClientEndpoint.class, L10N);
         if (selectorLoop == null) {

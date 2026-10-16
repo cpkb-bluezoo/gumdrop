@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -146,7 +147,7 @@ public class EchKeyMaterialTest {
         // keys listed in the opposite order to the configs
         Path keys = write("keys.hex", SK2_HEX + "\n" + SK1_HEX + "\n");
 
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         EchDeployment.applyServer(config, list, keys, false);
 
         List<EchServerKey> loaded = config.getEchServerKeys();
@@ -169,7 +170,7 @@ public class EchKeyMaterialTest {
         Path list = writeList("list.bin", only);
         Path keys = write("keys.hex", SK1_HEX + "\n" + SK2_HEX + "\n");
 
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         EchDeployment.applyServer(config, list, keys, false);
 
         assertEquals(1, config.getEchServerKeys().size());
@@ -182,7 +183,7 @@ public class EchKeyMaterialTest {
         Path list = writeList("list.bin", only);
         Path keys = write("keys.hex", SK2_HEX + "\n");
 
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         EchDeployment.applyServer(config, list, keys, false);
 
         assertTrue(config.getEchServerKeys().isEmpty());

@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.quic.cid;
 
 import java.util.Arrays;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * Stateless reset token generation (RFC 9000 section 10.3).
@@ -54,10 +54,11 @@ public final class StatelessResetToken {
      * @param staticKey this endpoint's static key, kept secret and stable
      *                  across connections (and ideally across restarts)
      * @param connectionId the connection ID the token is for
+     * @param crypto the services the HMAC comes from
      * @return the 16-byte stateless reset token
      */
-    public static byte[] generate(byte[] staticKey, byte[] connectionId) {
-        byte[] fullHash = Hkdf.sha256().extract(staticKey, connectionId);
+    public static byte[] generate(byte[] staticKey, byte[] connectionId, CryptoServices crypto) {
+        byte[] fullHash = crypto.hkdfExtract("SHA-256", staticKey, connectionId);
         return Arrays.copyOf(fullHash, LENGTH);
     }
 }

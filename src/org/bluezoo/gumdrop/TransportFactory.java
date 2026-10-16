@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -162,6 +163,49 @@ public abstract class TransportFactory {
 
     private EventLogger events() {
         return eventTelemetry().getLogger(TransportFactory.class, Gumdrop.L10N);
+    }
+
+    // -- Cryptography --
+
+    /**
+     * The services every TLS, DTLS and QUIC engine this factory creates
+     * draws on: the runtime's own once {@link #start(Gumdrop)} has run,
+     * otherwise a standalone set that pins no provider.
+     */
+    private CryptoServices crypto;
+
+    /**
+     * Returns the cryptographic services this factory's engines draw on.
+     * A factory started under a runtime returns that runtime's; one
+     * started, or used, without a runtime returns a standalone set that
+     * pins no provider.
+     *
+     * @return the services, never null
+     */
+    public synchronized CryptoServices getCryptoServices() {
+        if (crypto == null) {
+            crypto = new CryptoServices();
+        }
+        return crypto;
+    }
+
+    /**
+     * Checks that this factory may create endpoints under a runtime. A
+     * runtime in {@link Gumdrop#isFipsMode() FIPS mode} accepts only a
+     * factory {@link #start(Gumdrop) started under it}, since a factory
+     * started on its own draws on the JVM's provider list rather than the
+     * runtime's pinned provider. Outside FIPS mode any factory is
+     * accepted.
+     *
+     * @param gumdrop the runtime an endpoint is being created under
+     * @throws IllegalStateException if the runtime is in FIPS mode and
+     *         this factory was not started under it
+     */
+    public void checkRuntime(Gumdrop gumdrop) {
+        if (gumdrop.isFipsMode() && getCryptoServices() != gumdrop.getCryptoServices()) {
+            throw new IllegalStateException(getDescription()
+                    + " was not started under this FIPS runtime: call start(Gumdrop) with it");
+        }
     }
 
     // -- Buffer limits --
@@ -370,8 +414,6 @@ public abstract class TransportFactory {
         return telemetryConfig != null && telemetryConfig.isMetricsEnabled();
     }
 
-    // -- Buffer limits --
-
     /**
      * Returns the maximum allowed size for the network input buffer.
      *
@@ -442,13 +484,34 @@ public abstract class TransportFactory {
     // -- Lifecycle --
 
     /**
-     * Starts this factory.
+     * Starts this factory under a runtime, whose {@link
+     * Gumdrop#getCryptoServices() cryptographic services} every engine the
+     * factory creates then draws on. This is how listeners and clients
+     * start the factories they manage.
+     *
+     * @param gumdrop the runtime
+     */
+    public final void start(Gumdrop gumdrop) {
+        if (gumdrop == null) {
+            throw new NullPointerException("gumdrop");
+        }
+        synchronized (this) {
+            crypto = gumdrop.getCryptoServices();
+        }
+        start();
+    }
+
+    /**
+     * Starts this factory outside any runtime: its engines then draw on
+     * a standalone set of cryptographic services that pins no provider.
+     * Code with a runtime to hand calls {@link #start(Gumdrop)} instead.
      *
      * <p>Subclasses must call {@code super.start()} and then initialise
      * their transport-specific security context (in-tree TLS engines,
      * QUIC {@code SSL_CTX}, etc.).
      */
     public void start() {
+        getCryptoServices();
     }
 
     /**

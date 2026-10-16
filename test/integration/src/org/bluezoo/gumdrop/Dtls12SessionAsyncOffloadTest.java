@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
 import org.bluezoo.gumdrop.tls.Dtls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
@@ -118,14 +119,14 @@ public class Dtls12SessionAsyncOffloadTest {
     }
 
     private static Dtls12HandshakeConfig clientConfig() throws Exception {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         base.setServerName(SERVER_NAME);
-        base.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        base.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         return new Dtls12HandshakeConfig(base);
     }
 
     private static Dtls12HandshakeConfig serverConfig() {
-        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.SERVER, new CryptoServices());
         base.setServerCredentials(new ServerCredentials(chain, privateKey));
         return new Dtls12HandshakeConfig(base);
     }

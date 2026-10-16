@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.net.InetAddress;
 import java.security.SecureRandom;
 
@@ -58,7 +59,7 @@ public class RetryPacketTest {
         byte[] token = "opaque-retry-token".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
         byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, dcid, scid, token);
-        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, dcid, withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, dcid, withoutTag, new CryptoServices());
         byte[] packet = new byte[withoutTag.length + tag.length];
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
@@ -81,18 +82,18 @@ public class RetryPacketTest {
         byte[] originalDcid = randomConnectionId();
         byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, randomConnectionId(), randomConnectionId(),
                 "token".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, originalDcid, withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, originalDcid, withoutTag, new CryptoServices());
 
-        assertTrue(RetryIntegrityTag.verify(QuicVersion.V1, originalDcid, withoutTag, tag));
+        assertTrue(RetryIntegrityTag.verify(QuicVersion.V1, originalDcid, withoutTag, tag, new CryptoServices()));
     }
 
     @Test
     public void testRetryIntegrityTagRejectsWrongOriginalDcid() {
         byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, randomConnectionId(), randomConnectionId(),
                 "token".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, randomConnectionId(), withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, randomConnectionId(), withoutTag, new CryptoServices());
 
-        assertFalse(RetryIntegrityTag.verify(QuicVersion.V1, randomConnectionId(), withoutTag, tag));
+        assertFalse(RetryIntegrityTag.verify(QuicVersion.V1, randomConnectionId(), withoutTag, tag, new CryptoServices()));
     }
 
     @Test
@@ -100,10 +101,10 @@ public class RetryPacketTest {
         byte[] originalDcid = randomConnectionId();
         byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, randomConnectionId(), randomConnectionId(),
                 "token".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, originalDcid, withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, originalDcid, withoutTag, new CryptoServices());
         withoutTag[withoutTag.length - 1] ^= 0x01;
 
-        assertFalse(RetryIntegrityTag.verify(QuicVersion.V1, originalDcid, withoutTag, tag));
+        assertFalse(RetryIntegrityTag.verify(QuicVersion.V1, originalDcid, withoutTag, tag, new CryptoServices()));
     }
 
     @Test
@@ -113,8 +114,8 @@ public class RetryPacketTest {
         byte[] originalDcid = randomConnectionId();
         InetAddress clientAddress = InetAddress.getLoopbackAddress();
 
-        byte[] token = RetryToken.seal(key, originalDcid, clientAddress, System.currentTimeMillis());
-        byte[] recovered = RetryToken.unseal(key, token, clientAddress, 30_000);
+        byte[] token = RetryToken.seal(key, originalDcid, clientAddress, System.currentTimeMillis(), new CryptoServices());
+        byte[] recovered = RetryToken.unseal(key, token, clientAddress, 30_000, new CryptoServices());
 
         assertNotNull(recovered);
         assertArrayEquals(originalDcid, recovered);
@@ -128,9 +129,9 @@ public class RetryPacketTest {
         RANDOM.nextBytes(wrongKey);
         InetAddress clientAddress = InetAddress.getLoopbackAddress();
 
-        byte[] token = RetryToken.seal(key, randomConnectionId(), clientAddress, System.currentTimeMillis());
+        byte[] token = RetryToken.seal(key, randomConnectionId(), clientAddress, System.currentTimeMillis(), new CryptoServices());
 
-        assertNull(RetryToken.unseal(wrongKey, token, clientAddress, 30_000));
+        assertNull(RetryToken.unseal(wrongKey, token, clientAddress, 30_000, new CryptoServices()));
     }
 
     @Test
@@ -140,9 +141,9 @@ public class RetryPacketTest {
         InetAddress sealedFor = InetAddress.getByName("127.0.0.1");
         InetAddress differentAddress = InetAddress.getByName("127.0.0.2");
 
-        byte[] token = RetryToken.seal(key, randomConnectionId(), sealedFor, System.currentTimeMillis());
+        byte[] token = RetryToken.seal(key, randomConnectionId(), sealedFor, System.currentTimeMillis(), new CryptoServices());
 
-        assertNull(RetryToken.unseal(key, token, differentAddress, 30_000));
+        assertNull(RetryToken.unseal(key, token, differentAddress, 30_000, new CryptoServices()));
     }
 
     @Test
@@ -152,9 +153,9 @@ public class RetryPacketTest {
         InetAddress clientAddress = InetAddress.getLoopbackAddress();
         long issuedLongAgo = System.currentTimeMillis() - 60_000;
 
-        byte[] token = RetryToken.seal(key, randomConnectionId(), clientAddress, issuedLongAgo);
+        byte[] token = RetryToken.seal(key, randomConnectionId(), clientAddress, issuedLongAgo, new CryptoServices());
 
-        assertNull(RetryToken.unseal(key, token, clientAddress, 30_000));
+        assertNull(RetryToken.unseal(key, token, clientAddress, 30_000, new CryptoServices()));
     }
 
     @Test
@@ -164,7 +165,7 @@ public class RetryPacketTest {
         InetAddress clientAddress = InetAddress.getLoopbackAddress();
 
         assertNull(RetryToken.unseal(key, "not a real token".getBytes(java.nio.charset.StandardCharsets.US_ASCII),
-                clientAddress, 30_000));
-        assertNull(RetryToken.unseal(key, new byte[0], clientAddress, 30_000));
+                clientAddress, 30_000, new CryptoServices()));
+        assertNull(RetryToken.unseal(key, new byte[0], clientAddress, 30_000, new CryptoServices()));
     }
 }

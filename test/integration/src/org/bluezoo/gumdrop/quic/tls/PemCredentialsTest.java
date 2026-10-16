@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -112,21 +113,21 @@ public class PemCredentialsTest {
 
     @Test
     public void testLoadCertificateChain() throws Exception {
-        List<X509Certificate> chain = PemCredentials.loadCertificateChain(certFile);
+        List<X509Certificate> chain = PemCredentials.loadCertificateChain(certFile, new CryptoServices());
         assertEquals(1, chain.size());
         assertEquals("CN=test.gumdrop.local", chain.get(0).getSubjectX500Principal().getName());
     }
 
     @Test
     public void testLoadPrivateKey() throws Exception {
-        PrivateKey key = PemCredentials.loadPrivateKey(keyFile);
+        PrivateKey key = PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
         assertNotNull(key);
         assertEquals("RSA", key.getAlgorithm());
     }
 
     @Test
     public void testLoadServerCredentials() throws Exception {
-        ServerCredentials credentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+        ServerCredentials credentials = PemCredentials.loadServerCredentials(certFile, keyFile, new CryptoServices());
         assertNotNull(credentials);
         assertEquals(1, credentials.getCertificateChain().size());
         assertNotNull(credentials.getPrivateKey());
@@ -137,7 +138,7 @@ public class PemCredentialsTest {
         Path notPem = certsDirectory.resolve("not-a-key.pem");
         Files.write(notPem, "this is not a PEM file".getBytes());
         try {
-            PemCredentials.loadPrivateKey(notPem);
+            PemCredentials.loadPrivateKey(notPem, new CryptoServices());
             fail("Expected IOException for a file with no PRIVATE KEY block");
         } catch (IOException expected) {
             assertTrue(expected.getMessage().contains("PRIVATE KEY"));

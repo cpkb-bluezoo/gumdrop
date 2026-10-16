@@ -24,12 +24,13 @@ package org.bluezoo.gumdrop.quic.packet;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * The opaque Retry Token a server places in a Retry packet and a client
@@ -61,12 +62,13 @@ public final class RetryToken {
      *        packet's own Destination Connection ID
      * @param clientAddress the client's source address
      * @param issuedAtMillis the issue time, {@link System#currentTimeMillis()}
+     * @param crypto the services the cipher and nonce come from
      * @return the opaque token bytes
      */
     public static byte[] seal(byte[] key, byte[] originalDestinationConnectionId, InetAddress clientAddress,
-            long issuedAtMillis) {
+            long issuedAtMillis, CryptoServices crypto) {
         byte[] nonce = new byte[NONCE_LENGTH];
-        new SecureRandom().nextBytes(nonce);
+        crypto.nextBytes(nonce);
 
         ByteBuffer plaintext = ByteBuffer.allocate(1 + originalDestinationConnectionId.length + 8);
         plaintext.put((byte) originalDestinationConnectionId.length);
@@ -74,7 +76,7 @@ public final class RetryToken {
         plaintext.putLong(issuedAtMillis);
 
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce));
             cipher.updateAAD(clientAddress.getAddress());
             byte[] ciphertext = cipher.doFinal(plaintext.array());
@@ -100,12 +102,14 @@ public final class RetryToken {
      *        this token actually arrived from
      * @param maxAgeMillis the maximum age to accept, to bound replay of a
      *        captured token
+     * @param crypto the services the cipher comes from
      * @return the original Destination Connection ID sealed into the
      *         token, or {@code null} if the token is malformed, its tag
      *         doesn't verify, its bound address doesn't match, or it has
      *         expired
      */
-    public static byte[] unseal(byte[] key, byte[] token, InetAddress clientAddress, long maxAgeMillis) {
+    public static byte[] unseal(byte[] key, byte[] token, InetAddress clientAddress, long maxAgeMillis,
+            CryptoServices crypto) {
         if (token.length < NONCE_LENGTH + GCM_TAG_LENGTH) {
             return null;
         }
@@ -116,7 +120,7 @@ public final class RetryToken {
 
         byte[] plaintext;
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            Cipher cipher = crypto.cipher("AES/GCM/NoPadding");
             // This is the decrypt side: nonce is read back from the
             // token bytes above (whatever seal() actually generated via
             // SecureRandom for that specific token, not a fixed value

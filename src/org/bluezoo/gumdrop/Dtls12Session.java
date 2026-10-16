@@ -228,12 +228,14 @@ final class Dtls12Session implements TlsRecordSink {
             fail("DTLS cookie exchange enabled but no cookie secret configured");
             return false;
         }
-        if (Dtls12HelloVerify.validateCookie(secret, fields.random, remoteAddress, fields.cookie)) {
+        if (Dtls12HelloVerify.validateCookie(secret, fields.random, remoteAddress, fields.cookie,
+                config.getBase().getCrypto())) {
             ensureEngine(fields.cookie);
             return true;
         }
         try {
-            byte[] cookie = Dtls12HelloVerify.computeCookie(secret, fields.random, remoteAddress);
+            byte[] cookie = Dtls12HelloVerify.computeCookie(secret, fields.random, remoteAddress,
+                    config.getBase().getCrypto());
             byte[] hvr = Dtls12HelloVerify.buildHelloVerifyRequestDatagram(cookie);
             sendRawDatagram(hvr);
         } catch (Exception e) {

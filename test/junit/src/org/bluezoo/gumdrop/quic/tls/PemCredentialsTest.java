@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -92,7 +93,7 @@ public class PemCredentialsTest {
         Path cert = writeCert("ec.crt", creds, 1);
         PrivateKey key = creds.getPrivateKey();
         Path keyFile = write("ec.key", pem("PRIVATE KEY", key.getEncoded()));
-        ServerCredentials loaded = PemCredentials.loadServerCredentials(cert, keyFile);
+        ServerCredentials loaded = PemCredentials.loadServerCredentials(cert, keyFile, new CryptoServices());
         assertEquals(1, loaded.getCertificateChain().size());
         assertEquals(key, loaded.getPrivateKey());
     }
@@ -108,7 +109,7 @@ public class PemCredentialsTest {
             Path cert = writeCert(kinds[i] + ".crt", creds, 1);
             PrivateKey key = creds.getPrivateKey();
             Path keyFile = write(kinds[i] + ".key", pem("PRIVATE KEY", key.getEncoded()));
-            ServerCredentials loaded = PemCredentials.loadServerCredentials(cert, keyFile);
+            ServerCredentials loaded = PemCredentials.loadServerCredentials(cert, keyFile, new CryptoServices());
             assertEquals(kinds[i].toString(), key, loaded.getPrivateKey());
         }
     }
@@ -167,7 +168,7 @@ public class PemCredentialsTest {
     public void testLoadsSec1EcPrivateKeyWithEmbeddedCurve() throws Exception {
         ECPrivateKey key = newP256Key();
         Path keyFile = write("sec1.key", pem("EC PRIVATE KEY", sec1(key, true)));
-        ECPrivateKey loaded = (ECPrivateKey) PemCredentials.loadPrivateKey(keyFile);
+        ECPrivateKey loaded = (ECPrivateKey) PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
         assertEquals(key.getS(), loaded.getS());
         assertEquals(key.getParams().getCurve(), loaded.getParams().getCurve());
     }
@@ -179,7 +180,7 @@ public class PemCredentialsTest {
         ECPrivateKey key = newP256Key();
         Path keyFile = write("ecparam.key",
                 pem("EC PARAMETERS", P256_OID) + pem("EC PRIVATE KEY", sec1(key, false)));
-        ECPrivateKey loaded = (ECPrivateKey) PemCredentials.loadPrivateKey(keyFile);
+        ECPrivateKey loaded = (ECPrivateKey) PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
         assertEquals(key.getS(), loaded.getS());
         assertEquals(key.getParams().getCurve(), loaded.getParams().getCurve());
     }
@@ -189,7 +190,7 @@ public class PemCredentialsTest {
         ECPrivateKey key = newP256Key();
         Path keyFile = write("nocurve.key", pem("EC PRIVATE KEY", sec1(key, false)));
         try {
-            PemCredentials.loadPrivateKey(keyFile);
+            PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
             fail("expected a key without curve parameters to be rejected");
         } catch (GeneralSecurityException expected) {
             assertTrue(expected.getMessage().contains("curve"));
@@ -202,7 +203,7 @@ public class PemCredentialsTest {
         generator.initialize(2048);
         KeyPair pair = generator.generateKeyPair();
         Path keyFile = write("rsa.key", pem("PRIVATE KEY", pair.getPrivate().getEncoded()));
-        PrivateKey loaded = PemCredentials.loadPrivateKey(keyFile);
+        PrivateKey loaded = PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
         assertEquals("RSA", loaded.getAlgorithm());
     }
 
@@ -214,7 +215,7 @@ public class PemCredentialsTest {
         KeyPair pair = generator.generateKeyPair();
         Path keyFile = write("xdh.key", pem("PRIVATE KEY", pair.getPrivate().getEncoded()));
         try {
-            PemCredentials.loadPrivateKey(keyFile);
+            PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
             fail("expected InvalidKeyException");
         } catch (InvalidKeyException expected) {
             assertTrue(expected.getMessage().contains("xdh.key"));
@@ -225,7 +226,7 @@ public class PemCredentialsTest {
     public void testKeyFileWithoutBlockRejected() throws Exception {
         Path keyFile = write("none.key", "just some text\n");
         try {
-            PemCredentials.loadPrivateKey(keyFile);
+            PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
             fail("expected IOException");
         } catch (IOException expected) {
             assertTrue(expected.getMessage().contains("PRIVATE KEY"));
@@ -236,7 +237,7 @@ public class PemCredentialsTest {
     public void testKeyFileWithBeginButNoEndRejected() throws Exception {
         Path keyFile = write("trunc.key", "-----BEGIN PRIVATE KEY-----\nAAAA\n");
         try {
-            PemCredentials.loadPrivateKey(keyFile);
+            PemCredentials.loadPrivateKey(keyFile, new CryptoServices());
             fail("expected IOException");
         } catch (IOException expected) {
             assertNotNull(expected.getMessage());
@@ -247,7 +248,7 @@ public class PemCredentialsTest {
     public void testChainWithMultipleCertificates() throws Exception {
         ServerCredentials creds = TestCertificates.newEc256("localhost").credentials();
         Path cert = writeCert("chain.crt", creds, 2);
-        List<X509Certificate> chain = PemCredentials.loadCertificateChain(cert);
+        List<X509Certificate> chain = PemCredentials.loadCertificateChain(cert, new CryptoServices());
         assertEquals(2, chain.size());
     }
 
@@ -255,7 +256,7 @@ public class PemCredentialsTest {
     public void testEmptyCertificateFileRejected() throws Exception {
         Path empty = write("empty.crt", "");
         try {
-            PemCredentials.loadCertificateChain(empty);
+            PemCredentials.loadCertificateChain(empty, new CryptoServices());
             fail("expected IOException");
         } catch (IOException expected) {
             assertTrue(expected.getMessage().contains("empty.crt"));
@@ -266,7 +267,7 @@ public class PemCredentialsTest {
     public void testMissingCertificateFileRejected() throws Exception {
         Path missing = folder.resolve("absent.crt");
         try {
-            PemCredentials.loadCertificateChain(missing);
+            PemCredentials.loadCertificateChain(missing, new CryptoServices());
             fail("expected IOException");
         } catch (IOException expected) {
             assertNotNull(expected);
@@ -277,7 +278,7 @@ public class PemCredentialsTest {
     public void testGarbageCertificateRejected() throws Exception {
         Path bad = write("bad.crt", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n");
         try {
-            PemCredentials.loadCertificateChain(bad);
+            PemCredentials.loadCertificateChain(bad, new CryptoServices());
             fail("expected a failure");
         } catch (GeneralSecurityException expected) {
             assertNotNull(expected);
@@ -290,7 +291,7 @@ public class PemCredentialsTest {
     public void testTrustManagerTrustsLoadedCa() throws Exception {
         ServerCredentials creds = TestCertificates.newEc256("localhost").credentials();
         Path ca = writeCert("ca.crt", creds, 1);
-        X509TrustManager tm = PemCredentials.loadTrustManager(ca);
+        X509TrustManager tm = PemCredentials.loadTrustManager(ca, new CryptoServices());
         X509Certificate cert = creds.getCertificateChain().get(0);
         tm.checkServerTrusted(new X509Certificate[] {cert}, "ECDHE_ECDSA");
         assertEquals(1, tm.getAcceptedIssuers().length);
@@ -301,7 +302,7 @@ public class PemCredentialsTest {
         ServerCredentials trusted = TestCertificates.newEc256("localhost").credentials();
         ServerCredentials other = TestCertificates.newEc256("localhost").credentials();
         Path ca = writeCert("ca2.crt", trusted, 1);
-        X509TrustManager tm = PemCredentials.loadTrustManager(ca);
+        X509TrustManager tm = PemCredentials.loadTrustManager(ca, new CryptoServices());
         X509Certificate cert = other.getCertificateChain().get(0);
         try {
             tm.checkServerTrusted(new X509Certificate[] {cert}, "ECDHE_ECDSA");

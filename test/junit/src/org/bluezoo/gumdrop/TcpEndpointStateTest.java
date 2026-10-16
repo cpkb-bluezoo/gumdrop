@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -280,7 +281,7 @@ public class TcpEndpointStateTest {
         } catch (IOException expected) {
             // expected
         }
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         TcpEndpoint already = new TcpEndpoint(new RecordingHandler(), cfg, false);
         already.setSelectorLoop(new InlineSelectorLoop());
         already.init();
@@ -295,7 +296,7 @@ public class TcpEndpointStateTest {
 
     @Test
     public void startTlsUpgradesPlainEndpoint() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         RecordingHandler h = new RecordingHandler();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, false);
         ep.setClientMode(true);
@@ -314,7 +315,7 @@ public class TcpEndpointStateTest {
 
     @Test
     public void startTls12UpgradesPlainEndpoint() throws IOException {
-        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         RecordingHandler h = new RecordingHandler();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, false);
         ep.setClientMode(true);
@@ -331,8 +332,8 @@ public class TcpEndpointStateTest {
 
     @Test
     public void negotiatingClientEmitsHelloAndWaitsForServerHello() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
-        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
+        Tls12HandshakeConfig cfg12 = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         RecordingHandler h = new RecordingHandler();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, cfg12, TlsVersion.NEGOTIATE, false);
         ep.setClientMode(true);
@@ -356,7 +357,7 @@ public class TcpEndpointStateTest {
 
     @Test
     public void tls13ClientRejectsGarbage() throws IOException {
-        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig cfg = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         RecordingHandler h = new RecordingHandler();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, false);
         ep.setClientMode(true);
@@ -373,7 +374,7 @@ public class TcpEndpointStateTest {
 
     @Test
     public void tls12ClientRejectsGarbage() throws IOException {
-        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        Tls12HandshakeConfig cfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         RecordingHandler h = new RecordingHandler();
         TcpEndpoint ep = new TcpEndpoint(h, cfg, false);
         ep.setClientMode(true);

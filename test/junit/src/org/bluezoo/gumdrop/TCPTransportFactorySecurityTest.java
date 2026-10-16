@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
@@ -44,7 +45,7 @@ public class TCPTransportFactorySecurityTest {
 
     @Test
     public void testClientConfigVerifiesHostnameByDefault() {
-        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT, new CryptoServices());
         assertTrue(config.isVerifyHostname());
     }
 }

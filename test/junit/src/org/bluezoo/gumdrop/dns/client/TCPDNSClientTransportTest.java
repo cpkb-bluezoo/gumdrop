@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.TcpTransportFactory;
@@ -93,7 +94,7 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testDoTEnablesTcpFastOpen() {
         TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         assertTrue(factory.isTcpFastOpen());
         transport.close();
     }
@@ -107,7 +108,7 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testCreateDoTAdvertisesDotAlpn() {
         TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         assertArrayEquals(new String[]{ "dot" },
                 factory.getApplicationProtocols());
         transport.close();
@@ -116,7 +117,7 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testPlainTcpTransportHasNoAlpn() {
         TcpDnsClientTransport transport = new TcpDnsClientTransport();
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         assertNull(factory.getApplicationProtocols());
         transport.close();
     }
@@ -138,7 +139,7 @@ public class TCPDNSClientTransportTest {
         };
         transport.tls(new TlsConfig().trustManager(custom));
 
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         assertSame(custom, factory.getTrustManager());
         transport.close();
     }
@@ -146,7 +147,7 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testPlainTransportHasNoTrustManagerByDefault() {
         TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         assertNull(factory.getTrustManager());
         transport.close();
     }
@@ -181,7 +182,7 @@ public class TCPDNSClientTransportTest {
                         + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"));
         transport.pinnedSpkiFingerprints(pins);
 
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         X509TrustManager wrapped = factory.getTrustManager();
         assertTrue(wrapped instanceof
                 org.bluezoo.gumdrop.util.SpkiPinnedCertTrustManager);
@@ -211,7 +212,7 @@ public class TCPDNSClientTransportTest {
                 "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
                         + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99")));
 
-        TcpTransportFactory factory = transport.createTransportFactory();
+        TcpTransportFactory factory = transport.createTransportFactory(new CryptoServices());
         X509TrustManager wrapped = factory.getTrustManager();
 
         try {

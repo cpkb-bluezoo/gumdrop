@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -179,17 +180,17 @@ public class DtlsRecordEngineMutationTest {
     private Peer newPeer(int version, boolean server) throws Exception {
         if (version == 12) {
             Tls12HandshakeConfig c = new Tls12HandshakeConfig(
-                    server ? HandshakeRole.SERVER : HandshakeRole.CLIENT);
+                    server ? HandshakeRole.SERVER : HandshakeRole.CLIENT, new CryptoServices());
             c.setDtlsTransport(true);
             if (server) {
                 c.setServerCredentials(new ServerCredentials(chain, key));
             } else {
                 c.setServerName(TestCertificates.SERVER_NAME);
-                c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+                c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
             }
             return wrap12(new Dtls12RecordEngine(c, 1024));
         }
-        HandshakeConfig c = new HandshakeConfig(server ? HandshakeRole.SERVER : HandshakeRole.CLIENT);
+        HandshakeConfig c = new HandshakeConfig(server ? HandshakeRole.SERVER : HandshakeRole.CLIENT, new CryptoServices());
         // Brotli-compressing the certificate on every run dominates the sweep
         // and is covered by the handshake engine mutation tests
         c.setCertificateCompressionEnabled(false);
@@ -197,7 +198,7 @@ public class DtlsRecordEngineMutationTest {
             c.setServerCredentials(new ServerCredentials(chain, key));
         } else {
             c.setServerName(TestCertificates.SERVER_NAME);
-            c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+            c.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain, new CryptoServices()));
         }
         return wrap13(new Dtls13RecordEngine(new Dtls13HandshakeConfig(c), 1024));
     }

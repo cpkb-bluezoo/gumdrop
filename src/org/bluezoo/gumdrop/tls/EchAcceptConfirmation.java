@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.tls;
 
 import java.util.Arrays;
 
-import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 
 /**
  * RFC 9849 ECH acceptance signals ({@code accept_confirmation},
@@ -43,14 +43,14 @@ public final class EchAcceptConfirmation {
      * Computes the 8-byte confirmation embedded in {@code ServerHello.random}.
      */
     public static byte[] computeAcceptConfirmation(CipherSuite suite, byte[] clientHelloInnerRandom,
-            byte[] clientHelloInnerFramed, byte[] serverHelloFramedForTranscript) {
-        Hkdf hkdf = suite.newHkdf();
-        Transcript transcript = Transcript.create(suite);
+            byte[] clientHelloInnerFramed, byte[] serverHelloFramedForTranscript, CryptoServices crypto) {
+        String hash = suite.getHashAlgorithm();
+        Transcript transcript = Transcript.create(suite, crypto);
         transcript.update(clientHelloInnerFramed);
         transcript.update(serverHelloFramedForTranscript);
         byte[] transcriptHash = transcript.hash();
-        byte[] secret = hkdf.extract(hkdf.zeroSalt(), clientHelloInnerRandom);
-        return hkdf.expandLabel(secret, "ech accept confirmation", transcriptHash, CONFIRMATION_LENGTH);
+        byte[] secret = crypto.hkdfExtract(hash, new byte[0], clientHelloInnerRandom);
+        return crypto.hkdfExpandLabel(hash, secret, "ech accept confirmation", transcriptHash, CONFIRMATION_LENGTH);
     }
 
     /**
@@ -58,10 +58,11 @@ public final class EchAcceptConfirmation {
      * the last 8 bytes of {@code ServerHello.random}).
      */
     public static boolean verifyServerHello(CipherSuite suite, byte[] clientHelloInnerFramed,
-            byte[] serverHelloFramed) throws HandshakeFormatException {
+            byte[] serverHelloFramed, CryptoServices crypto) throws HandshakeFormatException {
         byte[] innerRandom = extractClientHelloRandom(clientHelloInnerFramed);
         byte[] serverHelloForHash = HandshakeMessages.serverHelloWithZeroedAcceptConfirmation(serverHelloFramed);
-        byte[] expected = computeAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, serverHelloForHash);
+        byte[] expected = computeAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, serverHelloForHash,
+                crypto);
         byte[] actual = extractServerHelloAcceptConfirmation(serverHelloFramed);
         return Arrays.equals(expected, actual);
     }
@@ -71,10 +72,10 @@ public final class EchAcceptConfirmation {
      * {@code ServerHello.random}.
      */
     public static byte[] embedAcceptConfirmationInServerHello(CipherSuite suite, byte[] clientHelloInnerFramed,
-            byte[] serverHelloFramed) throws HandshakeFormatException {
+            byte[] serverHelloFramed, CryptoServices crypto) throws HandshakeFormatException {
         byte[] innerRandom = extractClientHelloRandom(clientHelloInnerFramed);
         byte[] forHash = HandshakeMessages.serverHelloWithZeroedAcceptConfirmation(serverHelloFramed);
-        byte[] confirmation = computeAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, forHash);
+        byte[] confirmation = computeAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, forHash, crypto);
         return HandshakeMessages.serverHelloWithAcceptConfirmation(serverHelloFramed, confirmation);
     }
 
@@ -82,24 +83,25 @@ public final class EchAcceptConfirmation {
      * Computes {@code hrr_accept_confirmation} (RFC 9849 section 7.2.1).
      */
     public static byte[] computeHrrAcceptConfirmation(CipherSuite suite, byte[] clientHelloInnerRandom,
-            byte[] clientHelloInnerFramed, byte[] helloRetryRequestFramedForTranscript) {
-        Hkdf hkdf = suite.newHkdf();
-        Transcript transcript = Transcript.create(suite);
+            byte[] clientHelloInnerFramed, byte[] helloRetryRequestFramedForTranscript, CryptoServices crypto) {
+        String hash = suite.getHashAlgorithm();
+        Transcript transcript = Transcript.create(suite, crypto);
         transcript.update(clientHelloInnerFramed);
         transcript.update(helloRetryRequestFramedForTranscript);
         byte[] transcriptHash = transcript.hash();
-        byte[] secret = hkdf.extract(hkdf.zeroSalt(), clientHelloInnerRandom);
-        return hkdf.expandLabel(secret, "hrr ech accept confirmation", transcriptHash, CONFIRMATION_LENGTH);
+        byte[] secret = crypto.hkdfExtract(hash, new byte[0], clientHelloInnerRandom);
+        return crypto.hkdfExpandLabel(hash, secret, "hrr ech accept confirmation", transcriptHash, CONFIRMATION_LENGTH);
     }
 
     /**
      * Returns true when the HelloRetryRequest ECH extension confirms acceptance.
      */
     public static boolean verifyHelloRetryRequest(CipherSuite suite, byte[] clientHelloInnerFramed,
-            byte[] helloRetryRequestFramed, byte[] echConfirmationExtension) throws HandshakeFormatException {
+            byte[] helloRetryRequestFramed, byte[] echConfirmationExtension, CryptoServices crypto)
+            throws HandshakeFormatException {
         byte[] innerRandom = extractClientHelloRandom(clientHelloInnerFramed);
         byte[] hrrForHash = HandshakeMessages.helloRetryRequestWithZeroedEchConfirmation(helloRetryRequestFramed);
-        byte[] expected = computeHrrAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, hrrForHash);
+        byte[] expected = computeHrrAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, hrrForHash, crypto);
         return Arrays.equals(expected, echConfirmationExtension);
     }
 
@@ -108,10 +110,11 @@ public final class EchAcceptConfirmation {
      * {@code encrypted_client_hello} extension (RFC 9849 section 7.2.1).
      */
     public static byte[] embedHelloRetryRequestConfirmation(CipherSuite suite, byte[] clientHelloInnerFramed,
-            byte[] helloRetryRequestFramed) throws HandshakeFormatException {
+            byte[] helloRetryRequestFramed, CryptoServices crypto) throws HandshakeFormatException {
         byte[] innerRandom = extractClientHelloRandom(clientHelloInnerFramed);
         byte[] hrrForHash = HandshakeMessages.helloRetryRequestWithZeroedEchConfirmation(helloRetryRequestFramed);
-        byte[] confirmation = computeHrrAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, hrrForHash);
+        byte[] confirmation = computeHrrAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, hrrForHash,
+                crypto);
         return HandshakeMessages.replaceHelloRetryEchExtensionBody(helloRetryRequestFramed, confirmation);
     }
 

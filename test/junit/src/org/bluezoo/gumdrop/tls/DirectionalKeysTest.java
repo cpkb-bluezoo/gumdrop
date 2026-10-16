@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.Arrays;
 
 import org.junit.Test;
@@ -53,8 +54,8 @@ public class DirectionalKeysTest {
         CipherSuite[] suites = CipherSuite.values();
         for (int i = 0; i < suites.length; i++) {
             CipherSuite suite = suites[i];
-            DirectionalKeys seal = DirectionalKeys.fromSecret(suite, secret(suite));
-            DirectionalKeys open = DirectionalKeys.fromSecret(suite, secret(suite));
+            DirectionalKeys seal = DirectionalKeys.fromSecret(suite, secret(suite), new CryptoServices());
+            DirectionalKeys open = DirectionalKeys.fromSecret(suite, secret(suite), new CryptoServices());
             byte[] aad = new byte[] { 23, 3, 3, 0, 20 };
             byte[] plain = "hello tls".getBytes("US-ASCII");
             byte[] ct = seal.sealAppendTag(seal.nonce(), aad, plain);
@@ -67,7 +68,7 @@ public class DirectionalKeysTest {
     @Test
     public void tamperedCiphertextOrAadOrNonceFailsOpen() throws Exception {
         CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
-        DirectionalKeys k = DirectionalKeys.fromSecret(suite, secret(suite));
+        DirectionalKeys k = DirectionalKeys.fromSecret(suite, secret(suite), new CryptoServices());
         byte[] aad = new byte[] { 1, 2, 3 };
         byte[] nonce = k.nonce().clone();
         byte[] ct = k.sealAppendTag(nonce, aad, new byte[] { 9, 9, 9 });
@@ -83,7 +84,7 @@ public class DirectionalKeysTest {
     @Test
     public void nonceXorsSequenceNumberAndAdvanceIncrements() {
         CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
-        DirectionalKeys k = DirectionalKeys.fromSecret(suite, secret(suite));
+        DirectionalKeys k = DirectionalKeys.fromSecret(suite, secret(suite), new CryptoServices());
         byte[] n0 = k.nonce().clone();
         k.advance();
         byte[] n1 = k.nonce().clone();
@@ -105,12 +106,12 @@ public class DirectionalKeysTest {
     @Test
     public void confidentialityLimitAppliesToGcmOnly() {
         DirectionalKeys gcm = DirectionalKeys.fromSecret(CipherSuite.TLS_AES_256_GCM_SHA384,
-                secret(CipherSuite.TLS_AES_256_GCM_SHA384));
+                secret(CipherSuite.TLS_AES_256_GCM_SHA384), new CryptoServices());
         assertFalse(gcm.overConfidentialityLimit());
         gcm.seq = 23_726_566L;
         assertTrue(gcm.overConfidentialityLimit());
         DirectionalKeys cc = DirectionalKeys.fromSecret(CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
-                secret(CipherSuite.TLS_CHACHA20_POLY1305_SHA256));
+                secret(CipherSuite.TLS_CHACHA20_POLY1305_SHA256), new CryptoServices());
         cc.seq = Long.MAX_VALUE;
         assertFalse(cc.overConfidentialityLimit());
     }
@@ -126,8 +127,8 @@ public class DirectionalKeysTest {
         assertEquals(32, CipherSuite.TLS_AES_256_GCM_SHA384.getAeadKeyLength());
         assertEquals("AES", CipherSuite.TLS_AES_128_GCM_SHA256.getAeadKeyAlgorithm());
         assertEquals("ChaCha20-Poly1305", CipherSuite.TLS_CHACHA20_POLY1305_SHA256.getAeadTransformation());
-        assertNotNull(CipherSuite.TLS_AES_128_GCM_SHA256.newHkdf());
-        assertNotNull(CipherSuite.TLS_AES_256_GCM_SHA384.newHkdf());
+        assertEquals(32, CryptoServices.hashLength(CipherSuite.TLS_AES_128_GCM_SHA256.getHashAlgorithm()));
+        assertEquals(48, CryptoServices.hashLength(CipherSuite.TLS_AES_256_GCM_SHA384.getHashAlgorithm()));
     }
 
     @Test

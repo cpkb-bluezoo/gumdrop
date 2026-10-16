@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -37,7 +38,7 @@ public class EchConfigListGreaseTest {
     public void prependsGreaseConfig() throws Exception {
         EchConfig real = EchConfig.createV13(1, PK_RM, "public.example", 32);
         byte[] list = EchConfig.encodeList(new EchConfig[] { real });
-        byte[] greased = EchConfigListGrease.withServerGrease(list);
+        byte[] greased = EchConfigListGrease.withServerGrease(list, new CryptoServices());
         EchConfig[] parsed = EchConfig.parseList(greased);
         assertEquals(2, parsed.length);
         assertEquals("grease.invalid", parsed[0].getPublicName());
@@ -48,7 +49,7 @@ public class EchConfigListGreaseTest {
     public void greaseConfigIsIgnoredByDiscovery() throws Exception {
         EchConfig real = EchConfig.createV13(3, PK_RM, "public.example", 32);
         byte[] list = EchConfig.encodeList(new EchConfig[] { real });
-        byte[] greased = EchConfigListGrease.withServerGrease(list);
+        byte[] greased = EchConfigListGrease.withServerGrease(list, new CryptoServices());
         EchConfig selected = EchHttpsDiscovery.selectClientConfig(greased);
         assertTrue(selected != null && selected.getConfigId() == 3);
     }

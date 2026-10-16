@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.util;
 
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
@@ -45,7 +46,7 @@ public class SpkiPinnedCertTrustManagerTest {
     @Test
     public void fingerprintIsColonSeparatedLowercaseHex() throws Exception {
         TestCertificates.Identity id = TestCertificates.newEc256("spki");
-        String fp = SpkiPinnedCertTrustManager.computeSPKIFingerprint(id.getCertificate());
+        String fp = SpkiPinnedCertTrustManager.computeSPKIFingerprint(id.getCertificate(), new CryptoServices());
         assertEquals(32 * 3 - 1, fp.length());
         assertEquals(fp.toLowerCase(), fp);
         assertEquals(':', fp.charAt(2));
@@ -54,9 +55,9 @@ public class SpkiPinnedCertTrustManagerTest {
     @Test
     public void matchingPinIsAccepted() throws Exception {
         TestCertificates.Identity id = TestCertificates.newEc256("spki-ok");
-        String fp = SpkiPinnedCertTrustManager.computeSPKIFingerprint(id.getCertificate());
+        String fp = SpkiPinnedCertTrustManager.computeSPKIFingerprint(id.getCertificate(), new CryptoServices());
         X509TrustManager delegate = TestCertificates.trustAll();
-        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, "00:11", fp);
+        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, new CryptoServices(), "00:11", fp);
         X509Certificate[] chain = new X509Certificate[] {id.getCertificate()};
         tm.checkServerTrusted(chain, "ECDSA");
     }
@@ -65,7 +66,7 @@ public class SpkiPinnedCertTrustManagerTest {
     public void mismatchedPinIsRejected() throws Exception {
         TestCertificates.Identity id = TestCertificates.newEc256("spki-bad");
         X509TrustManager delegate = TestCertificates.trustAll();
-        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, "aa:bb");
+        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, new CryptoServices(), "aa:bb");
         X509Certificate[] chain = new X509Certificate[] {id.getCertificate()};
         try {
             tm.checkServerTrusted(chain, "ECDSA");
@@ -78,7 +79,7 @@ public class SpkiPinnedCertTrustManagerTest {
     @Test
     public void emptyChainIsRejected() throws Exception {
         X509TrustManager delegate = TestCertificates.trustAll();
-        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, "aa");
+        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, new CryptoServices(), "aa");
         try {
             tm.checkServerTrusted(new X509Certificate[0], "ECDSA");
             fail("expected CertificateException");
@@ -90,9 +91,9 @@ public class SpkiPinnedCertTrustManagerTest {
     @Test
     public void delegateRejectionPropagates() throws Exception {
         TestCertificates.Identity id = TestCertificates.newEc256("spki-deleg");
-        String fp = SpkiPinnedCertTrustManager.computeSPKIFingerprint(id.getCertificate());
+        String fp = SpkiPinnedCertTrustManager.computeSPKIFingerprint(id.getCertificate(), new CryptoServices());
         X509TrustManager delegate = TestCertificates.trustNone();
-        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, fp);
+        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, new CryptoServices(), fp);
         X509Certificate[] chain = new X509Certificate[] {id.getCertificate()};
         try {
             tm.checkServerTrusted(chain, "ECDSA");
@@ -106,14 +107,14 @@ public class SpkiPinnedCertTrustManagerTest {
     public void clientChecksAndIssuersDelegate() throws Exception {
         TestCertificates.Identity id = TestCertificates.newEc256("spki-client");
         X509TrustManager delegate = TestCertificates.trustAll();
-        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, "aa");
+        SpkiPinnedCertTrustManager tm = new SpkiPinnedCertTrustManager(delegate, new CryptoServices(), "aa");
         X509Certificate[] chain = new X509Certificate[] {id.getCertificate()};
         tm.checkClientTrusted(chain, "ECDSA");
         X509Certificate[] issuers = tm.getAcceptedIssuers();
         X509Certificate[] expected = delegate.getAcceptedIssuers();
         assertEquals(expected.length, issuers.length);
         X509TrustManager none = TestCertificates.trustNone();
-        SpkiPinnedCertTrustManager strict = new SpkiPinnedCertTrustManager(none, "aa");
+        SpkiPinnedCertTrustManager strict = new SpkiPinnedCertTrustManager(none, new CryptoServices(), "aa");
         try {
             strict.checkClientTrusted(chain, "ECDSA");
             fail("expected CertificateException");
@@ -133,7 +134,7 @@ public class SpkiPinnedCertTrustManagerTest {
     @Test
     public void fingerprintOfBrokenCertificateFails() throws Exception {
         try {
-            SpkiPinnedCertTrustManager.computeSPKIFingerprint(null);
+            SpkiPinnedCertTrustManager.computeSPKIFingerprint(null, new CryptoServices());
             fail("expected CertificateException");
         } catch (CertificateException e) {
             assertEquals("Failed to compute SPKI fingerprint", e.getMessage());

@@ -27,7 +27,6 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.PublicKey;
-import java.security.SecureRandom;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -39,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.crypto.SignatureScheme;
@@ -83,6 +83,19 @@ public final class HandshakeEngine {
         ALL_SIGNATURE_SCHEMES = Collections.unmodifiableList(schemes);
     }
 
+    /** Every scheme the engine offers in {@code signature_algorithms}, except those outside the FIPS profile under a FIPS runtime. */
+    private static final List<SignatureScheme> FIPS_SIGNATURE_SCHEMES =
+            Collections.unmodifiableList(FipsProfile.filterSchemes(ALL_SIGNATURE_SCHEMES));
+
+    /**
+     * The signature schemes this engine offers, accepts in a peer's
+     * {@code CertificateVerify} and lists in a {@code CertificateRequest}:
+     * all of them, or under a FIPS runtime those in the approved profile.
+     */
+    private List<SignatureScheme> supportedSignatureSchemes() {
+        return config.isFipsMode() ? FIPS_SIGNATURE_SCHEMES : ALL_SIGNATURE_SCHEMES;
+    }
+
     private enum State {
         INITIAL,
         WAIT_SERVER_HELLO,
@@ -98,7 +111,7 @@ public final class HandshakeEngine {
     }
 
     private final HandshakeConfig config;
-    private final SecureRandom secureRandom = new SecureRandom();
+    private final CryptoServices crypto;
 
     private State state = State.INITIAL;
     private Transcript transcript;
@@ -163,6 +176,7 @@ public final class HandshakeEngine {
      */
     public HandshakeEngine(HandshakeConfig config) {
         this.config = config;
+        this.crypto = config.getCrypto();
         this.localRecordSizeLimit = RecordSizeLimit.localInboundLimit(
                 config.getRecordSizeLimit(), config.isRecordSizeLimitEnabled());
     }
@@ -234,7 +248,7 @@ public final class HandshakeEngine {
                 List<NamedGroup> omitShares = config.getClientOmitInitialKeyShareGroups();
                 for (int i = 0; i < groups.size(); i++) {
                     NamedGroup group = groups.get(i);
-                    KeyExchange kx = KeyExchange.generate(group);
+                    KeyExchange kx = KeyExchange.generate(group, crypto);
                     clientKeyExchanges.put(group, kx);
                     if (!omitShares.contains(group)) {
                         shares.put(group, kx.getShareBytes());
@@ -245,7 +259,7 @@ public final class HandshakeEngine {
                 return;
             }
             byte[] random = new byte[32];
-            secureRandom.nextBytes(random);
+            crypto.nextBytes(random);
             clientHelloRandom = random;
         }
 
@@ -254,7 +268,7 @@ public final class HandshakeEngine {
         params.cipherSuites = config.getCipherSuites();
         params.groups = config.getNamedGroups();
         params.keyShares = shares;
-        params.signatureAlgorithms = ALL_SIGNATURE_SCHEMES;
+        params.signatureAlgorithms = supportedSignatureSchemes();
         params.applicationProtocols = config.getApplicationProtocols();
         params.serverName = config.getServerName();
         params.quicTransportParameters = config.getLocalTransportParameters();
@@ -267,7 +281,7 @@ public final class HandshakeEngine {
                 || config.getMode() == HandshakeMode.DTLS);
         params.dtlsTransport = config.getMode() == HandshakeMode.DTLS;
         if (params.offerTls12Fallback) {
-            params.tls12CipherSuites = new Tls12HandshakeConfig(HandshakeRole.CLIENT).getCipherSuites();
+            params.tls12CipherSuites = new Tls12HandshakeConfig(HandshakeRole.CLIENT, crypto).getCipherSuites();
         }
 
         SessionTicket ticket = config.getSessionTicket();
@@ -290,7 +304,7 @@ public final class HandshakeEngine {
                 wantEarly = !isRetry && config.isEnableEarlyData() && ticket.getMaxEarlyDataSize() > 0;
                 params.earlyDataRequested = wantEarly;
 
-                KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
+                KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite(), crypto);
                 byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params,
                         ticket.getCipherSuite().getHashLength());
                 byte[] truncatedHash = truncatedClientHelloHash(ticket.getCipherSuite(), truncated);
@@ -299,7 +313,7 @@ public final class HandshakeEngine {
 
             if (!isRetry && config.isEchEnabled() && config.getEchConfig() != null) {
                 EchClientHelloBuilder.Offer echOffer = EchClientHelloBuilder.build(
-                        params, config.getEchConfig(), realPskBinder, secureRandom);
+                        params, config.getEchConfig(), realPskBinder, crypto);
                 clientHello = echOffer.getClientHelloOuterFramed();
                 echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
                 echHpkeSender = echOffer.getHpkeSender();
@@ -318,7 +332,7 @@ public final class HandshakeEngine {
                 clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
             } else if (!isRetry && config.isEchGreaseEnabled()
                     && !(config.isEchEnabled() && config.getEchConfig() != null)) {
-                params.encryptedClientHelloOuter = EchClientHelloBuilder.buildGreaseOuter(params, secureRandom);
+                params.encryptedClientHelloOuter = EchClientHelloBuilder.buildGreaseOuter(params, crypto);
                 clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
                 echGreaseOffered = true;
                 echGreaseFirstClientHelloFramed = clientHello;
@@ -336,7 +350,7 @@ public final class HandshakeEngine {
         }
 
         if (ticket != null && wantEarly) {
-            KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
+            KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite(), crypto);
             byte[] clientHelloHash = truncatedClientHelloHash(ticket.getCipherSuite(), clientHello);
             byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(ticket.getPsk(), clientHelloHash);
             keyLog(KeyLog.CLIENT_EARLY_TRAFFIC_SECRET, earlyTrafficSecret);
@@ -362,7 +376,7 @@ public final class HandshakeEngine {
         if (transcript != null) {
             return transcript.hashWith(bytes);
         }
-        Transcript t = Transcript.create(suite);
+        Transcript t = Transcript.create(suite, crypto);
         t.update(bytes);
         return t.hash();
     }
@@ -463,7 +477,8 @@ public final class HandshakeEngine {
         HandshakeMessages.ServerHello sh = HandshakeMessages.parseServerHello(message);
         if (echOffered && echClientHelloInnerFramed != null) {
             if (sh.cipherSuite != null
-                    && EchAcceptConfirmation.verifyServerHello(sh.cipherSuite, echClientHelloInnerFramed, message)) {
+                    && EchAcceptConfirmation.verifyServerHello(sh.cipherSuite, echClientHelloInnerFramed, message,
+                            crypto)) {
                 echAccepted = true;
                 savedClientHelloBytes = echClientHelloInnerFramed;
             } else {
@@ -492,7 +507,7 @@ public final class HandshakeEngine {
         negotiatedSuite = sh.cipherSuite;
         negotiatedGroup = sh.keyShareGroup;
         if (transcript == null) {
-            transcript = Transcript.create(negotiatedSuite);
+            transcript = Transcript.create(negotiatedSuite, crypto);
             transcript.update(savedClientHelloBytes);
         } else if (clientRetried) {
             transcript.update(savedClientHelloBytes);
@@ -500,7 +515,7 @@ public final class HandshakeEngine {
         transcript.update(message);
 
         byte[] sharedSecret = kx.agree(sh.keyShareData);
-        keySchedule = new KeySchedule(negotiatedSuite);
+        keySchedule = new KeySchedule(negotiatedSuite, crypto);
         byte[] psk = resumed ? config.getSessionTicket().getPsk() : null;
         keySchedule.deriveEarlySecret(psk);
         keySchedule.deriveHandshakeSecret(sharedSecret, transcript.hash());
@@ -520,7 +535,7 @@ public final class HandshakeEngine {
             if (hrr.echHrrConfirmation == null || hrr.echHrrConfirmation.length != 8) {
                 echRejected = true;
             } else if (hrr.cipherSuite != null && EchAcceptConfirmation.verifyHelloRetryRequest(
-                    hrr.cipherSuite, echClientHelloInnerFramed, message, hrr.echHrrConfirmation)) {
+                    hrr.cipherSuite, echClientHelloInnerFramed, message, hrr.echHrrConfirmation, crypto)) {
                 echAccepted = true;
                 savedClientHelloBytes = echClientHelloInnerFramed;
             } else {
@@ -540,7 +555,7 @@ public final class HandshakeEngine {
             return;
         }
 
-        Transcript t = Transcript.create(hrr.cipherSuite);
+        Transcript t = Transcript.create(hrr.cipherSuite, crypto);
         t.update(savedClientHelloBytes);
         byte[] ch1Hash = t.hash();
         transcript = t;
@@ -651,7 +666,7 @@ public final class HandshakeEngine {
         int bodyLength = ((header[1] & 0xff) << 16) | ((header[2] & 0xff) << 8) | (header[3] & 0xff);
         compressedCertificateReceiver = new CompressedCertificateReceiver(
                 config.getCertificateCompressionAlgorithms(),
-                config.getMaxDecompressedCertificateSize(), bodyLength);
+                config.getMaxDecompressedCertificateSize(), bodyLength, crypto);
     }
 
     /**
@@ -719,7 +734,7 @@ public final class HandshakeEngine {
         }
         List<X509Certificate> chain;
         try {
-            chain = CertificateVerifier.parseChain(der);
+            chain = CertificateVerifier.parseChain(der, crypto);
         } catch (CertificateException e) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed server certificate: " + e.getMessage());
             return;
@@ -852,7 +867,7 @@ public final class HandshakeEngine {
 
         if (!der.isEmpty()) {
             byte[] signedContent = HandshakeMessages.certificateVerifySignedContent(false, transcript.hash());
-            byte[] signature = scheme.sign(creds.getPrivateKey(), signedContent);
+            byte[] signature = scheme.sign(creds.getPrivateKey(), signedContent, crypto);
             byte[] clientCertificateVerify = HandshakeMessages.buildCertificateVerify(scheme, signature);
             transcript.update(clientCertificateVerify);
             sink.handshakeDataReady(clientCertificateVerify);
@@ -1042,19 +1057,19 @@ public final class HandshakeEngine {
         }
 
         if (transcript == null) {
-            transcript = Transcript.create(negotiatedSuite);
+            transcript = Transcript.create(negotiatedSuite, crypto);
         }
         transcript.update(clientHelloForTranscript);
 
-        KeyExchange.ServerResult kxResult = KeyExchange.agreeAsServer(group, ch.keyShares.get(group));
+        KeyExchange.ServerResult kxResult = KeyExchange.agreeAsServer(group, ch.keyShares.get(group), crypto);
 
         byte[] serverRandom = new byte[32];
-        secureRandom.nextBytes(serverRandom);
+        crypto.nextBytes(serverRandom);
         byte[] serverHello = HandshakeMessages.buildServerHello(serverRandom, ch.legacySessionId,
                 negotiatedSuite, group, kxResult.getShareBytes(), resumed);
         if (echInnerAccepted) {
             serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(
-                    negotiatedSuite, clientHelloForTranscript, serverHello);
+                    negotiatedSuite, clientHelloForTranscript, serverHello, crypto);
         }
         transcript.update(serverHello);
         // Delivered before any server flight so that a QUIC caller can
@@ -1066,7 +1081,7 @@ public final class HandshakeEngine {
         }
         sink.handshakeDataReady(serverHello);
 
-        keySchedule = new KeySchedule(negotiatedSuite);
+        keySchedule = new KeySchedule(negotiatedSuite, crypto);
         keySchedule.deriveEarlySecret(presentedPsk);
         keySchedule.deriveHandshakeSecret(kxResult.getSharedSecret(), transcript.hash());
         logHandshakeSecrets();
@@ -1094,7 +1109,7 @@ public final class HandshakeEngine {
             // RFC 8446 section 4.3.2: CertificateRequest precedes the
             // server's own Certificate.
             if (requestClientCert) {
-                byte[] certificateRequest = HandshakeMessages.buildCertificateRequest();
+                byte[] certificateRequest = HandshakeMessages.buildCertificateRequest(supportedSignatureSchemes());
                 transcript.update(certificateRequest);
                 sink.handshakeDataReady(certificateRequest);
             }
@@ -1113,7 +1128,7 @@ public final class HandshakeEngine {
 
             SignatureScheme scheme = serverSignatureScheme;
             byte[] signedContent = HandshakeMessages.certificateVerifySignedContent(true, transcript.hash());
-            byte[] signature = scheme.sign(resolvedCredentials.getPrivateKey(), signedContent);
+            byte[] signature = scheme.sign(resolvedCredentials.getPrivateKey(), signedContent, crypto);
             byte[] certificateVerify = HandshakeMessages.buildCertificateVerify(scheme, signature);
             transcript.update(certificateVerify);
             sink.handshakeDataReady(certificateVerify);
@@ -1143,7 +1158,7 @@ public final class HandshakeEngine {
      */
     private byte[] resolveEchRetryConfigList() {
         if (config.getEchRetryConfigList() != null) {
-            return EchConfigListGrease.withServerGrease(config.getEchRetryConfigList());
+            return EchConfigListGrease.withServerGrease(config.getEchRetryConfigList(), crypto);
         }
         List<EchServerKey> keys = config.getEchServerKeys();
         if (!keys.isEmpty()) {
@@ -1151,7 +1166,7 @@ public final class HandshakeEngine {
             for (int i = 0; i < published.length; i++) {
                 published[i] = keys.get(i).getConfig();
             }
-            return EchConfigListGrease.withServerGrease(EchConfig.encodeList(published));
+            return EchConfigListGrease.withServerGrease(EchConfig.encodeList(published), crypto);
         }
         return null;
     }
@@ -1170,7 +1185,7 @@ public final class HandshakeEngine {
         if (echServerKeyInUse != null) {
             return EchServer.openInnerClientHello(message, echServerKeyInUse.getConfig(),
                     echServerKeyInUse.getPrivateKey(), echHpkeRecipient,
-                    config.getMode() == HandshakeMode.DTLS);
+                    config.getMode() == HandshakeMode.DTLS, crypto);
         }
         GeneralSecurityException failure = null;
         List<EchServerKey> keys = config.getEchServerKeys();
@@ -1182,7 +1197,7 @@ public final class HandshakeEngine {
             try {
                 EchServer.OpenResult opened = EchServer.openInnerClientHello(message, key.getConfig(),
                         key.getPrivateKey(), null,
-                        config.getMode() == HandshakeMode.DTLS);
+                        config.getMode() == HandshakeMode.DTLS, crypto);
                 echServerKeyInUse = key;
                 return opened;
             } catch (GeneralSecurityException e) {
@@ -1198,7 +1213,7 @@ public final class HandshakeEngine {
     private void sendHelloRetryRequest(NamedGroup group, byte[] legacySessionId, CipherSuite cipherSuite,
             byte[] clientHello1ForTranscript, boolean echInnerAccepted, TlsEventSink sink, byte[] cookie)
             throws HandshakeFormatException {
-        Transcript t = Transcript.create(cipherSuite);
+        Transcript t = Transcript.create(cipherSuite, crypto);
         t.update(clientHello1ForTranscript);
         byte[] ch1Hash = t.hash();
         transcript = t;
@@ -1207,7 +1222,8 @@ public final class HandshakeEngine {
         byte[] hrr = HandshakeMessages.buildHelloRetryRequest(legacySessionId, cipherSuite, group, cookie,
                 echInnerAccepted);
         if (echInnerAccepted) {
-            hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(cipherSuite, clientHello1ForTranscript, hrr);
+            hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(cipherSuite, clientHello1ForTranscript, hrr,
+                    crypto);
         }
         transcript.update(hrr);
         sink.handshakeDataReady(hrr);
@@ -1237,7 +1253,7 @@ public final class HandshakeEngine {
         TicketPayload payload = null;
         List<byte[]> candidates = config.getTicketKeys().candidateKeys();
         for (int i = 0; i < candidates.size(); i++) {
-            payload = TicketPayload.open(candidates.get(i), ch.pskIdentity);
+            payload = TicketPayload.open(candidates.get(i), ch.pskIdentity, crypto);
             if (payload != null) {
                 break;
             }
@@ -1260,9 +1276,9 @@ public final class HandshakeEngine {
         // RFC 8446 section 4.2.11.2: the binder covers the ClientHello up
         // to the binders list, which ends the message
         byte[] truncated = Arrays.copyOfRange(message, 0, message.length - ch.pskBindersLength);
-        Transcript truncatedTranscript = Transcript.create(payload.cipherSuite);
+        Transcript truncatedTranscript = Transcript.create(payload.cipherSuite, crypto);
         truncatedTranscript.update(truncated);
-        KeySchedule pskSchedule = new KeySchedule(payload.cipherSuite);
+        KeySchedule pskSchedule = new KeySchedule(payload.cipherSuite, crypto);
         byte[] expectedBinder = pskSchedule.computePskBinder(payload.psk, truncatedTranscript.hash());
         if (!MessageDigest.isEqual(expectedBinder, ch.pskBinder)) {
             return null;
@@ -1307,9 +1323,9 @@ public final class HandshakeEngine {
         if (config.getAntiReplay() != null && !config.getAntiReplay().checkAndRecord(ch.pskIdentity)) {
             return false;
         }
-        Transcript chTranscript = Transcript.create(payload.cipherSuite);
+        Transcript chTranscript = Transcript.create(payload.cipherSuite, crypto);
         chTranscript.update(message);
-        KeySchedule pskSchedule = new KeySchedule(payload.cipherSuite);
+        KeySchedule pskSchedule = new KeySchedule(payload.cipherSuite, crypto);
         byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(payload.psk, chTranscript.hash());
         keyLog(KeyLog.CLIENT_EARLY_TRAFFIC_SECRET, earlyTrafficSecret);
         sink.quicEarlyKeysReady(payload.cipherSuite, earlyTrafficSecret);
@@ -1347,7 +1363,7 @@ public final class HandshakeEngine {
         List<byte[]> der = HandshakeMessages.parseCertificate(message);
         List<X509Certificate> chain;
         try {
-            chain = CertificateVerifier.parseChain(der);
+            chain = CertificateVerifier.parseChain(der, crypto);
         } catch (CertificateException e) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed client certificate: " + e.getMessage());
             return;
@@ -1412,11 +1428,11 @@ public final class HandshakeEngine {
             return;
         }
         byte[] nonce = new byte[8];
-        secureRandom.nextBytes(nonce);
+        crypto.nextBytes(nonce);
         byte[] psk = keySchedule.deriveResumptionPsk(resumptionMasterSecret, nonce);
 
         byte[] ageAddBytes = new byte[4];
-        secureRandom.nextBytes(ageAddBytes);
+        crypto.nextBytes(ageAddBytes);
         int ageAdd = ((ageAddBytes[0] & 0xff) << 24) | ((ageAddBytes[1] & 0xff) << 16)
                 | ((ageAddBytes[2] & 0xff) << 8) | (ageAddBytes[3] & 0xff);
 
@@ -1425,7 +1441,7 @@ public final class HandshakeEngine {
 
         TicketPayload payload = new TicketPayload(System.currentTimeMillis(), lifetimeSeconds, ageAdd, psk,
                 maxEarlyDataSize, negotiatedSuite, serverLocalTransportParameters);
-        byte[] identity = payload.seal(ticketKeys.getCurrentKey());
+        byte[] identity = payload.seal(ticketKeys.getCurrentKey(), crypto);
 
         byte[] ticketMessage = HandshakeMessages.buildNewSessionTicket(lifetimeSeconds, ageAdd, nonce, identity,
                 maxEarlyDataSize);
@@ -1559,7 +1575,12 @@ public final class HandshakeEngine {
                     "CertificateVerify scheme " + cv.scheme + " is not valid for the peer's key");
             return;
         }
-        boolean ok = cv.scheme.verify(peerKey, signedContent, cv.signature);
+        if (!supportedSignatureSchemes().contains(cv.scheme)) {
+            fail(sink, AlertDescription.ILLEGAL_PARAMETER,
+                    "CertificateVerify scheme " + cv.scheme + " was not offered");
+            return;
+        }
+        boolean ok = cv.scheme.verify(peerKey, signedContent, cv.signature, crypto);
         if (!ok) {
             fail(sink, AlertDescription.DECRYPT_ERROR, "CertificateVerify signature did not verify");
             return;
@@ -1573,10 +1594,11 @@ public final class HandshakeEngine {
      * preferred first: one for every key type but RSA, which may use
      * RSASSA-PSS with any of the three hashes.
      */
-    private static List<SignatureScheme> signingPreference(PrivateKey key) {
+    private List<SignatureScheme> signingPreference(PrivateKey key) {
         List<SignatureScheme> schemes = new ArrayList<SignatureScheme>();
-        for (int i = 0; i < ALL_SIGNATURE_SCHEMES.size(); i++) {
-            SignatureScheme scheme = ALL_SIGNATURE_SCHEMES.get(i);
+        List<SignatureScheme> supported = supportedSignatureSchemes();
+        for (int i = 0; i < supported.size(); i++) {
+            SignatureScheme scheme = supported.get(i);
             if (scheme.isHandshakeSignature() && scheme.isCompatible(key)) {
                 schemes.add(scheme);
             }
@@ -1591,7 +1613,7 @@ public final class HandshakeEngine {
      *
      * @return the scheme, or null if the peer offered none this key can use
      */
-    private static SignatureScheme selectSignatureScheme(PrivateKey key, List<SignatureScheme> offered) {
+    private SignatureScheme selectSignatureScheme(PrivateKey key, List<SignatureScheme> offered) {
         List<SignatureScheme> preference = signingPreference(key);
         return (offered != null) ? selectFirst(preference, offered) : null;
     }
