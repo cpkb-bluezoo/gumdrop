@@ -83,7 +83,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  */
 public class Gumdrop {
 
-    public static final String VERSION = "3.0";
+    public static final String VERSION = "3.1";
 
     /**
      * Default graceful-drain timeout in milliseconds. On shutdown, the server
