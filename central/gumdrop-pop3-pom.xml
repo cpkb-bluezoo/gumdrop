@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-pop3</artifactId>
-    <version>3.0.0</version>
+    <version>3.1.0</version>
     <packaging>jar</packaging>
     <name>Gumdrop POP3</name>
     <description>POP3 server and client for Gumdrop</description>
