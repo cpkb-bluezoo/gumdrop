@@ -422,7 +422,12 @@ if (req.isTrailerFieldsReady()) {
 
 <p>
 Servlets can upgrade HTTP connections to WebSocket using the standard
-<code>HttpUpgradeHandler</code> API. Incoming WebSocket messages are
+<code>HttpUpgradeHandler</code> API; the Java WebSocket API (JSR&nbsp;356) is
+not implemented. The upgrade shares the WebSocket frame engine
+(<code>WebSocketConnection</code>) and the <code>WebSocketEventHandler</code>
+interface with Gumdrop&rsquo;s native
+<a href="websocket.html">WebSocket API</a>, so the protocol handling is the
+same however the upgrade was initiated. Incoming WebSocket messages are
 delivered through the same non-blocking <code>RequestBodyStream</code>
 bridge as HTTP request bodies, with the same pause/resume backpressure.
 <code>HttpUpgradeHandler.init()</code> is dispatched to the servlet worker
@@ -442,8 +447,10 @@ public class WebSocketServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
             throws ServletException, IOException {
         
-        // Check for WebSocket upgrade request
-        if ("websocket".equalsIgnoreCase(req.getHeader("Upgrade"))) {
+        // HTTP/1.1 sends an Upgrade header; HTTP/2 and HTTP/3 send CONNECT
+        boolean upgrade = "websocket".equalsIgnoreCase(req.getHeader("Upgrade"))
+                || "CONNECT".equals(req.getMethod());
+        if (upgrade) {
             req.upgrade(MyWebSocketHandler.class);
         } else {
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
@@ -467,6 +474,35 @@ public class MyWebSocketHandler implements HttpUpgradeHandler {
     }
 }
 </pre>
+
+<p>
+<code>upgrade()</code> works over every HTTP version the container serves: the
+RFC&nbsp;6455 handshake on HTTP/1.1, and Extended CONNECT on HTTP/2
+(RFC&nbsp;8441) and HTTP/3 (RFC&nbsp;9220), where the request is a
+<code>CONNECT</code> with the <code>:protocol</code> pseudo-header
+<code>websocket</code> and carries no <code>Upgrade</code>,
+<code>Connection</code> or <code>Sec-WebSocket-*</code> header fields. The
+servlet code is otherwise the same:
+</p>
+
+<ul>
+<li>The Extended CONNECT request is dispatched to the servlet that takes the
+    HTTP/1.1 <code>GET</code> upgrade of the same URL, and is matched against
+    that servlet&rsquo;s <code>GET</code> security constraints.</li>
+<li>An <code>HttpServlet</code> is shown <code>GET</code> by its first
+    <code>getMethod()</code> call, which is the one <code>service()</code>
+    makes to pick <code>doGet</code>, so <code>doGet</code> runs rather than
+    the default answer of 501 for <code>CONNECT</code>. Every later call
+    returns <code>CONNECT</code>, and a servlet that is not an
+    <code>HttpServlet</code> sees <code>CONNECT</code> throughout. Test for
+    <code>CONNECT</code> as well as for the <code>Upgrade</code> header, as in
+    the example above.</li>
+<li>The response status the servlet sees is 200, not 101, because that is what
+    the handshake is answered with on these versions.</li>
+<li>WebSocket frames that reach the server before a worker thread has called
+    <code>upgrade()</code> are held and passed to the WebSocket parser, not
+    delivered to the servlet as a request body.</li>
+</ul>
 
 <p>
 For most WebSocket applications, consider using Gumdrop&rsquo;s native

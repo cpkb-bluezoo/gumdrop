@@ -4,7 +4,7 @@ All notable changes to Gumdrop will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-10-16
 
 ### Added
 
@@ -59,7 +59,58 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the Python interoperability tests exercise gzip and deflate in both
   directions.
 
+- **gRPC streaming RPCs, call metadata and deadlines**, on both the server and
+  the client, additions to the 3.0 interfaces. A `GrpcServer` that returns true
+  from `isStreamingSupported()` is given calls to server-streaming,
+  client-streaming and bidirectional RPCs; a `GrpcCallHandler` is told of the
+  half-close (`endRequests()`) and of cancellation (`cancelled()`), and
+  `GrpcCall` gains `close()`, `close(status, message)`, `isReady()`,
+  `onReady(Runnable)`, `pauseRequests()` and `resumeRequests()`. On the client,
+  `GrpcClient.call(httpClient, path, handler)` starts a call whose request is
+  streamed with `GrpcClientCall.send` and `halfClose()`, and
+  `GrpcResponseHandler.onComplete` reports the final status. `GrpcMetadata`
+  carries request and response metadata, including `-bin` values, through
+  `GrpcCall` and `GrpcCallOptions`, with the peer's address, TLS details and
+  principal on `GrpcCall`. `grpc-timeout` is honoured on the server
+  (`GrpcCall.getDeadline()`, `DEADLINE_EXCEEDED`) and set on the client with
+  `GrpcCallOptions.timeout` or `deadline`, which is enforced locally too.
+  `HttpRequest.scheduleTimer` lets a client caller run a timer on a request's
+  connection. `web/grpc.html` describes it, and the Python interoperability
+  tests cover every kind of RPC, metadata and deadlines in both directions.
+
+- **`HttpRequestHandler.failedAfterEndMessage()`**: a handler that answers a
+  finished request over time, as a streaming gRPC call does, can ask to be told
+  by `failed` that the peer reset the stream while its response is unfinished.
+  The default is false, and other handlers are unaffected.
+
+- **FIPS mode.** `GumdropConfig.fipsProvider` (or `-Dgumdrop.fipsProvider`)
+  names one installed JCA provider, and every cipher, MAC, digest, signature,
+  key exchange, key derivation and random value used by TLS 1.2, TLS 1.3,
+  DTLS and QUIC is then requested from it, through a `CryptoServices` object
+  per runtime. `fipsSecureRandomAlgorithm` (or `-Dgumdrop.fipsSecureRandom`)
+  optionally names the provider's random source. Boot resolves the provider
+  once and refuses to come up with a list of any service it lacks. Handshakes
+  are held to an approved profile: AES-GCM with SHA-256 or SHA-384, ECDHE on
+  secp256r1 and secp384r1, and ECDSA or RSA signatures. ChaCha20-Poly1305,
+  X25519, Ed25519, ML-DSA and the hybrid ML-KEM groups are outside it, Encrypted
+  Client Hello is refused, and key logging records nothing. The mode is off by
+  default and a runtime that does not enable it is unchanged. The claim is
+  that the runtime uses FIPS-validated cryptography, not that Gumdrop is
+  validated. `Gumdrop.embedded` gains an overload taking the configuration, and
+  `web/tls.html` has a FIPS mode section.
+
+- **Servlet `upgrade()` over HTTP/2 and HTTP/3.** `HttpServletRequest.upgrade()`
+  now accepts the Extended CONNECT form of the WebSocket handshake (RFC 8441,
+  RFC 9220) as well as the RFC 6455 handshake on HTTP/1.1. The request goes to
+  the servlet that takes the HTTP/1.1 `GET` upgrade of the same URL, and is
+  matched against that servlet's `GET` security constraints. An `HttpServlet`
+  is shown `GET` once so that `doGet` runs, and `getMethod()` is `CONNECT`
+  after that; the request carries no `Upgrade` header. WebSocket frames that
+  arrive before a worker thread calls `upgrade()` are held and passed to the
+  WebSocket parser rather than delivered as a request body.
+
 ### Fixed
+
 
 - **A closed QUIC stream leaves no records behind.** Its advertised limit,
   bytes received and updates owed go when the stream is retired, and its
@@ -118,34 +169,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A call that the gRPC client fails itself, on a message it cannot decode,
   now also completes** with its status through `onComplete`, as one that
   passes its deadline does.
-
-### Added
-
-- **gRPC streaming RPCs, call metadata and deadlines**, on both the server and
-  the client, additions to the 3.0 interfaces. A `GrpcServer` that returns true
-  from `isStreamingSupported()` is given calls to server-streaming,
-  client-streaming and bidirectional RPCs; a `GrpcCallHandler` is told of the
-  half-close (`endRequests()`) and of cancellation (`cancelled()`), and
-  `GrpcCall` gains `close()`, `close(status, message)`, `isReady()`,
-  `onReady(Runnable)`, `pauseRequests()` and `resumeRequests()`. On the client,
-  `GrpcClient.call(httpClient, path, handler)` starts a call whose request is
-  streamed with `GrpcClientCall.send` and `halfClose()`, and
-  `GrpcResponseHandler.onComplete` reports the final status. `GrpcMetadata`
-  carries request and response metadata, including `-bin` values, through
-  `GrpcCall` and `GrpcCallOptions`, with the peer's address, TLS details and
-  principal on `GrpcCall`. `grpc-timeout` is honoured on the server
-  (`GrpcCall.getDeadline()`, `DEADLINE_EXCEEDED`) and set on the client with
-  `GrpcCallOptions.timeout` or `deadline`, which is enforced locally too.
-  `HttpRequest.scheduleTimer` lets a client caller run a timer on a request's
-  connection. `web/grpc.html` describes it, and the Python interoperability
-  tests cover every kind of RPC, metadata and deadlines in both directions.
-
-- **`HttpRequestHandler.failedAfterEndMessage()`**: a handler that answers a
-  finished request over time, as a streaming gRPC call does, can ask to be told
-  by `failed` that the peer reset the stream while its response is unfinished.
-  The default is false, and other handlers are unaffected.
-
-### Fixed
 
 - **A protobuf field split across two chunks of a gRPC message lost its tail**
   on the server and in the client, because the bytes the parser had not

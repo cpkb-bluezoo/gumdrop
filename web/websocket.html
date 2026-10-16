@@ -60,7 +60,6 @@ either role or both.
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#metrics">Metrics</a></li>
 <li><a href="#http-upgrade">Manual HTTP upgrade</a></li>
-<li><a href="#servlet">Servlet container integration</a></li>
 </ul>
 
 <h3 id="overview">Overview</h3>
@@ -821,28 +820,6 @@ HTTP traffic and WebSocket connections on the same port. For dedicated WebSocket
 services, the <code>WebSocketRequestHandler</code>
 model described above is preferred because the HTTP upgrade is handled
 automatically.
-</p>
-
-<h3 id="servlet">Servlet container integration</h3>
-
-<p>
-The <a href="servlet.html">servlet container</a>
-(<code>ServletRequestHandler</code>) provides its own WebSocket upgrade path via the standard
-<code>HttpServletRequest.upgrade()</code> mechanism. Both
-<code>WebSocketRequestHandler</code> and the servlet container converge on the same
-<code>WebSocketEventHandler</code> interface and share the same internal
-WebSocket frame engine (<code>WebSocketConnection</code>). This means the
-underlying protocol handling is identical regardless of how the upgrade was
-initiated.
-</p>
-
-<p>
-For applications using the servlet container, WebSocket support is available
-by calling <code>HttpServletRequest.upgrade()</code> with an
-<code>HttpUpgradeHandler</code>; the Java WebSocket API (JSR 356) is not
-implemented. For applications that do not need the servlet programming model,
-composing
-<code>WebSocketRequestHandler</code> directly provides a simpler, more direct API.
 </p>
 
 <hr/>
