@@ -33,7 +33,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.telemetry.DefaultExporter;
 import org.bluezoo.gumdrop.telemetry.QlogExporter;
+import org.bluezoo.gumdrop.telemetry.TeeExporter;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.tls.KeyLog;
 
@@ -179,7 +181,8 @@ final class InteropEnvironment {
      * The telemetry configuration that writes qlog files to a directory:
      * the qlog exporter is created directly, so the endpoint does not
      * depend on service discovery in the image's class path. Its shutdown
-     * hook flushes the files when the process exits.
+     * hook flushes the files when the process exits. Operational log
+     * records (INFO, WARN and ERROR) also go to the console.
      *
      * @param directory the directory, or null or empty for none
      * @return the configuration, or null if there is no directory
@@ -190,7 +193,12 @@ final class InteropEnvironment {
         }
         Path path = Path.of(directory);
         TelemetryConfig telemetry = new TelemetryConfig();
-        telemetry.exporter(new QlogExporter(path, QlogExporter.DEFAULT_QUEUE_SIZE));
+        // The default exporter carries the engine's own warnings (a TLS
+        // failure, a bad frame) to the console; with the qlog exporter alone
+        // they were discarded and a stalled handshake logged nothing.
+        telemetry.exporter(new TeeExporter(
+                new QlogExporter(path, QlogExporter.DEFAULT_QUEUE_SIZE),
+                new DefaultExporter()));
         return telemetry;
     }
 
