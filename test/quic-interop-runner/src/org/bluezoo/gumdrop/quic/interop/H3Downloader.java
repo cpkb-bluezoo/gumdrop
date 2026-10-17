@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.crypto.CryptoServices;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpError;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -76,7 +77,7 @@ final class H3Downloader {
             client.dnsHttpsRecordEnabled(false);
             client.blockPrivateAddresses(false);
             client.sendAcceptEncodingHeader(false);
-            client.tls(new TlsConfig().trustManager(PemCredentials.loadTrustManager(caFile)));
+            client.tls(new TlsConfig().trustManager(PemCredentials.loadTrustManager(caFile, new CryptoServices())));
 
             final CountDownLatch connected = new CountDownLatch(1);
             final AtomicReference<Exception> connectError = new AtomicReference<Exception>();
