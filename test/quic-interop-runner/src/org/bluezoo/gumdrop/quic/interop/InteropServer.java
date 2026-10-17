@@ -162,7 +162,9 @@ public final class InteropServer {
      */
     private static QuicEngine bind(QuicTransportFactory factory, int port,
             QuicEngine.ConnectionAcceptedHandler handler, SelectorLoop loop) throws IOException {
-        InetAddress any = new InetSocketAddress(0).getAddress();
+        // Not new InetSocketAddress(0).getAddress(): that is 0.0.0.0 unless
+        // java.net.preferIPv6Addresses is set, which binds IPv4 only.
+        InetAddress any = InetAddress.getByName("::");
         try {
             return factory.createServerEngine(any, port, handler, loop);
         } catch (IOException e) {
