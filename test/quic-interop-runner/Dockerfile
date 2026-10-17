@@ -33,6 +33,11 @@ COPY --from=jre /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
+# The runner does not pass extra environment into the container, so verbose
+# endpoint logging is baked in: --build-arg INTEROP_DEBUG=1
+ARG INTEROP_DEBUG=
+ENV INTEROP_DEBUG=${INTEROP_DEBUG}
+
 WORKDIR /gumdrop
 COPY --from=build /endpoint/lib ./lib
 COPY --from=build /endpoint/classes ./classes

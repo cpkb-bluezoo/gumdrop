@@ -18,6 +18,10 @@ on:
         description: 'Test cases (comma-separated; empty runs the whole suite)'
         default: ''
         type: string
+      debug:
+        description: 'Verbose endpoint logging (bakes INTEROP_DEBUG=1 into the image)'
+        default: false
+        type: boolean
       ref:
         description: 'Gumdrop commit, branch or tag to build the endpoint from (empty builds this workflow''s own commit)'
         default: ''
@@ -44,7 +48,9 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Build image
-        run: docker build -f test/quic-interop-runner/Dockerfile -t gumdrop-interop:ci .
+        env:
+          DEBUG: ${{ inputs.debug && '1' || '' }}
+        run: docker build -f test/quic-interop-runner/Dockerfile --build-arg "INTEROP_DEBUG=$DEBUG" -t gumdrop-interop:ci .
 
       - name: Save image
         run: docker save gumdrop-interop:ci | zstd -T0 -o gumdrop-interop.tar.zst
