@@ -52,6 +52,24 @@ public class RecordSizeLimitTest {
         }
     }
 
+    // RFC 8449 section 4: in TLS 1.3 the limit counts the content type
+    // byte, so the largest value a peer may advertise is 2^14 + 1. NSS
+    // (neqo, Firefox) sends exactly that.
+    @Test
+    public void decodeAcceptsTls13MaximumIncludingContentType() throws Exception {
+        assertEquals(16385, RecordSizeLimit.decodeExtensionValue(new byte[] { 0x40, 0x01 }));
+    }
+
+    @Test
+    public void decodeRejectsAboveTls13Maximum() throws Exception {
+        try {
+            RecordSizeLimit.decodeExtensionValue(new byte[] { 0x40, 0x02 });
+            fail("expected HandshakeFormatException");
+        } catch (HandshakeFormatException expected) {
+            // ok
+        }
+    }
+
     @Test
     public void roundTripEncodeDecode() throws Exception {
         int limit = 4096;

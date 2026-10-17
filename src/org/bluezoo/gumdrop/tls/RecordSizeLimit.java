@@ -38,6 +38,12 @@ public final class RecordSizeLimit {
     /** Maximum plaintext fragment size TLS allows (2^14). */
     public static final int ABSOLUTE_MAX = 16384;
 
+    /**
+     * Largest value a peer may advertise: in TLS 1.3 the limit counts the
+     * content type byte as well as the plaintext (RFC 8449 section 4).
+     */
+    static final int WIRE_MAX = ABSOLUTE_MAX + 1;
+
     private RecordSizeLimit() {
     }
 
@@ -85,7 +91,7 @@ public final class RecordSizeLimit {
             throw new HandshakeFormatException("invalid record_size_limit length");
         }
         int value = ((extBody[0] & 0xff) << 8) | (extBody[1] & 0xff);
-        if (value < MINIMUM || value > ABSOLUTE_MAX) {
+        if (value < MINIMUM || value > WIRE_MAX) {
             throw new HandshakeFormatException("invalid record_size_limit value");
         }
         return value;
