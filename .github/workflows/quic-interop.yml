@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       peers:
-        description: 'Peer implementations (comma-separated names from implementations_quic.json)'
+        description: 'Peer implementations (comma-separated names from implementations_quic.json; empty tests every known implementation)'
         default: 'quic-go,ngtcp2,quiche,picoquic,msquic,neqo'
         type: string
       tests:
@@ -60,7 +60,18 @@ jobs:
         env:
           PEERS: ${{ inputs.peers }}
         run: |
-          peers="${PEERS:-$DEFAULT_PEERS}"
+          # The weekly run has no inputs and keeps to the usual peers. A
+          # manual run with the field emptied tests every implementation
+          # the runner knows that can act as both client and server.
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            peers="$DEFAULT_PEERS"
+          elif [ -n "$PEERS" ]; then
+            peers="$PEERS"
+          else
+            peers=$(curl -fsSL https://raw.githubusercontent.com/quic-interop/quic-interop-runner/master/implementations_quic.json \
+              | jq -r 'to_entries | map(select(.key != "gumdrop" and .value.role == "both") | .key) | join(",")')
+          fi
+          echo "peers: $peers"
           echo "peers=$(printf '%s' "$peers" | tr -d ' ' | jq -R -c 'split(",")')" >> "$GITHUB_OUTPUT"
 
   interop:
