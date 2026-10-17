@@ -79,7 +79,7 @@ jobs:
             ($peers | ascii_downcase) as $p
             | to_entries
             | map(select(.key != "gumdrop"))
-            | map(select($p == "all" or (($p | split(",")) | index(.key))))
+            | map(select($p == "all" or (.key as $k | ($p | split(",")) | index($k))))
             | map({peer: .key, role: .value.role})' known.json)
           echo "matrix: $matrix"
           if [ "$matrix" = "[]" ]; then echo "no known implementation matches: $PEERS" >&2; exit 1; fi
