@@ -107,6 +107,40 @@ public class QuicLoopbackEarlyDataTest {
         assertTrue(client.conn.getSecurityInfo().isEarlyDataAccepted());
     }
 
+    // Early data larger than one datagram: every datagram of it goes out in
+    // the first flight, up to the congestion window, not one per
+    // acknowledgement. flush stopped after the first datagram that held
+    // only 0-RTT stream data (it continued for 1-RTT and for handshake
+    // data), so the runner's zerortt case, which wants most of 40 requests
+    // in 0-RTT packets, saw a quarter of them.
+    @Test
+    public void largeEarlyDataLeavesInTheFirstFlight() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        firstConnection(lb);
+        assertNotNull(SessionTicketCache.get("localhost", 4433));
+
+        TicketingServer server = new TicketingServer();
+        lb.startServer(server);
+        final int payload = 8000;
+        QuicEngine.EarlyDataHandler big = new QuicEngine.EarlyDataHandler() {
+            @Override
+            public void earlyDataReady(QuicConnection connection) {
+                Endpoint e = connection.openStream(new Rec());
+                e.send(ByteBuffer.wrap(new byte[payload]));
+            }
+        };
+        int before = lb.toServerLog.size();
+        QuicLoopbackScenariosTest.ConnCapture client = new QuicLoopbackScenariosTest.ConnCapture();
+        lb.startClientEarly(client, big);
+        // nothing delivered yet: this is all the client sends before any reply
+        int bytes = 0;
+        for (int i = before; i < lb.toServerLog.size(); i++) {
+            bytes += lb.toServerLog.get(i).length;
+        }
+        assertTrue("the first flight carried " + bytes + " bytes of an 8000 byte request",
+                bytes >= payload);
+    }
+
     @Test
     public void rejectedZeroRttIsResentAtOneRtt() throws Exception {
         firstConnection(new QuicLoopback());

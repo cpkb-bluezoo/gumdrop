@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.quic.interop;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -90,10 +93,57 @@ public final class InteropClient {
         System.exit(ok ? 0 : 1);
     }
 
+    /**
+     * Waits until the network simulator accepts connections on the address
+     * in {@code INTEROP_WAIT_FOR} ({@code host:port}), which it does once its
+     * network is up. This replaces the shell's wait-for-it before the JVM
+     * starts: the simulator rebinds the client's port a second after it
+     * starts (the rebinding cases), and a JVM that only begins loading
+     * after the wait has spent most of that second before it can send
+     * anything, so the handshake straddled the rebind. Starting the JVM
+     * first and connecting the moment the simulator is up gives the
+     * handshake the time a native client has.
+     */
+    static void awaitSimulator() {
+        String target = System.getenv("INTEROP_WAIT_FOR");
+        if (target == null || target.isEmpty()) {
+            return;
+        }
+        int colon = target.lastIndexOf(':');
+        String host = target.substring(0, colon);
+        int port = Integer.parseInt(target.substring(colon + 1));
+        long deadline = System.nanoTime() + 30_000_000_000L;
+        while (true) {
+            Socket socket = new Socket();
+            try {
+                socket.connect(new InetSocketAddress(host, port), 1000);
+                return;
+            } catch (IOException e) {
+                if (System.nanoTime() > deadline) {
+                    LOGGER.warning("simulator " + target + " not reachable: " + e.getMessage());
+                    return;
+                }
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            } finally {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    // nothing to do
+                }
+            }
+        }
+    }
+
     static boolean run(InteropEnvironment env, InteropTestCase testCase, List<RequestUrl> urls)
             throws Exception {
         Files.createDirectories(env.downloads());
         if (testCase == InteropTestCase.HTTP3) {
+            awaitSimulator();
             return new H3Downloader().download(urls, env.downloads(), env.caFile(), CONNECTION_TIMEOUT_MILLIS);
         }
         SelectorLoop loop = new SelectorLoop(0);
@@ -134,6 +184,7 @@ public final class InteropClient {
             }
             factory.start();
             HqClient client = new HqClient(loop, factory, env.downloads());
+            awaitSimulator();
 
             if (testCase == InteropTestCase.MULTICONNECT) {
                 boolean ok = true;

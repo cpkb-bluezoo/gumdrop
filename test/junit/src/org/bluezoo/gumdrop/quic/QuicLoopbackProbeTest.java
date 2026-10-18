@@ -133,6 +133,37 @@ public class QuicLoopbackProbeTest {
         assertTrue("probe payload of " + payload + " bytes carries CRYPTO", payload > 100);
     }
 
+    // A server that hits the anti-amplification limit has not sent what it
+    // withholds, and must send it, in order, once the client's next
+    // datagram raises the limit. It counted the withheld CRYPTO data as
+    // sent, so the flight resumed after a gap (kwik gave up with
+    // CRYPTO_BUFFER_EXCEEDED) or not at all.
+    @Test
+    public void withheldHandshakeDataIsSentOnceTheLimitRises() throws Exception {
+        int saved = QuicConnection.amplificationFactor;
+        QuicConnection.amplificationFactor = 1;
+        try {
+            final QuicLoopback lb = new QuicLoopback();
+            lb.startFactories();
+            ConnCapture server = new ConnCapture();
+            lb.startServer(server);
+            ConnCapture client = new ConnCapture();
+            lb.startClient(null, client);
+            lb.pump();
+            QuicConnection clientConn = QuicForger.clientConnection(lb.clientEngine);
+
+            // The client's probes (padded Initials) raise the limit.
+            for (int i = 0; i < 4 && !clientConn.isEstablished(); i++) {
+                clientConn.clockOffsetMillis += 1500L << i;
+                QuicForger.invoke(clientConn, "onLossDetectionTimeout");
+                lb.pump();
+            }
+            assertTrue("the held-back data followed", clientConn.isEstablished());
+        } finally {
+            QuicConnection.amplificationFactor = saved;
+        }
+    }
+
     // Opens the long-header packet at the start of `datagram` sent by
     // `sender`: an Initial with the Initial keys both sides derive from the
     // client's first Destination Connection ID (RFC 9001 section 5.2), a

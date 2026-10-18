@@ -599,6 +599,10 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // this server's Initial response -- proving the address isn't
     // spoofed, since an off-path attacker cannot have the Handshake
     // keys), and never re-checked past that point.
+    // RFC 9000 section 8.1: a server sends at most this many times what it
+    // has received before the client's address is validated. Not final so
+    // that a test can make a small handshake flight hit the limit.
+    static int amplificationFactor = 3;
     private long amplificationBytesReceived;
     private long amplificationBytesSent;
     private boolean addressValidated;
@@ -3701,25 +3705,44 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // handling (see QuicEngine.sendPacket) recovers it once more
         // receive-side credit arrives.
         boolean sent = false;
-        if (!isServer || addressValidated || amplificationBytesSent + datagram.length <= 3 * amplificationBytesReceived) {
+        if (!isServer || addressValidated || amplificationBytesSent + datagram.length <= (long) amplificationFactor * amplificationBytesReceived) {
             engine.sendPacket(this, datagram);
             sent = true;
             if (isServer && !addressValidated) {
                 amplificationBytesSent += datagram.length;
             }
-        } else if (LOGGER.isLoggable(Level.FINE)) {
-            String formatted = MessageFormat.format(
-                    L10N.getString("fine.anti_amplification_limit"),
-                    Long.valueOf(amplificationBytesSent),
-                    Long.valueOf(amplificationBytesReceived));
-            LOGGER.fine(formatted);
+        } else {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                String formatted = MessageFormat.format(
+                        L10N.getString("fine.anti_amplification_limit"),
+                        Long.valueOf(amplificationBytesSent),
+                        Long.valueOf(amplificationBytesReceived));
+                LOGGER.fine(formatted);
+            }
+            // What was built for this datagram never left. Put it back at
+            // once, so that the first datagram the limit allows carries it,
+            // in order: left to loss detection, the data after it was sent
+            // first, and the client met a gap in the CRYPTO stream wider
+            // than its buffer (kwik: CRYPTO_BUFFER_EXCEEDED).
+            if (initialBytes != null) {
+                requeueLostPacket(EncryptionLevel.INITIAL, sendPacketNumber[EncryptionLevel.INITIAL.ordinal()] - 1);
+            }
+            if (handshakeBytes != null) {
+                requeueLostPacket(EncryptionLevel.HANDSHAKE, sendPacketNumber[EncryptionLevel.HANDSHAKE.ordinal()] - 1);
+            }
+            if (oneRttBytes != null) {
+                requeueLostPacket(EncryptionLevel.ONE_RTT, sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()] - 1);
+            }
         }
 
         scheduleLossDetectionTimer();
         if (!sent || closed) {
             return false;
         }
-        return (oneRttBytes != null && !pendingStream.isEmpty()) || hasPendingCrypto();
+        // Early data goes on in the same way: a client's first flight is
+        // 0-RTT stream data until the handshake keys arrive, and stopping
+        // after one such datagram left the rest to wait for an acknowledgement.
+        return ((oneRttBytes != null || zeroRttBytes != null) && !pendingStream.isEmpty()) || hasPendingCrypto();
     }
 
     // Too little of a datagram to be worth starting another packet in.

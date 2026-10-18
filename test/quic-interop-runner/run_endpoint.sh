@@ -30,8 +30,10 @@ export INTEROP_PREFERRED_IPV4="${INTEROP_PREFERRED_IPV4:-$(hostname -I | cut -f1
 export INTEROP_PREFERRED_IPV6="${INTEROP_PREFERRED_IPV6:-$(hostname -I | cut -f2 -d" ")}"
 
 if [ "$ROLE" = "client" ]; then
-    # The simulator opens this port once its network is up.
-    /wait-for-it.sh sim:57832 -s -t 30
+    # The simulator opens this port once its network is up. The JVM waits
+    # for it itself, after it has started, so that it can connect the moment
+    # the simulator is ready (see InteropClient.awaitSimulator).
+    export INTEROP_WAIT_FOR=sim:57832
     echo "REQUESTS=$REQUESTS"
     exec java $JVM_OPTS -cp "$CLASSPATH" org.bluezoo.gumdrop.quic.interop.InteropClient
 else
