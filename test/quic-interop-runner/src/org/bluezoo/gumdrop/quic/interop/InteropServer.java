@@ -115,6 +115,12 @@ public final class InteropServer {
             // v1 and offers v2 onto v2; the default order keeps every
             // other case on v1, which is what those cases check for.
             factory.setVersions(V2_PREFERRED);
+            // Prefer the classical group the clients send a key share for:
+            // with the hybrid first, an OpenSSL or picotls client (ngtcp2,
+            // picoquic) is sent a HelloRetryRequest, and two peers disagree
+            // on the version it should carry (ngtcp2 wants v1, picoquic
+            // discards a v2 one), so neither passes. No retry, no question.
+            factory.setNamedGroups("x25519");
         }
         if (testCase == InteropTestCase.CONNECTIONMIGRATION) {
             // RFC 9000 section 9.6: offer this host's addresses on another
