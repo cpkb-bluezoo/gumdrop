@@ -137,6 +137,17 @@ control fields. The workflow runs it after each direction, so the file is in
 the uploaded logs, and it is what shows what a peer really received when a
 transfer stalls. It needs `tshark` and the same key logs as `ack_stats.py`.
 
+## Pass and fail
+
+A job of the interop workflow is green only if every test case it ran
+succeeded. The runner steps themselves never fail a job, so the final
+`Verdict` step reads the runner's JSON results with `check_results.py`
+(`--self-test` checks it): any `failed` case, or a missing or unreadable
+result file, makes the job red, and the failed cases are listed in the job
+summary. Cases a peer does not implement (`unsupported`) are reported but do
+not count as failures. A job for a peer that only acts as a client or only as
+a server checks just the direction it can run.
+
 ## Counting ACK-only packets
 
 `ack_stats.py` reads a runner `--log-dir` and, from the pcap taken on

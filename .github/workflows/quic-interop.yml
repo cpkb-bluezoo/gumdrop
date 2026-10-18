@@ -201,3 +201,18 @@ jobs:
           path: |
             logs/
             results/
+
+      # Green means every test case this job ran succeeded. The runner steps
+      # above never fail the job themselves, so the verdict is read from
+      # their JSON results; cases the peer does not implement are not
+      # failures, a missing result file is.
+      - name: Verdict
+        if: always()
+        env:
+          PEER: ${{ matrix.peer }}
+          ROLE: ${{ matrix.role }}
+        run: |
+          files=()
+          if [ "$ROLE" != server ]; then files+=("server-gumdrop_client-$PEER.json"); fi
+          if [ "$ROLE" != client ]; then files+=("server-${PEER}_client-gumdrop.json"); fi
+          python3 gumdrop-ci/test/quic-interop-runner/check_results.py results "${files[@]}"
