@@ -45,6 +45,7 @@ import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
@@ -67,6 +68,13 @@ final class H3Downloader {
         }
         RequestUrl first = urls.get(0);
         Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        // The client reaches its telemetry through the runtime; shutting the
+        // runtime down flushes and closes the qlog files.
+        TelemetryConfig telemetry = InteropEnvironment.qlogTelemetry(System.getenv("QLOGDIR"));
+        if (telemetry != null) {
+            gumdrop.telemetryConfig(telemetry);
+            LOGGER.info("writing qlog to " + System.getenv("QLOGDIR"));
+        }
         try {
             SelectorLoop loop = gumdrop.nextWorkerLoop();
             final HttpClient client = new HttpClient(loop, first.host, first.port);

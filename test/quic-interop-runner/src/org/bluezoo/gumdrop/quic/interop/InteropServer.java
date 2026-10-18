@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -178,6 +179,13 @@ public final class InteropServer {
 
     private static void runHttp3(InteropEnvironment env) throws Exception {
         Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        // Listeners reach their telemetry through the runtime, so this is
+        // how the HTTP/3 server's QUIC connections get their qlog.
+        TelemetryConfig telemetry = InteropEnvironment.qlogTelemetry(System.getenv("QLOGDIR"));
+        if (telemetry != null) {
+            gumdrop.telemetryConfig(telemetry);
+            LOGGER.info("writing qlog to " + System.getenv("QLOGDIR"));
+        }
         Http3Listener listener = new Http3Listener().port(env.port()).requireRetry(false);
         listener.tls(new TlsConfig().certFile(env.certFile()).keyFile(env.keyFile()));
         listener.compressResponses(false);
