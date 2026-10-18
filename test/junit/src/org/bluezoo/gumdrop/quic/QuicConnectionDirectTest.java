@@ -335,10 +335,10 @@ public class QuicConnectionDirectTest {
         Endpoint e = f.client.conn.openStream(c);
         e.send(ByteBuffer.wrap(new byte[10]));
         f.lb.pump();
+        // the spare connection ID the migration uses was issued when the
+        // handshake finished; the limit of 2 leaves no room for another
         ConnectionIdManager clientIds = (ConnectionIdManager) QuicForger.field(f.client.conn, "connectionIdManager");
-        assertNotNull(clientIds.issueNext());
-        f.client.conn.requestFlush();
-        f.lb.pump();
+        assertNull(clientIds.issueNext());
         InetSocketAddress moved = new InetSocketAddress("127.0.0.1", 50077);
         f.lb.clientSource = moved;
         e.send(ByteBuffer.wrap(new byte[10]));

@@ -49,7 +49,7 @@ import java.nio.ByteBuffer;
  * endpoint never declares a non-default one. {@code stateless_reset_token}
  * is sent by servers so peers can recognise a stateless reset for the
  * handshake connection ID (RFC 9000 section 10.3). {@code preferred_address}
- * and {@code active_connection_id_limit} are not implemented yet. Unknown
+ * and {@code active_connection_id_limit} are carried too. Unknown
  * parameters received from a peer are ignored, per RFC 9000
  * section 18.1.
  *
@@ -65,6 +65,7 @@ public final class TransportParameters {
     /** Server-only: token for the handshake connection ID (RFC 9000 section 18.2). */
     public static final long STATELESS_RESET_TOKEN = 0x02;
     private static final long PREFERRED_ADDRESS = 0x0d;
+    private static final long ACTIVE_CONNECTION_ID_LIMIT = 0x0e;
     public static final long MAX_UDP_PAYLOAD_SIZE = 0x03;
     public static final long INITIAL_MAX_DATA = 0x04;
     public static final long INITIAL_MAX_STREAM_DATA_BIDI_LOCAL = 0x05;
@@ -115,6 +116,9 @@ public final class TransportParameters {
     private long maxDatagramFrameSize;
     // microseconds; negative when the parameter is absent
     private long minAckDelay = -1;
+    /** RFC 9000 section 18.2: how many connection IDs the sender keeps for its peer; 2 when absent. */
+    public static final long DEFAULT_ACTIVE_CONNECTION_ID_LIMIT = 2;
+    private long activeConnectionIdLimit = DEFAULT_ACTIVE_CONNECTION_ID_LIMIT;
     private int versionInformationChosen;
     private int[] versionInformationAvailable;
     private boolean versionInformationMalformed;
@@ -175,6 +179,7 @@ public final class TransportParameters {
         c.preferredAddressConnectionId = preferredAddressConnectionId;
         c.preferredAddressResetToken = preferredAddressResetToken;
         c.maxDatagramFrameSize = maxDatagramFrameSize;
+        c.activeConnectionIdLimit = activeConnectionIdLimit;
         c.versionInformationChosen = versionInformationChosen;
         c.versionInformationAvailable = versionInformationAvailable;
         c.versionInformationMalformed = versionInformationMalformed;
@@ -224,6 +229,20 @@ public final class TransportParameters {
 
     public long getMaxAckDelay() {
         return maxAckDelay;
+    }
+
+    /**
+     * Returns the {@code active_connection_id_limit}: how many connection
+     * IDs the sender of these parameters will keep for its peer.
+     *
+     * @return the limit, 2 when the parameter was absent
+     */
+    public long getActiveConnectionIdLimit() {
+        return activeConnectionIdLimit;
+    }
+
+    public void setActiveConnectionIdLimit(long activeConnectionIdLimit) {
+        this.activeConnectionIdLimit = activeConnectionIdLimit;
     }
 
     public void setMaxAckDelay(long maxAckDelay) {
@@ -497,6 +516,9 @@ public final class TransportParameters {
         if (versionInformationAvailable != null) {
             size += entryLength(VERSION_INFORMATION, 4 + 4 * versionInformationAvailable.length);
         }
+        if (activeConnectionIdLimit != DEFAULT_ACTIVE_CONNECTION_ID_LIMIT) {
+            size += entryLength(ACTIVE_CONNECTION_ID_LIMIT, varIntValueLength(activeConnectionIdLimit));
+        }
         if (minAckDelay >= 0) {
             size += entryLength(MIN_ACK_DELAY, varIntValueLength(minAckDelay));
         }
@@ -545,6 +567,9 @@ public final class TransportParameters {
             for (int i = 0; i < versionInformationAvailable.length; i++) {
                 buf.putInt(versionInformationAvailable[i]);
             }
+        }
+        if (activeConnectionIdLimit != DEFAULT_ACTIVE_CONNECTION_ID_LIMIT) {
+            writeVarIntParam(buf, ACTIVE_CONNECTION_ID_LIMIT, activeConnectionIdLimit);
         }
         if (minAckDelay >= 0) {
             writeVarIntParam(buf, MIN_ACK_DELAY, minAckDelay);
@@ -718,6 +743,8 @@ public final class TransportParameters {
                 params.maxDatagramFrameSize = VarInt.decode(buf);
             } else if (id == VERSION_INFORMATION) {
                 params.decodeVersionInformation(buf, length);
+            } else if (id == ACTIVE_CONNECTION_ID_LIMIT) {
+                params.activeConnectionIdLimit = VarInt.decode(buf);
             } else if (id == MIN_ACK_DELAY) {
                 params.minAckDelay = VarInt.decode(buf);
             }

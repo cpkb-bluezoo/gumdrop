@@ -105,6 +105,27 @@ public class QuicLoopbackQlogPacketEventsTest {
     }
 
     /**
+     * RFC 9000 section 5.1.1: an endpoint gives its peer spare connection
+     * IDs once the handshake is done. Gumdrop never did, so a peer had no
+     * connection ID to use on a second path: ngtcp2 and picoquic would not
+     * answer the PATH_CHALLENGE of a client moving to their preferred
+     * address, and quic-go would not follow a client whose port had been
+     * rebound.
+     */
+    @Test
+    public void bothEndsIssueASpareConnectionIdAfterTheHandshake() throws Exception {
+        connect();
+        String[] vantages = { "client", "server" };
+        for (int v = 0; v < vantages.length; v++) {
+            boolean issued = false;
+            for (Map<String, String> p : events(vantages[v], "quic:packet_sent")) {
+                issued |= frameTypes(p).contains("new_connection_id");
+            }
+            assertTrue(vantages[v] + " sent NEW_CONNECTION_ID", issued);
+        }
+    }
+
+    /**
      * A PATH_CHALLENGE from an address the server has not seen is answered,
      * and that address is validated in turn (RFC 9000 section 8.2, 9.3). The
      * runner's connection-migration case reads the first server packet on

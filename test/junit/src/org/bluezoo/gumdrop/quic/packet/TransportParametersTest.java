@@ -74,6 +74,19 @@ public class TransportParametersTest {
         assertEquals(0, decoded.getMaxDatagramFrameSize());
     }
 
+    // RFC 9000 section 18.2: active_connection_id_limit is how many
+    // connection IDs a peer will keep for us, and 2 when absent. It was
+    // neither read nor written, so the limit a peer set was never known.
+    @Test
+    public void testActiveConnectionIdLimitRoundTripsAndDefaultsToTwo() {
+        assertEquals(2, TransportParameters.decode(ByteBuffer.wrap(new TransportParameters().encode()))
+                .getActiveConnectionIdLimit());
+        TransportParameters params = new TransportParameters();
+        params.setActiveConnectionIdLimit(8);
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertEquals(8, decoded.getActiveConnectionIdLimit());
+    }
+
     @Test
     public void testServerParametersRoundTripIncludesOriginalDcid() {
         TransportParameters params = new TransportParameters();

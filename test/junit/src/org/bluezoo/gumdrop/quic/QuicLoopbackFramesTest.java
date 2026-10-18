@@ -142,6 +142,10 @@ public class QuicLoopbackFramesTest {
     public void stopSendingForFinishedStreamSendsNoReset() throws Exception {
         Fixture f = Fixture.create();
         exchange(f, 0);
+        // let the held-back acknowledgements and connection IDs go first
+        QuicForger.invoke(f.client.conn, "onAckTimeout");
+        QuicForger.invoke(f.server.conn, "onAckTimeout");
+        f.lb.pump();
         int before = f.lb.toServerLog.size();
         f.client.conn.resetStream(0, 0);
         f.lb.pump();
@@ -310,7 +314,8 @@ public class QuicLoopbackFramesTest {
         final byte[] before = f.client.conn.getPeerConnectionId();
         assertFalse(Arrays.equals(spare, before));
         ByteBuffer b = f.buf();
-        QuicFrameWriter.writeNewConnectionId(b, 1, 1, spare, new byte[16]);
+        // the server supplied sequence number 1 when the handshake finished
+        QuicFrameWriter.writeNewConnectionId(b, 2, 2, spare, new byte[16]);
         f.toClient(b);
         assertTrue(Arrays.equals(spare, f.client.conn.getPeerConnectionId()));
 

@@ -5794,6 +5794,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             keysObserver.run();
         }
         established = true;
+        issueSpareConnectionIds();
         if (qlog != null) {
             qlogAlpnInformation();
         }
@@ -5810,8 +5811,28 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
     }
 
+    // RFC 9000 section 5.1.1: an endpoint supplies its peer with connection
+    // IDs, up to the number the peer said it would keep
+    // (active_connection_id_limit), for the peer to use on a new path
+    // (section 9.5: a connection ID must not be used from two local
+    // addresses). With none spare, a peer cannot answer a probe on a new
+    // path or follow a rebinding; as a server, only the preferred
+    // address's was ever supplied. A few are enough.
+    private static final int MAX_SPARE_CONNECTION_IDS = 3;
+
+    private void issueSpareConnectionIds() {
+        for (int i = 0; i < MAX_SPARE_CONNECTION_IDS; i++) {
+            if (connectionIdManager.issueNext() == null) {
+                break;
+            }
+        }
+        requestFlush();
+    }
+
     @Override
     public void transportParametersReceived(TransportParameters transportParameters) {
+        connectionIdManager.setPeerAdvertisedLimit(
+                (int) Math.min(Integer.MAX_VALUE, Math.max(transportParameters.getActiveConnectionIdLimit(), 2L)));
         // draft-ietf-quic-ack-frequency section 3: min_ack_delay, in
         // microseconds, must not exceed max_ack_delay, in milliseconds
         if (transportParameters.hasMinAckDelay()
