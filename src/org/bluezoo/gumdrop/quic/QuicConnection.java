@@ -2147,6 +2147,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         currentDatagramPath = via != null ? via : engine.getPrimaryPath();
         sawValidOneRttThisReceive = false;
         decryptFailedOrUnparseableThisDatagram = false;
+        pendingPathResponses.clear();
         try {
             while (offset < bytes.length) {
                 int consumed = receiveOnePacket(bytes, offset);
@@ -2178,8 +2179,24 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 && !isRecentlyMigratedFrom(source)) {
             beginMigrationValidation(arrival, null, 0);
         }
+        sendPendingPathResponses();
         scheduleAcks();
         requestFlush();
+    }
+
+    // PATH_RESPONSEs owed for the PATH_CHALLENGEs of the datagram being
+    // processed: {challenge data, PathKey the challenge arrived on}.
+    private final List<Object[]> pendingPathResponses = new ArrayList<Object[]>();
+
+    private void sendPendingPathResponses() {
+        if (pendingPathResponses.isEmpty()) {
+            return;
+        }
+        List<Object[]> owed = new ArrayList<Object[]>(pendingPathResponses);
+        pendingPathResponses.clear();
+        for (Object[] response : owed) {
+            sendPathResponse((byte[]) response[0], (PathKey) response[1]);
+        }
     }
 
     /**
@@ -3147,7 +3164,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // RFC 9000 section 8.2.2: answered on the path the challenge
             // itself arrived on, which may not be remoteAddress yet (e.g.
             // the peer probing a path this endpoint hasn't switched to).
-            sendPathResponse(bytes, new PathKey(currentDatagramPath, currentDatagramSource));
+            // Held until the datagram is processed: a path this endpoint
+            // starts validating gets its own challenge first, so that the
+            // first packet on it carries one (the interop runner's
+            // connection-migration check reads that packet).
+            pendingPathResponses.add(new Object[] { bytes, new PathKey(currentDatagramPath, currentDatagramSource) });
         }
 
         @Override

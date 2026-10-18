@@ -98,6 +98,8 @@ public class HandshakeEngineLoopbackTest {
         boolean applicationSecretsReady;
         TlsProtocolError error;
         byte[] peerTransportParameters;
+        /** Which of the data and the peer's parameters was reported first. */
+        String firstEvent;
         SessionTicket sessionTicket;
         CipherSuite earlyKeysSuite;
         byte[] earlyTrafficSecret;
@@ -111,6 +113,9 @@ public class HandshakeEngineLoopbackTest {
 
         @Override
         public void handshakeDataReady(byte[] data) {
+            if (firstEvent == null) {
+                firstEvent = "data";
+            }
             outbound.add(data);
             allOutbound.add(data);
         }
@@ -127,6 +132,9 @@ public class HandshakeEngineLoopbackTest {
 
         @Override
         public void peerTransportParameters(byte[] parameters) {
+            if (firstEvent == null) {
+                firstEvent = "parameters";
+            }
             peerTransportParameters = parameters;
         }
 
@@ -374,6 +382,40 @@ public class HandshakeEngineLoopbackTest {
         server.processMessage(ch1, serverSink);
         assertNotNull("still-mismatched retry must fail", serverSink.error);
         assertEquals(AlertDescription.ILLEGAL_PARAMETER, serverSink.error.getAlert());
+    }
+
+    // RFC 9368 section 2.3: a QUIC server learns the client's version
+    // information from its transport parameters and switches version before
+    // it sends anything that carries handshake data. The parameters were
+    // reported only with a ServerHello, so a HelloRetryRequest went out in
+    // the old version and ngtcp2 discarded everything after it.
+    @Test
+    public void serverReportsThePeersTransportParametersBeforeAHelloRetryRequest() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setNamedGroups(Arrays.asList(NamedGroup.SECP256R1, NamedGroup.X25519));
+        sc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink serverSink = new RecordingSink();
+
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
+        HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+        params.random = random;
+        params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
+        params.groups = Arrays.asList(NamedGroup.X25519, NamedGroup.SECP256R1);
+        params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
+        params.keyShares.put(NamedGroup.X25519, x25519Kx.getShareBytes());
+        params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
+        params.applicationProtocols = Collections.singletonList("h3");
+        params.serverName = SERVER_NAME;
+        params.quicTransportParameters = new byte[] { 5, 6, 7, 8 };
+        server.processMessage(HandshakeMessages.buildClientHelloWithBinder(params, null), serverSink);
+
+        assertNull(serverSink.error);
+        assertEquals("the retry request was sent", 1, serverSink.drain().size());
+        assertArrayEquals(new byte[] { 5, 6, 7, 8 }, serverSink.peerTransportParameters);
+        assertEquals("the parameters came before the retry request", "parameters", serverSink.firstEvent);
     }
 
     @Test

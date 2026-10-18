@@ -160,6 +160,8 @@ public final class HandshakeEngine {
 
     private final int localRecordSizeLimit;
     private int peerRecordSizeLimit = RecordSizeLimit.DEFAULT;
+    // server: the client's QUIC transport parameters were reported with a HelloRetryRequest
+    private boolean peerTransportParametersReported;
 
     private CertificateCompressionAlgorithm negotiatedCertCompression;
 
@@ -1013,6 +1015,15 @@ public final class HandshakeEngine {
         boolean needGroupRetry = !ch.keyShares.containsKey(group);
         if ((needCookie || needGroupRetry) && serverRetryRequestedGroup == null) {
             byte[] cookie = needCookie ? validator.computeCookie(ch.random) : null;
+            // The parameters carry the client's version information (RFC
+            // 9368): a QUIC caller switches version on them, and must do
+            // so before anything it sends for this handshake, this retry
+            // request included. The second ClientHello's repeat of them is
+            // not reported again.
+            if (ch.quicTransportParameters != null) {
+                sink.peerTransportParameters(ch.quicTransportParameters);
+                peerTransportParametersReported = true;
+            }
             sendHelloRetryRequest(group, ch.legacySessionId, negotiatedSuite, clientHelloForTranscript,
                     echInnerAccepted, sink, cookie);
             return;
@@ -1076,7 +1087,7 @@ public final class HandshakeEngine {
         // act on the peer's parameters (RFC 9368 compatible version
         // negotiation changes the version in use) before it derives the
         // handshake keys or sends the ServerHello.
-        if (ch.quicTransportParameters != null) {
+        if (ch.quicTransportParameters != null && !peerTransportParametersReported) {
             sink.peerTransportParameters(ch.quicTransportParameters);
         }
         sink.handshakeDataReady(serverHello);

@@ -105,6 +105,29 @@ public class QuicLoopbackQlogPacketEventsTest {
     }
 
     /**
+     * A PATH_CHALLENGE from an address the server has not seen is answered,
+     * and that address is validated in turn (RFC 9000 section 8.2, 9.3). The
+     * runner's connection-migration case reads the first server packet on
+     * the new path and wants the server's own PATH_CHALLENGE in it, but the
+     * answer went out first on its own.
+     */
+    @Test
+    public void firstPacketToANewPathIsTheServersChallenge() throws Exception {
+        connect();
+        lb.clientSource = new java.net.InetSocketAddress("127.0.0.1", 50001);
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(4096);
+        org.bluezoo.gumdrop.quic.frame.QuicFrameWriter.writePathChallenge(b, new byte[] {1, 2, 3, 4, 5, 6, 7, 8});
+        b.flip();
+        int before = events("server", "quic:packet_sent").size();
+        lb.injectToServer(QuicForger.forge(client.conn, server.conn, 5000, b));
+        lb.pump();
+        List<Map<String, String>> sent = events("server", "quic:packet_sent");
+        assertTrue("the server answered", sent.size() > before);
+        assertTrue("the first packet on the new path holds the server's challenge: "
+                + frameTypes(sent.get(before)), frameTypes(sent.get(before)).contains("path_challenge"));
+    }
+
+    /**
      * qlog may optionally record key material ({@code security:key_updated}
      * and {@code key_discarded} have a {@code new} field, and packet events
      * a {@code raw.data} field holding the bytes on the wire). Gumdrop never
