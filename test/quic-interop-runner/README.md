@@ -106,7 +106,7 @@ has the ns-3 simulator. It builds the endpoint image on first use (`-b`
 rebuilds), generates the runner's certificates, serves and requests files of
 the case's sizes, and reports PASS or FAIL from the client's exit status and a
 byte comparison of every download; the consoles are printed on failure and the
-logs kept under `build/interop-local/`.
+logs kept under `~/.cache/gumdrop-interop-local/` (`INTEROP_LOCAL_DIR` changes it; not under `build/`, which `ant clean` deletes).
 
 ```bash
 test/quic-interop-runner/local.sh picoquic server v2

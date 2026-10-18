@@ -16,20 +16,38 @@
 #             v2, chacha20, retry, keyupdate, connectionmigration, ipv6
 #   -b        rebuild the gumdrop image first (slow under emulation)
 #   -v        print both consoles even when the case passes
+#   -t        capture the server's network at the router (tcpdump), to
+#             <logs>/cap/server.pcap
 #
-# The peer images are linux/amd64, so on Apple silicon they run emulated;
-# nothing here depends on timing finer than a second.
+# On Apple silicon a peer image published for linux/amd64 only (picoquic) runs
+# emulated; nothing here depends on timing finer than a second. ngtcp2's
+# published image is built with AddressSanitizer and does not start emulated:
+# build it natively once with
+#   local.sh --build-ngtcp2
+# which takes a while and leaves the image ngtcp2-interop-native.
 #
 # Example: local.sh ngtcp2 server v2
 
 set -u
 
+if [ "${1:-}" = "--build-ngtcp2" ]; then
+    SRC=${INTEROP_LOCAL_DIR:-$HOME/.cache/gumdrop-interop-local}/ngtcp2-src
+    mkdir -p "$SRC"
+    for f in Dockerfile run_endpoint.sh; do
+        curl -fsSL "https://raw.githubusercontent.com/ngtcp2/ngtcp2/main/interop/$f" -o "$SRC/$f" || exit 1
+    done
+    exec podman build --platform "$(podman info --format 'linux/{{.Host.Arch}}')" \
+        -f "$SRC/Dockerfile" -t ngtcp2-interop-native "$SRC"
+fi
+
 BUILD=0
 VERBOSE=0
-while getopts bv opt; do
+CAPTURE=0
+while getopts bvt opt; do
     case $opt in
         b) BUILD=1 ;;
         v) VERBOSE=1 ;;
+        t) CAPTURE=1 ;;
         *) sed -n '2,/^$/p' "$0"; exit 2 ;;
     esac
 done
@@ -43,15 +61,22 @@ ROLE=$2
 CASE=$3
 
 case $PEER in
-    ngtcp2)   PEER_IMAGE=ghcr.io/ngtcp2/ngtcp2-interop:latest ;;
+    ngtcp2)   if podman image exists ngtcp2-interop-native; then
+                  PEER_IMAGE=ngtcp2-interop-native
+              else
+                  PEER_IMAGE=ghcr.io/ngtcp2/ngtcp2-interop:latest
+              fi ;;
     picoquic) PEER_IMAGE=privateoctopus/picoquic:latest ;;
     quic-go)  PEER_IMAGE=martenseemann/quic-go-interop:latest ;;
     *)        PEER_IMAGE=$PEER ;;
 esac
 GUMDROP_IMAGE=gumdrop-interop
-PLATFORM=linux/amd64
+# gumdrop's own image is built for the host; a peer image runs as published
+# (emulated if it is amd64 only)
+PLATFORM=${PLATFORM:-$(podman info --format 'linux/{{.Host.Arch}}')}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-WORK=$ROOT/build/interop-local/$PEER-$ROLE-$CASE
+# not under build/: ant clean deletes that, and with it the logs of a sweep
+WORK=${INTEROP_LOCAL_DIR:-$HOME/.cache/gumdrop-interop-local}/$PEER-$ROLE-$CASE
 TIMEOUT=${TIMEOUT:-180}
 
 if [ "$ROLE" = server ]; then
@@ -131,16 +156,23 @@ podman network exists leftnet || podman network create --ipv6 \
 podman network exists rightnet || podman network create --ipv6 \
     --subnet 193.167.100.0/24 --subnet fd00:cafe:cafe:100::/64 rightnet >/dev/null
 
-podman run -d --name sim --cap-add NET_ADMIN \
+mkdir -p "$WORK/logs/cap"
+SIM_CMD='while true; do nc -l -p 57832 >/dev/null 2>&1; done'
+if [ $CAPTURE -eq 1 ]; then
+    SIM_CMD='apk add --no-cache tcpdump >/dev/null 2>&1; tcpdump -i eth1 -U -w /cap/server.pcap udp >/cap/tcpdump.out 2>&1 & '"$SIM_CMD"
+fi
+podman run -d --name sim --platform $PLATFORM --cap-add NET_ADMIN --cap-add NET_RAW \
     --sysctl net.ipv4.ip_forward=1 --sysctl net.ipv6.conf.all.forwarding=1 \
     --network leftnet:ip=193.167.0.2,ip=fd00:cafe:cafe:0::2 \
     --network rightnet:ip=193.167.100.2,ip=fd00:cafe:cafe:100::2 \
+    -v "$WORK/logs/cap:/cap" \
     docker.io/library/alpine:latest \
-    sh -c 'while true; do nc -l -p 57832 >/dev/null 2>&1; done' >/dev/null || exit 1
+    sh -c "$SIM_CMD" >/dev/null || exit 1
+[ $CAPTURE -eq 1 ] && sleep 6
 
-common_env=(-e SSLKEYLOGFILE=/logs/keys.log -e QLOGDIR=/logs/qlog/ -e INTEROP_DEBUG=1)
+common_env=(-e SSLKEYLOGFILE=/logs/keys.log -e QLOGDIR=/logs/qlog/ -e INTEROP_DEBUG=1 -e "JAVA_OPTS=${JAVA_OPTS:-}")
 
-podman run -d --name server --platform $PLATFORM --cap-add NET_ADMIN \
+podman run -d --name server --cap-add NET_ADMIN \
     --network rightnet:ip=193.167.100.100,ip=fd00:cafe:cafe:100::100 \
     --add-host server4:193.167.100.100 --add-host server6:fd00:cafe:cafe:100::100 \
     -v "$WORK/www:/www:ro" -v "$WORK/certs:/certs:ro" -v "$WORK/logs/server:/logs" \
@@ -150,7 +182,7 @@ podman run -d --name server --platform $PLATFORM --cap-add NET_ADMIN \
 # the client starts when the server's console shows it is up, or after a few seconds
 sleep 8
 
-podman run -d --name client --platform $PLATFORM --cap-add NET_ADMIN \
+podman run -d --name client --cap-add NET_ADMIN \
     --network leftnet:ip=193.167.0.100,ip=fd00:cafe:cafe:0::100 \
     --add-host server4:193.167.100.100 --add-host server6:fd00:cafe:cafe:100::100 \
     --add-host server46:193.167.100.100 --add-host server46:fd00:cafe:cafe:100::100 \

@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.junit.Test;
 
 /**
@@ -101,6 +102,57 @@ public class QuicLoopbackPreferredAddressTest {
         assertEquals("pong2", f.exchange("ping2", "pong2"));
         assertFalse(f.client.conn.isClosed());
         assertFalse(f.server.conn.isClosed());
+    }
+
+    // A client moving to the preferred address sends a packet of a PING
+    // alone ahead of its PATH_CHALLENGE, so that a server which starts
+    // validating on a non-probing packet (ngtcp2) sends its own challenge
+    // first. The packet builder's qlog code took every packet that was not a
+    // challenge for a PATH_RESPONSE and failed on the PING, which stopped the
+    // migration, but only with qlog on.
+    @Test
+    public void clientPingsBeforeChallengingThePreferredAddressWithQlogOn() throws Exception {
+        TelemetryConfig config = new TelemetryConfig();
+        QuicLoopbackQlogTest.Capture capture = new QuicLoopbackQlogTest.Capture();
+        config.exporter(capture);
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setPreferredAddress(QuicLoopback.SERVER_PREFERRED_ADDRESS, null);
+        lb.clientFactory.setMigrateToPreferredAddress(true);
+        lb.clientFactory.setTelemetryConfig(config);
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        ConnCapture client = new ConnCapture();
+        lb.startServer(server);
+        lb.enableServerPreferredAddress();
+        lb.startClient(null, client);
+        lb.pump();
+        assertTrue(client.conn.isEstablished());
+        QuicForger.invoke(client.conn, "onAckTimeout");
+        QuicForger.invoke(server.conn, "onAckTimeout");
+        lb.pump();
+
+        java.util.List<java.util.List<String>> sent = new java.util.ArrayList<java.util.List<String>>();
+        for (org.bluezoo.gumdrop.telemetry.LogRecord r : capture.named("client", "quic:packet_sent")) {
+            java.util.Map<String, String> p = org.bluezoo.gumdrop.testsupport.FlatJson.flatten(r.getBody());
+            java.util.List<String> types = new java.util.ArrayList<String>();
+            for (int i = 0; p.containsKey("frames." + i + ".frame_type"); i++) {
+                types.add(p.get("frames." + i + ".frame_type"));
+            }
+            sent.add(types);
+        }
+        int challenge = -1;
+        int ping = -1;
+        for (int i = 0; i < sent.size(); i++) {
+            if (challenge < 0 && sent.get(i).contains("path_challenge")) {
+                challenge = i;
+            }
+            if (ping < 0 && sent.get(i).contains("ping") && !sent.get(i).contains("path_challenge")) {
+                ping = i;
+            }
+        }
+        assertTrue("the client challenged the preferred address: " + sent, challenge >= 0);
+        assertTrue("a packet of a PING came before the challenge: " + sent, ping >= 0 && ping < challenge);
+        assertEquals(QuicLoopback.SERVER_PREFERRED_ADDRESS, client.conn.getRemoteAddress());
     }
 
     @Test

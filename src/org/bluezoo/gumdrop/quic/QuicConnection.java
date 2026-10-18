@@ -2179,9 +2179,57 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 && !isRecentlyMigratedFrom(source)) {
             beginMigrationValidation(arrival, null, 0);
         }
+        boolean challenged = !pendingPathResponses.isEmpty();
         sendPendingPathResponses();
+        if (challenged) {
+            challengeAfterServerDid(arrival);
+        }
         scheduleAcks();
         requestFlush();
+    }
+
+    // A client moving to the server's preferred address sent a PING first
+    // (see sendPathChallengeAndScheduleRetry) and holds its challenge back;
+    // the server's own challenge on that path is the cue to send it, after
+    // the answer to the server's.
+    private void challengeAfterServerDid(PathKey arrival) {
+        PathValidationAttempt attempt = pathValidationAttempts.get(arrival);
+        if (isServer || attempt == null || !attempt.pinged || attempt.challengeData != null) {
+            return;
+        }
+        if (attempt.timerHandle != null) {
+            attempt.timerHandle.cancel();
+            attempt.timerHandle = null;
+        }
+        sendPathChallengeAndScheduleRetry(arrival, attempt, currentPathValidationPto());
+    }
+
+    // RFC 9368 section 2.3: a server that goes on to select another QUIC
+    // version "might acknowledge the first packet in the client's Chosen
+    // Version and later switch", and the interop runner allows a v1 packet
+    // before the first CRYPTO frame for that. With the TLS work done in the
+    // same call, as it is on a fast machine, the first thing the server
+    // sent was its ServerHello in v2, and picoquic, which had seen nothing
+    // else from it, treated that packet as empty and never answered. Send
+    // the acknowledgement first, in the version the client used, before the
+    // frames of the packet reach TLS.
+    private void acknowledgeFirstInitialInClientsVersion(long packetNumber) {
+        if (sendPacketNumber[EncryptionLevel.INITIAL.ordinal()] != 0 || version != initialVersion
+                || engine.getSupportedVersions().length < 2) {
+            return;
+        }
+        TreeSet<Long> unacked = receivedUnacked.get(EncryptionLevel.INITIAL);
+        if (unacked == null) {
+            unacked = new TreeSet<Long>();
+            receivedUnacked.put(EncryptionLevel.INITIAL, unacked);
+        }
+        unacked.add(Long.valueOf(packetNumber));
+        ackOwed[EncryptionLevel.INITIAL.ordinal()] = true;
+        byte[] ack = buildLevelPacketOrNull(EncryptionLevel.INITIAL, 0);
+        if (ack != null) {
+            engine.sendPacket(this, ack);
+            amplificationBytesSent += ack.length;
+        }
     }
 
     // PATH_RESPONSEs owed for the PATH_CHALLENGEs of the datagram being
@@ -2691,6 +2739,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                     learnPeerConnectionId(candidatePeerConnectionId);
                 }
                 candidatePeerConnectionId = null;
+            }
+            if (isServer && level == EncryptionLevel.INITIAL) {
+                acknowledgeFirstInitialInClientsVersion(fullPacketNumber);
             }
             FrameDispatcher dispatcher = new FrameDispatcher(level, isZeroRtt);
             new QuicFrameParser(dispatcher).receive(ByteBuffer.wrap(plaintext));
@@ -3934,6 +3985,8 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // current one.
         byte[] destinationConnectionId;
         long destinationConnectionIdSequence;
+        // preferred_address: the packet that is not a probe has been sent
+        boolean pinged;
 
         PathValidationAttempt(long deadlineMillis) {
             this.deadlineMillis = deadlineMillis;
@@ -4039,6 +4092,26 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // machinery and needs its own).
     private void sendPathChallengeAndScheduleRetry(final PathKey candidate,
             final PathValidationAttempt attempt, long pto) {
+        if (!isServer && attempt.destinationConnectionId != null && !attempt.pinged) {
+            // A client moving to the server's preferred address means to
+            // stay there, so it first sends a packet that is not a probe
+            // (RFC 9000 section 9.1), and its challenge a moment later.
+            // ngtcp2 starts validating a client's new address on a
+            // non-probing packet; given the client's challenge in the same
+            // instant it answers that first and sends its own after, and
+            // the interop runner reads the first packet the server sends on
+            // the path for the server's challenge.
+            attempt.pinged = true;
+            sendPathFramePacket(PING_ONLY, null, candidate, attempt.destinationConnectionId);
+            long wait = Math.max(1L, Math.min(Math.max(10L, pto / 4), attempt.deadlineMillis - nowMillis()));
+            attempt.timerHandle = engine.scheduleTimer(wait, new Runnable() {
+                @Override
+                public void run() {
+                    onPathValidationTimeout(candidate);
+                }
+            });
+            return;
+        }
         attempt.challengeData = new byte[QuicFrameHandler.PATH_DATA_LENGTH];
         crypto.nextBytes(attempt.challengeData);
         sendPathChallenge(attempt.challengeData, candidate,
@@ -4210,23 +4283,18 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     }
 
     private void sendPathChallenge(byte[] data, PathKey destination, byte[] destinationConnectionId) {
-        // A client moving to the server's preferred address (the only time
-        // it names a connection ID) means to stay there, so its challenge
-        // travels with a PING, making the packet non-probing (RFC 9000
-        // section 9.1). ngtcp2 starts validating a client's new address
-        // only on a non-probing packet, and the interop runner reads its
-        // first packet on the path for that challenge; sent alone, ours was
-        // answered with a PATH_RESPONSE and nothing else.
-        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination, destinationConnectionId,
-                !isServer && destinationConnectionId != null);
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination, destinationConnectionId);
     }
 
+    // frame type marker for a packet of a PING and padding alone
+    private static final long PING_ONLY = -1L;
+
     private void sendPathResponse(byte[] data, PathKey destination) {
-        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination, peerConnectionId, false);
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination, peerConnectionId);
     }
 
     private void sendPathFramePacket(long frameType, byte[] data, PathKey destination,
-            byte[] destinationConnectionId, boolean withPing) {
+            byte[] destinationConnectionId) {
         try {
             // RFC 9000 section 8.2.1: a PATH_CHALLENGE-carrying datagram
             // must be expanded to the smallest allowed maximum datagram
@@ -4235,7 +4303,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // for simplicity, even though the RFC only requires it of the
             // challenge (a PATH_RESPONSE is tiny either way).
             byte[] packet = buildStandalonePathFramePacket(frameType, data, MIN_DATAGRAM_SIZE,
-                    destinationConnectionId, withPing);
+                    destinationConnectionId);
             if (packet != null) {
                 engine.sendTo(destination.path, destination.remote, packet);
             }
@@ -4253,16 +4321,14 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // two frame types in this simplified pass, matching the same
     // accepted gap already documented for MAX_DATA/MAX_STREAM_DATA).
     private byte[] buildStandalonePathFramePacket(long frameType, byte[] data, int minDatagramSize,
-            byte[] destinationConnectionId, boolean withPing) throws PacketProtectionException {
+            byte[] destinationConnectionId) throws PacketProtectionException {
         PacketProtectionKeys keys = sendKeys.get(EncryptionLevel.ONE_RTT);
         if (keys == null) {
             return null; // no 1-RTT keys yet; migration cannot apply before the handshake completes
         }
-        int frameBytes = frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE
+        int frameBytes = frameType == PING_ONLY ? QuicFrameWriter.pingLength()
+                : frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE
                 ? QuicFrameWriter.pathChallengeLength() : QuicFrameWriter.pathResponseLength();
-        if (withPing) {
-            frameBytes += QuicFrameWriter.pingLength();
-        }
         long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
 
@@ -4283,10 +4349,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         int totalFrameBytes = frameBytes + paddingBytes;
 
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
-        if (withPing) {
+        if (frameType == PING_ONLY) {
             QuicFrameWriter.writePing(payload);
-        }
-        if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
+        } else if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
             QuicFrameWriter.writePathChallenge(payload, data);
         } else {
             QuicFrameWriter.writePathResponse(payload, data);
@@ -4312,7 +4377,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
         if (qlog != null) {
             QlogFrames qf = new QlogFrames();
-            if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
+            if (frameType == PING_ONLY) {
+                qf.ping();
+            } else if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
                 qf.pathChallenge(data);
             } else {
                 qf.pathResponse(data);
