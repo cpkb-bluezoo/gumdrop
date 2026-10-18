@@ -173,6 +173,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     // for the rest of the connection.
     private boolean headersDecoded;
     private ByteArrayOutputStream heldBody;
+    // endMessage came while heldBody was still waiting for the body slot
+    private boolean endMessagePending;
 
     private boolean capsuleMode;
     private final CapsuleParser capsuleParser = new CapsuleParser();
@@ -1081,12 +1083,29 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                 return;
             }
             finishResponseContentEncoder();
-            if (responseTrailers != null) {
-                sendHeaderFrame(responseTrailers, false);
-                responseTrailers = null;
+            if (hasHeldBody()) {
+                // Another response owns the body slot (see sendBodyWire):
+                // closing now would send the FIN and drop the held body.
+                // flushHeldBody completes the message once it is sent.
+                endMessagePending = true;
+                return;
             }
-            endpoint.close();
+            sendTrailersAndClose();
         }
+        completeMessage();
+    }
+
+    // The trailers, if any, then the FIN: the end of a response whose body
+    // has all been sent.
+    private void sendTrailersAndClose() {
+        if (responseTrailers != null) {
+            sendHeaderFrame(responseTrailers, false);
+            responseTrailers = null;
+        }
+        endpoint.close();
+    }
+
+    private void completeMessage() {
         state = State.CLOSED;
         endTelemetrySpan(responseStatusCode);
         if (connection != null) {
@@ -1971,6 +1990,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         byte[] bytes = heldBody.toByteArray();
         heldBody.reset();
         sendBody(ByteBuffer.wrap(bytes));
+        if (endMessagePending) {
+            endMessagePending = false;
+            sendTrailersAndClose();
+            completeMessage();
+        }
     }
 
     private void emitBody(byte[] bytes) {

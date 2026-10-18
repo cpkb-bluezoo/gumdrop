@@ -1443,8 +1443,13 @@ public final class HandshakeEngine {
                 maxEarlyDataSize, negotiatedSuite, serverLocalTransportParameters);
         byte[] identity = payload.seal(ticketKeys.getCurrentKey(), crypto);
 
+        // RFC 9001 section 4.6.1: over QUIC the field is always 0xffffffff
+        // (the sealed payload keeps the real limit), and a client treats any
+        // other value as a connection error, so it ignored our 0-RTT tickets.
+        int advertisedEarlyDataSize = maxEarlyDataSize > 0 && config.getMode() == HandshakeMode.QUIC
+                ? -1 : maxEarlyDataSize;
         byte[] ticketMessage = HandshakeMessages.buildNewSessionTicket(lifetimeSeconds, ageAdd, nonce, identity,
-                maxEarlyDataSize);
+                advertisedEarlyDataSize);
         sink.handshakeDataReady(ticketMessage);
     }
 

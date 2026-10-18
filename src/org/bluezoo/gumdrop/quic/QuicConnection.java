@@ -1996,8 +1996,16 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
      * @param errorCode the application protocol error code
      */
     void resetStream(long streamId, long errorCode) {
-        long finalSize = streamSendOffset.containsKey(Long.valueOf(streamId))
-                ? streamSendOffset.get(Long.valueOf(streamId)).longValue() : 0;
+        Long key = Long.valueOf(streamId);
+        if (!streams.containsKey(key) && !streamSendOffset.containsKey(key)) {
+            // The stream is retired and its send records released (see
+            // releaseStreamSendRecordsIfDone): everything it sent was
+            // delivered, so there is nothing to reset (RFC 9000 section
+            // 3.5). A RESET_STREAM here would read its final size as 0 and
+            // contradict the FIN the peer has, a FINAL_SIZE_ERROR.
+            return;
+        }
+        long finalSize = streamSendOffset.containsKey(key) ? streamSendOffset.get(key).longValue() : 0;
         pendingResetStreams.add(new long[] { streamId, errorCode, finalSize });
         removePendingStream(Long.valueOf(streamId));
         requestFlush();

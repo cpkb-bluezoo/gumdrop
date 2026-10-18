@@ -254,6 +254,37 @@ public class H3ServerFlowTest {
         assertFalse(stream.endPushPromise());
     }
 
+    /**
+     * Only one non-incremental response body is sent at a time; the body of
+     * another is held until the first ends. A response that ended while its
+     * body was still held closed the stream at once and dropped the body, so
+     * a client that asked for a large and a small file together (quic-go,
+     * quiche, lsquic) got the small one as headers alone.
+     */
+    @Test
+    public void responseEndedWhileItsBodyIsHeldStillDeliversTheBody() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream large = f.open();
+        feed(large, get("/large"));
+        large.readFinished();
+        HttpResponse first = f.rec.state;
+        H3Stream small = f.open();
+        feed(small, get("/small"));
+        small.readFinished();
+        HttpResponse second = f.rec.state;
+
+        first.status(HttpStatus.OK.code);
+        first.bodyContent(ByteBuffer.wrap(new byte[100]));
+        second.status(HttpStatus.OK.code);
+        second.bodyContent(ByteBuffer.wrap(new byte[50]));
+        second.endMessage();
+        first.endMessage();
+
+        H3ResponseWire wire = new H3ResponseWire(f.conn, small.getStreamId());
+        assertEquals("the held body was sent once the first response ended", 50, wire.dataBytes());
+        assertTrue("and the stream was then closed", wire.fin);
+    }
+
     static final class HttpResponseStateCheck {
         static String version(HttpResponse s) {
             return s.getVersion().name();

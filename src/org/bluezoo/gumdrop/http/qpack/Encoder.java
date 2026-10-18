@@ -163,6 +163,8 @@ public final class Encoder extends QpackConstants implements DecoderStreamHandle
         long base = knownReceivedCount; // non-blocking policy: Base = RIC = KRC
         ByteBuffer fieldLines = ByteBuffer.allocate(estimateFieldLinesCapacity(fields));
         List<Long> referenced = new ArrayList<Long>();
+        // One more than the largest absolute index referenced, 0 if none.
+        long requiredInsertCount = 0;
 
         for (Header header : fields) {
             String name = header.getName();
@@ -179,6 +181,7 @@ public final class Encoder extends QpackConstants implements DecoderStreamHandle
             if (dynamicMatch != null && dynamicMatch.fullMatch) {
                 table.addRef(dynamicMatch.absoluteIndex);
                 referenced.add(dynamicMatch.absoluteIndex);
+                requiredInsertCount = Math.max(requiredInsertCount, dynamicMatch.absoluteIndex + 1);
                 // RFC 9204 section 4.5.2: Indexed Field Line, T=0 (dynamic),
                 // relative index = base - 1 - absoluteIndex
                 PrefixedInteger.encode(fieldLines, 0x80, base - 1 - dynamicMatch.absoluteIndex, 6);
@@ -219,6 +222,7 @@ public final class Encoder extends QpackConstants implements DecoderStreamHandle
             } else if (dynamicNameMatch != null && !dynamicNameMatch.fullMatch) {
                 // RFC 9204 section 4.5.4: Literal Field Line with Name
                 // Reference, N=0, T=0 (dynamic)
+                requiredInsertCount = Math.max(requiredInsertCount, dynamicNameMatch.absoluteIndex + 1);
                 PrefixedInteger.encode(fieldLines, 0x40, base - 1 - dynamicNameMatch.absoluteIndex, 4);
                 QpackStrings.write(fieldLines, valueBytes(value), 7, 0x00);
             } else {
@@ -228,18 +232,21 @@ public final class Encoder extends QpackConstants implements DecoderStreamHandle
             }
         }
 
-        long encodedRic = RequiredInsertCount.encode(base, table.getCapacity());
+        // RFC 9204 section 2.1.2: the Required Insert Count is the lowest
+        // value the section can be decoded with, 0 if it references no
+        // dynamic entry; a strict decoder treats a larger one as an error.
+        // Base stays the Known Received Count the indices were taken
+        // against, so Delta Base (sign 0) is the difference.
+        long encodedRic = RequiredInsertCount.encode(requiredInsertCount, table.getCapacity());
         PrefixedInteger.encode(fieldSection, 0, encodedRic, 8);
-        PrefixedInteger.encode(fieldSection, 0, 0, 7); // Base = RIC: sign 0, delta 0
+        PrefixedInteger.encode(fieldSection, 0, requiredInsertCount == 0 ? 0 : base - requiredInsertCount, 7);
         fieldLines.flip();
         fieldSection.put(fieldLines);
 
-        // Decoder sends Section Acknowledgment iff RIC > 0. Under our
-        // non-blocking policy RIC = base = knownReceivedCount, so every
-        // section with base > 0 must be tracked -- including those that
-        // hold no dynamic-table refs (static/literal-only).
-        if (base > 0) {
-            outstanding.put(streamId, new OutstandingSection(base, referenced));
+        // Decoder sends Section Acknowledgment iff the Required Insert
+        // Count is above 0, and the Known Received Count then rises to it.
+        if (requiredInsertCount > 0) {
+            outstanding.put(streamId, new OutstandingSection(requiredInsertCount, referenced));
         }
     }
 

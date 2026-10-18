@@ -247,6 +247,45 @@ public class QPACKDynamicTableTest {
         assertEquals(headers2, decoded2);
     }
 
+    /**
+     * RFC 9204 section 2.2.1: the Required Insert Count is one more than
+     * the largest absolute index the section references, not however many
+     * entries the encoder knows the decoder has. A strict decoder (lsquic)
+     * closes the connection with QPACK_DECOMPRESSION_FAILED when it is
+     * larger.
+     */
+    @Test
+    public void testRequiredInsertCountIsTheLowestPossible() throws ProtocolException {
+        Encoder encoder = new Encoder(4096);
+        Decoder decoder = new Decoder(4096);
+
+        List<Header> headers1 = new ArrayList<Header>();
+        headers1.add(new Header("x-first", "one"));
+        headers1.add(new Header("x-second", "two"));
+        ByteBuffer fieldSection1 = ByteBuffer.allocate(256);
+        ByteBuffer encoderInstructions1 = ByteBuffer.allocate(256);
+        encoder.encode(fieldSection1, encoderInstructions1, 0, headers1);
+        encoderInstructions1.flip();
+        decoder.feedEncoderStream(encoderInstructions1);
+        fieldSection1.flip();
+        QpackTestSupport.decode(decoder, 0, fieldSection1);
+        byte[] decoderOut = decoder.takePendingInstructions();
+        if (decoderOut.length > 0) {
+            encoder.feedDecoderStream(ByteBuffer.wrap(decoderOut));
+        }
+        // Both entries are now known to the decoder (Known Received Count 2).
+
+        List<Header> headers2 = new ArrayList<Header>();
+        headers2.add(new Header("x-first", "one")); // absolute index 0 only
+        ByteBuffer fieldSection2 = ByteBuffer.allocate(256);
+        encoder.encode(fieldSection2, ByteBuffer.allocate(256), 1, headers2);
+        fieldSection2.flip();
+        // wire value = (RIC mod (2 * MaxEntries)) + 1 with RIC 1, MaxEntries 128
+        assertEquals("Required Insert Count must be 1, not the Known Received Count",
+                2, fieldSection2.get(0) & 0xff);
+        assertEquals(headers2, QpackTestSupport.decode(decoder, 1, fieldSection2));
+    }
+
     @Test
     public void testDecoderRejectsCapacityExceedingDeclaredMaximum() {
         Decoder decoder = new Decoder(256);
@@ -302,8 +341,13 @@ public class QPACKDynamicTableTest {
         assertTrue(error != null && error.contains("already-acknowledged"));
     }
 
+    /**
+     * A section with no dynamic reference has a Required Insert Count of 0
+     * even when the table is populated (RFC 9204 section 2.1.2), so the
+     * decoder has nothing to acknowledge for it.
+     */
     @Test
-    public void testStaticOnlySectionAcknowledgmentIsAcceptedWhenKnownReceivedCountPositive() {
+    public void testStaticOnlySectionHasRequiredInsertCountZeroWhenKnownReceivedCountPositive() {
         Encoder encoder = new Encoder(4096);
         Decoder decoder = new Decoder(4096);
 
@@ -317,19 +361,13 @@ public class QPACKDynamicTableTest {
         encoder.feedDecoderStream(ByteBuffer.wrap(decoder.takePendingInstructions()));
         assertTrue(encoder.takeLastInstructionError() == null);
 
-        // Static-only section with Base > 0: Decoder will ack; Encoder must
-        // have tracked the stream even though it held no dynamic refs.
         List<Header> staticOnly = new ArrayList<Header>();
         staticOnly.add(new Header(":method", "GET"));
         fieldSection.clear();
         encoderInstructions.clear();
         encoder.encode(fieldSection, encoderInstructions, 8, staticOnly);
-
-        ByteBuffer ack = ByteBuffer.allocate(16);
-        DecoderStreamWriter.writeSectionAcknowledgment(ack, 8);
-        ack.flip();
-        encoder.feedDecoderStream(ack);
-        assertTrue(encoder.takeLastInstructionError() == null);
+        fieldSection.flip();
+        assertEquals("Required Insert Count", 0, fieldSection.get(0) & 0xff);
     }
 
     @Test

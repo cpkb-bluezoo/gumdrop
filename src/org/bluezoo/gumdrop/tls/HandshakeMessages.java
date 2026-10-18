@@ -910,7 +910,8 @@ final class HandshakeMessages {
      * @param ageAdd the random {@code ticket_age_add} value
      * @param nonce the per-ticket random nonce, input to the resumption PSK derivation
      * @param ticket the opaque ticket identity (this server's own sealed payload)
-     * @param maxEarlyDataSize the maximum 0-RTT data this ticket may be used for, or 0 for none
+     * @param maxEarlyDataSize the maximum 0-RTT data this ticket may be used for, or 0 for none;
+     *        -1 sends 0xffffffff, which a QUIC server must send (RFC 9001 section 4.6.1)
      * @return the complete framed message
      */
     static byte[] buildNewSessionTicket(int lifetimeSeconds, int ageAdd, byte[] nonce, byte[] ticket,
@@ -922,7 +923,8 @@ final class HandshakeMessages {
         body.opaque16(ticket);
 
         WireWriter ext = new WireWriter();
-        if (maxEarlyDataSize > 0) {
+        if (maxEarlyDataSize != 0) {
+            // an unsigned 32-bit field: -1 is 0xffffffff, the only value QUIC allows
             WireWriter ed = new WireWriter();
             ed.u32(maxEarlyDataSize);
             writeExtension(ext, EXT_EARLY_DATA, ed.toByteArray());
@@ -956,7 +958,10 @@ final class HandshakeMessages {
             int extType = er.u16();
             byte[] extBody = er.opaque16();
             if (extType == EXT_EARLY_DATA) {
-                nst.maxEarlyDataSize = new WireReader(extBody).u32();
+                // An unsigned 32-bit value: a QUIC server sends 0xffffffff
+                // (RFC 9001 section 4.6.1), which as an int is -1, "no 0-RTT".
+                long size = new WireReader(extBody).u32() & 0xffffffffL;
+                nst.maxEarlyDataSize = size > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) size;
             }
         }
         return nst;

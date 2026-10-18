@@ -114,6 +114,17 @@ public final class InteropClient {
                 // the server may switch to.
                 factory.setVersions(InteropServer.V2_PREFERRED);
             }
+            if (testCase == InteropTestCase.TRANSFER || testCase == InteropTestCase.MULTICONNECT) {
+                // The runner runs its loss, corruption, blackhole and
+                // amplification scenarios under these two names, and they
+                // drop whole datagrams by number or at random. A hybrid
+                // X25519MLKEM768 key share makes the ClientHello two
+                // datagrams (so one of the two is lost far more often, and
+                // the amplification case drops the second every time); the
+                // classical share fits in one. The handshake, resumption
+                // and 0-RTT cases keep the hybrid default.
+                factory.setNamedGroups("x25519");
+            }
             if (testCase == InteropTestCase.TRANSFER) {
                 // The transfer case asks for initial windows small enough
                 // that multi-megabyte files need MAX_DATA / MAX_STREAM_DATA

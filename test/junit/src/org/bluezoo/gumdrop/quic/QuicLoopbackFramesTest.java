@@ -131,6 +131,24 @@ public class QuicLoopbackFramesTest {
         assertFalse(f.client.conn.isClosed());
     }
 
+    /**
+     * RFC 9000 section 3.5: nothing is owed to a STOP_SENDING for a stream
+     * whose sending part has finished. The stream's send records are gone
+     * by then, so the RESET_STREAM that was sent anyway read its final size
+     * as 0, and nginx closed the connection with FINAL_SIZE_ERROR (an
+     * HTTP/3 client lost the rest of its downloads).
+     */
+    @Test
+    public void stopSendingForFinishedStreamSendsNoReset() throws Exception {
+        Fixture f = Fixture.create();
+        exchange(f, 0);
+        int before = f.lb.toServerLog.size();
+        f.client.conn.resetStream(0, 0);
+        f.lb.pump();
+        assertEquals("a finished stream is not reset", before, f.lb.toServerLog.size());
+        assertFalse(f.server.conn.isClosed());
+    }
+
     /** The same for a finished stream of the peer's: it is not the peer opening the stream again. */
     @Test
     public void lateStreamFrameForPeersFinishedStreamIsIgnored() throws Exception {

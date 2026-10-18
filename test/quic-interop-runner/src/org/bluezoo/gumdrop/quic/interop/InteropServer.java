@@ -97,6 +97,14 @@ public final class InteropServer {
         InteropEnvironment.enableQlog(factory);
         // The handshake test fails if a Retry is sent, so only the retry
         // case validates addresses.
+        if (testCase == InteropTestCase.TRANSFER) {
+            // The runner's amplification scenario runs as transfer and
+            // checks that the server's handshake flight, with its long
+            // certificate chain, is bigger than three times the client's
+            // Initial; a compressed chain (RFC 8879) is not, and a flight
+            // under the limit proves nothing about it.
+            System.setProperty("gumdrop.tls.disableCertificateCompression", "true");
+        }
         factory.setRequireRetry(testCase == InteropTestCase.RETRY);
         factory.setEarlyDataEnabled(testCase == InteropTestCase.ZERORTT);
         if (testCase == InteropTestCase.CHACHA20) {
