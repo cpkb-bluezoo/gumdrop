@@ -59,9 +59,13 @@ final class HqClient {
      * How long a handshake may take before the attempt is abandoned. The
      * transport reports a failed attempt only to a first-stream handler,
      * not to a connection handler, so an unreachable server would
-     * otherwise be noticed only by the overall download timeout.
+     * otherwise be noticed only by the overall download timeout. Well
+     * above the 30 seconds an unlucky handshake takes under the runner's
+     * handshake-loss case (probe timers that doubled to 14.8 seconds after
+     * a first round trip measured at a second), which the runner itself
+     * allows, as it times the whole case, not each connection.
      */
-    private static final long CONNECT_TIMEOUT_MILLIS = 30_000;
+    private static final long CONNECT_TIMEOUT_MILLIS = 90_000;
 
     private final SelectorLoop loop;
     private final QuicTransportFactory factory;
