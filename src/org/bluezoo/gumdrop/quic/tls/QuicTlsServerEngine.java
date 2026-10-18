@@ -225,6 +225,10 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
         this.config = new HandshakeConfig(HandshakeRole.SERVER, crypto);
         config.setServerCredentials(serverCredentials);
         config.setServerCredentialsResolver(serverCredentialsResolver);
+        // A retry costs a round trip, and a HelloRetryRequest raises the
+        // question of which QUIC version it is sent in (RFC 9368), on which
+        // peers disagree; use the group the client sent a share for.
+        config.setAcceptOfferedKeyShare(true);
         if (requireClientAuth) {
             config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
             config.setClientTrustManager(clientTrustManager);

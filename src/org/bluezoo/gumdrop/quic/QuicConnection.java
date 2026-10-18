@@ -4210,15 +4210,23 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     }
 
     private void sendPathChallenge(byte[] data, PathKey destination, byte[] destinationConnectionId) {
-        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination, destinationConnectionId);
+        // A client moving to the server's preferred address (the only time
+        // it names a connection ID) means to stay there, so its challenge
+        // travels with a PING, making the packet non-probing (RFC 9000
+        // section 9.1). ngtcp2 starts validating a client's new address
+        // only on a non-probing packet, and the interop runner reads its
+        // first packet on the path for that challenge; sent alone, ours was
+        // answered with a PATH_RESPONSE and nothing else.
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination, destinationConnectionId,
+                !isServer && destinationConnectionId != null);
     }
 
     private void sendPathResponse(byte[] data, PathKey destination) {
-        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination, peerConnectionId);
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination, peerConnectionId, false);
     }
 
     private void sendPathFramePacket(long frameType, byte[] data, PathKey destination,
-            byte[] destinationConnectionId) {
+            byte[] destinationConnectionId, boolean withPing) {
         try {
             // RFC 9000 section 8.2.1: a PATH_CHALLENGE-carrying datagram
             // must be expanded to the smallest allowed maximum datagram
@@ -4227,7 +4235,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // for simplicity, even though the RFC only requires it of the
             // challenge (a PATH_RESPONSE is tiny either way).
             byte[] packet = buildStandalonePathFramePacket(frameType, data, MIN_DATAGRAM_SIZE,
-                    destinationConnectionId);
+                    destinationConnectionId, withPing);
             if (packet != null) {
                 engine.sendTo(destination.path, destination.remote, packet);
             }
@@ -4245,13 +4253,16 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // two frame types in this simplified pass, matching the same
     // accepted gap already documented for MAX_DATA/MAX_STREAM_DATA).
     private byte[] buildStandalonePathFramePacket(long frameType, byte[] data, int minDatagramSize,
-            byte[] destinationConnectionId) throws PacketProtectionException {
+            byte[] destinationConnectionId, boolean withPing) throws PacketProtectionException {
         PacketProtectionKeys keys = sendKeys.get(EncryptionLevel.ONE_RTT);
         if (keys == null) {
             return null; // no 1-RTT keys yet; migration cannot apply before the handshake completes
         }
         int frameBytes = frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE
                 ? QuicFrameWriter.pathChallengeLength() : QuicFrameWriter.pathResponseLength();
+        if (withPing) {
+            frameBytes += QuicFrameWriter.pingLength();
+        }
         long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
 
@@ -4272,6 +4283,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         int totalFrameBytes = frameBytes + paddingBytes;
 
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
+        if (withPing) {
+            QuicFrameWriter.writePing(payload);
+        }
         if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
             QuicFrameWriter.writePathChallenge(payload, data);
         } else {

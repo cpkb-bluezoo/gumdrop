@@ -73,6 +73,7 @@ public final class HandshakeConfig {
     private SessionTicket sessionTicket;
     private boolean enableEarlyData;
     private int maxEarlyDataSize = 16384;
+    private boolean acceptOfferedKeyShare;
 
     // RFC 8449 record_size_limit.
     private boolean recordSizeLimitEnabled = true;
@@ -414,6 +415,29 @@ public final class HandshakeConfig {
      */
     public List<NamedGroup> getNamedGroups() {
         return namedGroups;
+    }
+
+    /**
+     * Whether a server answers with a group the client sent a key share
+     * for, in its own order of preference among those, before it asks for a
+     * share of its most preferred group with a HelloRetryRequest. Off by
+     * default: the retry is then what a preference for a group the client
+     * did not offer costs, the usual TLS 1.3 behaviour.
+     *
+     * @return true to use an offered share when one is acceptable
+     */
+    public boolean isAcceptOfferedKeyShare() {
+        return acceptOfferedKeyShare;
+    }
+
+    /**
+     * Sets whether a server accepts a group the client offered a key share
+     * for, rather than sending a HelloRetryRequest for a more preferred one.
+     *
+     * @param acceptOfferedKeyShare true to accept an offered share
+     */
+    public void setAcceptOfferedKeyShare(boolean acceptOfferedKeyShare) {
+        this.acceptOfferedKeyShare = acceptOfferedKeyShare;
     }
 
     /**

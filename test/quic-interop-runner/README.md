@@ -97,6 +97,29 @@ Logs land in `logs/<server>_<client>/<testcase>/` with the runner's
 verdict in `output.txt`, the endpoint consoles under `server/` and
 `client/`, and the simulator's pcaps under `sim/`.
 
+## Running a peer locally with podman
+
+`local.sh PEER ROLE TESTCASE` runs gumdrop's endpoint against a peer's image
+(ngtcp2, picoquic, quic-go, or any image name) with podman, on the runner's
+two-network topology and addresses, with a plain IP router where the runner
+has the ns-3 simulator. It builds the endpoint image on first use (`-b`
+rebuilds), generates the runner's certificates, serves and requests files of
+the case's sizes, and reports PASS or FAIL from the client's exit status and a
+byte comparison of every download; the consoles are printed on failure and the
+logs kept under `build/interop-local/`.
+
+```bash
+test/quic-interop-runner/local.sh picoquic server v2
+test/quic-interop-runner/local.sh picoquic client connectionmigration
+```
+
+It covers the protocol cases in minutes. It does not run the runner's trace
+checks (the versions on the wire for `v2`, the 0-RTT byte counts, the first
+packet on a new path) or any case that needs packet loss, corruption or
+rebinding. On Apple silicon the peer images are `linux/amd64` and run
+emulated; ngtcp2's image is built with AddressSanitizer, which does not start
+under emulation.
+
 ## Running the endpoint without Docker
 
 The mains read `INTEROP_WWW`, `INTEROP_DOWNLOADS`, `INTEROP_CERTS` and

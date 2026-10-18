@@ -1004,7 +1004,21 @@ public final class HandshakeEngine {
         // share for -- a mutually supported group the client only listed
         // in supported_groups (no matching share) is precisely the
         // "need a retry" condition, not a negotiation failure.
-        NamedGroup group = selectFirst(config.getNamedGroups(), ch.supportedGroups);
+        NamedGroup group = null;
+        if (config.isAcceptOfferedKeyShare() && serverRetryRequestedGroup == null) {
+            // Our own order of preference among the groups the client
+            // sent a share for: no retry, and the client's choice of
+            // what to compute up front is respected.
+            for (NamedGroup candidate : config.getNamedGroups()) {
+                if (ch.supportedGroups.contains(candidate) && ch.keyShares.containsKey(candidate)) {
+                    group = candidate;
+                    break;
+                }
+            }
+        }
+        if (group == null) {
+            group = selectFirst(config.getNamedGroups(), ch.supportedGroups);
+        }
         if (group == null) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "No mutually acceptable group");
             return;

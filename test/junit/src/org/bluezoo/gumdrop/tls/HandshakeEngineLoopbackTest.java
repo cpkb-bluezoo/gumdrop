@@ -418,6 +418,41 @@ public class HandshakeEngineLoopbackTest {
         assertEquals("the parameters came before the retry request", "parameters", serverSink.firstEvent);
     }
 
+    // A server that prefers a group the client sent no share for costs a
+    // round trip (a HelloRetryRequest); with acceptOfferedKeyShare it uses
+    // a group the client did send one for. picoquic (secp256r1) and
+    // ngtcp2 (x25519) each offer a share for a different one of the two,
+    // so no fixed server preference avoids the retry for both, and
+    // peers disagree over which version it should carry.
+    @Test
+    public void serverUsesTheGroupOfferedAShareWhenAskedTo() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setNamedGroups(Arrays.asList(NamedGroup.SECP256R1, NamedGroup.X25519));
+        sc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        sc.setAcceptOfferedKeyShare(true);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink serverSink = new RecordingSink();
+
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519, new CryptoServices());
+        HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+        params.random = random;
+        params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
+        params.groups = Arrays.asList(NamedGroup.X25519, NamedGroup.SECP256R1);
+        params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
+        params.keyShares.put(NamedGroup.X25519, x25519Kx.getShareBytes());
+        params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
+        params.applicationProtocols = Collections.singletonList("h3");
+        params.serverName = SERVER_NAME;
+        server.processMessage(HandshakeMessages.buildClientHelloWithBinder(params, null), serverSink);
+
+        assertNull(serverSink.error);
+        List<byte[]> flight = serverSink.drain();
+        assertFalse("no retry: the first message is a ServerHello",
+                HandshakeMessages.isHelloRetryRequest(flight.get(0)));
+    }
+
     @Test
     public void serverCompletesHandshakeAfterCorrectedClientHelloFollowingRetry() throws Exception {
         HandshakeConfig sc = serverConfig(ecChain, ecKey);
