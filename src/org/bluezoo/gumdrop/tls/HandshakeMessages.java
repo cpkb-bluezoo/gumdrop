@@ -280,7 +280,12 @@ final class HandshakeMessages {
         if (params.earlyDataRequested) {
             writeExtension(ext, EXT_EARLY_DATA, new byte[0]);
         }
-        if (params.pskIdentity != null) {
+        // Always offered, not only when resuming: a server issues a
+        // NewSessionTicket only to a client that said it can use one
+        // (picotls, NSS), so a first connection without this extension
+        // never gets a ticket to resume with. The GREASE branch below
+        // writes its own.
+        if (params.greasePreSharedKey == null) {
             WireWriter modes = new WireWriter();
             modes.opaque8(new byte[] { PSK_DHE_KE });
             writeExtension(ext, EXT_PSK_KEY_EXCHANGE_MODES, modes.toByteArray());
