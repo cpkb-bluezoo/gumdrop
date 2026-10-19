@@ -5603,6 +5603,15 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                     immediateAckOwed = true;
                 }
             }
+            if (probeSpace != null && probeSpace != EncryptionLevel.ONE_RTT && sendKeys.get(probeSpace) != null) {
+                // RFC 9002 section 6.2.4: two datagrams. A handshake probe
+                // that is lost costs the doubled wait for the next, and a
+                // peer that abandons a handshake after a few seconds is gone
+                // before a third; a second datagram halves that risk.
+                flush();
+                pendingPing[probeSpace.ordinal()] = true;
+                repeatOldestUnacknowledgedData(probeSpace);
+            }
         }
         flush();
         scheduleLossDetectionTimer();

@@ -133,6 +133,37 @@ public class QuicLoopbackProbeTest {
         assertTrue("probe payload of " + payload + " bytes carries CRYPTO", payload > 100);
     }
 
+    // RFC 9002 section 6.2.4: an endpoint may send two datagrams on a Probe
+    // Timeout. During the handshake a lost probe costs the doubled wait for
+    // the next one, and a server that gives up after a few seconds (quic-go
+    // waits five) is gone before a third arrives; the interop runner's
+    // handshake loss and corruption cases failed this way.
+    @Test
+    public void handshakeProbeTimeoutSendsTwoDatagrams() throws Exception {
+        final QuicLoopback lb = new QuicLoopback();
+        lb.startFactories();
+        // one datagram for the ClientHello, as the interop transfer cases send it
+        lb.clientFactory.setNamedGroups("x25519");
+        lb.serverFactory.setNamedGroups("x25519");
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        lb.filter = new QuicLoopback.Filter() {
+            @Override
+            public boolean deliver(boolean toServer, int index, byte[] datagram) {
+                return false;
+            }
+        };
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        QuicConnection clientConn = QuicForger.clientConnection(lb.clientEngine);
+        lb.filter = null;
+        clientConn.clockOffsetMillis += 1500;
+        int beforeProbe = lb.toServerLog.size();
+        QuicForger.invoke(clientConn, "onLossDetectionTimeout");
+        assertEquals("two probe datagrams", 2, lb.toServerLog.size() - beforeProbe);
+    }
+
     // A server that hits the anti-amplification limit has not sent what it
     // withholds, and must send it, in order, once the client's next
     // datagram raises the limit. It counted the withheld CRYPTO data as
