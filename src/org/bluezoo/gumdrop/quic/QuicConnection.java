@@ -2551,6 +2551,15 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // 17.2.5.2) -- only the QUIC-level Initial packet(s) carrying it
         // are resent, now with the token attached and under the new keys.
         requeueAllSentCrypto(EncryptionLevel.INITIAL);
+        // The server threw away everything it was sent before the Retry,
+        // 0-RTT packets with the Initial. The keys are unchanged (the
+        // ClientHello is), so that data goes out again as 0-RTT now, not
+        // when its loss is noticed, which is after the handshake and so at
+        // 1-RTT.
+        for (Long packetNumber : new ArrayList<Long>(sentZeroRttStream.keySet())) {
+            requeueLostPacket(EncryptionLevel.ONE_RTT, packetNumber.longValue());
+            lossDetector.discardPacket(EncryptionLevel.ONE_RTT, packetNumber.longValue());
+        }
         requestFlush();
     }
 

@@ -724,6 +724,28 @@ public final class LossDetector {
     }
 
     /**
+     * Stops tracking one packet that is known not to have arrived and is
+     * being sent again at once (the 0-RTT packets a Retry made the server
+     * discard): it no longer counts against the congestion window and is
+     * not waited for. It is not a loss, so no congestion event follows.
+     *
+     * @param level the packet number space
+     * @param packetNumber the packet; a no-op if it is not tracked
+     */
+    public void discardPacket(EncryptionLevel level, long packetNumber) {
+        SentPacket packet = sentPackets.get(level).remove(Long.valueOf(packetNumber));
+        if (packet == null) {
+            return;
+        }
+        if (packet.isInFlight()) {
+            congestionController.removeFromBytesInFlight(packet.getSentBytes());
+        }
+        if (packet.isAckEliciting()) {
+            ackElicitingInFlightCount.put(level, ackElicitingInFlightCount.get(level) - 1);
+        }
+    }
+
+    /**
      * Discards all tracked state for a packet number space (RFC 9002
      * Appendix A.11), for when Initial or Handshake keys are dropped.
      *

@@ -61,6 +61,22 @@ public class LossDetectorTest {
         assertEquals(500, detector.getCongestionController().getBytesInFlight());
     }
 
+    // After a Retry the 0-RTT packets sent before it are known not to have
+    // arrived. They are sent again at once, so they must stop counting
+    // against the congestion window or the resend waits for their loss to
+    // be noticed, which is after the handshake.
+    @Test
+    public void testDiscardPacketStopsCountingItInFlight() {
+        LossDetector detector = new LossDetector(1200);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 100 * MS, true, true, 500);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 100 * MS, true, true, 300);
+        detector.discardPacket(EncryptionLevel.ONE_RTT, 0);
+        assertEquals(300, detector.getCongestionController().getBytesInFlight());
+        detector.discardPacket(EncryptionLevel.ONE_RTT, 0); // already gone: a no-op
+        assertEquals(300, detector.getCongestionController().getBytesInFlight());
+        assertEquals(1, detector.getAckElicitingInFlight(EncryptionLevel.ONE_RTT).size());
+    }
+
     @Test
     public void testAckAcknowledgesPacketAndTakesRttSample() {
         LossDetector detector = new LossDetector(1200);

@@ -141,6 +141,55 @@ public class QuicLoopbackEarlyDataTest {
                 bytes >= payload);
     }
 
+    // A Retry makes the server discard what the client sent before it,
+    // 0-RTT packets included. The client must send that early data again
+    // as 0-RTT, the keys being unchanged, not wait for the loss to be
+    // noticed and send it at 1-RTT after the handshake: the runner counts
+    // 1-RTT bytes against the case and lsquic, which answers a
+    // ClientHello split over two datagrams with a Retry, failed it.
+    @Test
+    public void earlyDataLostToARetryIsSentAgainAsZeroRtt() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        firstConnection(lb);
+        assertNotNull(SessionTicketCache.get("localhost", 4433));
+
+        QuicLoopbackQlogTest.Capture capture = new QuicLoopbackQlogTest.Capture();
+        org.bluezoo.gumdrop.telemetry.TelemetryConfig config = new org.bluezoo.gumdrop.telemetry.TelemetryConfig();
+        config.exporter(capture);
+        lb.clientFactory.setTelemetryConfig(config);
+        lb.serverFactory.setRequireRetry(true);
+        TicketingServer server = new TicketingServer();
+        lb.startServer(server);
+        final int payload = 8000;
+        QuicEngine.EarlyDataHandler big = new QuicEngine.EarlyDataHandler() {
+            @Override
+            public void earlyDataReady(QuicConnection connection) {
+                Endpoint e = connection.openStream(new Rec());
+                e.send(ByteBuffer.wrap(new byte[payload]));
+            }
+        };
+        QuicLoopbackScenariosTest.ConnCapture client = new QuicLoopbackScenariosTest.ConnCapture();
+        lb.startClientEarly(client, big);
+        lb.pump();
+        lb.pump();
+        assertTrue(client.conn.isEstablished());
+
+        assertTrue("the server sent a Retry", (Boolean) QuicForger.field(client.conn, "retryProcessed"));
+        long zeroRtt = 0;
+        long oneRtt = 0;
+        for (org.bluezoo.gumdrop.telemetry.LogRecord r : capture.named("client", "quic:packet_sent")) {
+            java.util.Map<String, String> p = org.bluezoo.gumdrop.testsupport.FlatJson.flatten(r.getBody());
+            long length = Long.parseLong(p.get("raw.length"));
+            if ("0RTT".equals(p.get("header.packet_type"))) {
+                zeroRtt += length;
+            } else if ("1RTT".equals(p.get("header.packet_type"))) {
+                oneRtt += length;
+            }
+        }
+        assertTrue("the early data went out twice as 0-RTT: " + zeroRtt, zeroRtt >= payload * 18L / 10);
+        assertTrue("and little of it at 1-RTT: " + oneRtt, oneRtt < payload / 2);
+    }
+
     @Test
     public void rejectedZeroRttIsResentAtOneRtt() throws Exception {
         firstConnection(new QuicLoopback());
