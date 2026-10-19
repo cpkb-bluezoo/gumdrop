@@ -105,14 +105,6 @@ public final class InteropServer {
             // under the limit proves nothing about it.
             System.setProperty("gumdrop.tls.disableCertificateCompression", "true");
         }
-        if (testCase == InteropTestCase.TRANSFER || testCase == InteropTestCase.MULTICONNECT) {
-            // The same as on the client: the loss and corruption scenarios
-            // run under these names, and a hybrid X25519MLKEM768 share
-            // makes the ServerHello two datagrams, both of which must
-            // arrive before a client can go on. The classical share fits
-            // in one.
-            factory.setNamedGroups("x25519");
-        }
         factory.setRequireRetry(testCase == InteropTestCase.RETRY);
         factory.setEarlyDataEnabled(testCase == InteropTestCase.ZERORTT);
         if (testCase == InteropTestCase.CHACHA20) {

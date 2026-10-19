@@ -23,6 +23,7 @@
 package org.bluezoo.gumdrop.quic;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Method;
@@ -163,6 +164,42 @@ public class QuicLoopbackProbeTest {
         int beforeProbe = lb.toServerLog.size();
         QuicForger.invoke(clientConn, "onLossDetectionTimeout");
         assertEquals("two probe datagrams", 2, lb.toServerLog.size() - beforeProbe);
+    }
+
+    // A client probe in the Initial space (a PING, or the ClientHello again)
+    // tells the server that its flight has not arrived. Answering it with an
+    // acknowledgement alone leaves the client waiting for the server's own
+    // timer, which backs off; quic-go gave up on the handshake that way
+    // under the interop runner's bursty loss.
+    @Test
+    public void clientInitialProbeMakesServerSendItsFlightAgain() throws Exception {
+        final QuicLoopback lb = new QuicLoopback();
+        lb.startFactories();
+        lb.clientFactory.setNamedGroups("x25519");
+        lb.serverFactory.setNamedGroups("x25519");
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        lb.filter = new QuicLoopback.Filter() {
+            @Override
+            public boolean deliver(boolean toServer, int index, byte[] datagram) {
+                return toServer;
+            }
+        };
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        QuicConnection clientConn = QuicForger.clientConnection(lb.clientEngine);
+        assertFalse("the server's flight was lost", clientConn.isEstablished());
+        int before = lb.toClientLog.size();
+        clientConn.clockOffsetMillis += 1500;
+        QuicForger.invoke(clientConn, "onLossDetectionTimeout");
+        lb.pump();
+        int largest = 0;
+        for (int i = before; i < lb.toClientLog.size(); i++) {
+            largest = Math.max(largest, lb.toClientLog.get(i).length);
+        }
+        assertTrue("the server sent its flight again, not just an acknowledgement (largest " + largest + ")",
+                largest > 600);
     }
 
     // A server that hits the anti-amplification limit has not sent what it

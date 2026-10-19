@@ -715,6 +715,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // Client: a server preferred_address awaiting handshake confirmation.
     private boolean preferredAddressPending;
     private boolean sawValidOneRttThisReceive;
+    // A client's PING in the Initial space, before the handshake is done,
+    // is a probe: its timer ran out without hearing from this server.
+    private boolean clientProbedBeforeHandshake;
     private boolean decryptFailedOrUnparseableThisDatagram;
 
 
@@ -2160,6 +2163,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         currentDatagramSource = source;
         currentDatagramPath = via != null ? via : engine.getPrimaryPath();
         sawValidOneRttThisReceive = false;
+        clientProbedBeforeHandshake = false;
         decryptFailedOrUnparseableThisDatagram = false;
         pendingPathResponses.clear();
         try {
@@ -2192,6 +2196,17 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 && !pathValidationAttempts.containsKey(arrival)
                 && !isRecentlyMigratedFrom(source)) {
             beginMigrationValidation(arrival, null, 0);
+        }
+        if (clientProbedBeforeHandshake) {
+            // The client's own timer ran out: whatever of this server's
+            // flight is still unacknowledged probably did not arrive, and
+            // waiting for this side's timer, which backs off, can outlast a
+            // peer that gives up on the handshake after a few seconds.
+            clientProbedBeforeHandshake = false;
+            repeatOldestUnacknowledgedData(EncryptionLevel.INITIAL);
+            if (sendKeys.get(EncryptionLevel.HANDSHAKE) != null) {
+                repeatOldestUnacknowledgedData(EncryptionLevel.HANDSHAKE);
+            }
         }
         boolean challenged = !pendingPathResponses.isEmpty();
         sendPendingPathResponses();
@@ -2905,6 +2920,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 qlogFrames.ping();
             }
             ackEliciting = true;
+            if (isServer && level == EncryptionLevel.INITIAL && !established) {
+                clientProbedBeforeHandshake = true;
+            }
         }
 
         @Override
