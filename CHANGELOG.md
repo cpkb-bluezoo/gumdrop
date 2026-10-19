@@ -155,7 +155,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     picoquic answering a client's PATH_CHALLENGE at the preferred address and
     stopped servers following a rebound client. A client moves to the
     preferred address with a non-probing packet, and a server's own challenge
-    on a new path is the first thing it sends there.
+    on a new path is the first thing it sends there. When the peer starts
+    using the next of those IDs and the peer's limit is reached, the older
+    ones are retired (`retire_prior_to`) and another is issued; nginx, which
+    allows two and retires none itself, otherwise had no ID left for the
+    second rebinding of a client's port and the transfer stalled.
   - A server keeps reading Handshake packets until its HANDSHAKE_DONE is
     acknowledged. A client that rebound before receiving it went on sending
     at the Handshake level from its new address, and the server, having

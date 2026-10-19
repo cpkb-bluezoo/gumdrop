@@ -2195,6 +2195,12 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         // before the handshake completes (no 1-RTT keys yet to prove
         // anything).
         PathKey arrival = new PathKey(currentDatagramPath, source);
+        if (sawValidOneRttThisReceive && established && (!isServer || !arrival.equals(currentPath()))) {
+            // a server sees a peer move as a packet from a new address; a
+            // client cannot see its own address change, only the server
+            // using the next connection ID of its for the new path
+            replaceConnectionIdsPeerHasMovedFrom(bytes);
+        }
         if (sawValidOneRttThisReceive && established && !arrival.equals(currentPath())
                 && !pathValidationAttempts.containsKey(arrival)
                 && !isRecentlyMigratedFrom(source)) {
@@ -2218,6 +2224,24 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
         scheduleAcks();
         requestFlush();
+    }
+
+    // A short-header datagram addressed to a connection ID of ours other than
+    // the oldest means the peer has moved on to it (a new path takes the next
+    // unused one): see ConnectionIdManager.replaceBelow.
+    private void replaceConnectionIdsPeerHasMovedFrom(byte[] datagram) {
+        if (datagram.length < 1 || (datagram[0] & 0x80) != 0) {
+            return;
+        }
+        int length = connectionIdManager.getOurConnectionId(0) != null
+                ? connectionIdManager.getOurConnectionId(0).length : getOurConnectionId().length;
+        if (datagram.length < 1 + length) {
+            return;
+        }
+        long sequence = connectionIdManager.sequenceNumberOf(Arrays.copyOfRange(datagram, 1, 1 + length));
+        if (sequence > 0 && connectionIdManager.replaceBelow(sequence) != null) {
+            requestFlush();
+        }
     }
 
     // A client moving to the server's preferred address sent a PING first

@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.quic.cid;
 
 import org.bluezoo.gumdrop.crypto.CryptoServices;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
@@ -295,13 +296,64 @@ public final class ConnectionIdManager {
      *         {@code active_connection_id_limit}
      */
     public ConnectionIdEntry issueNext() {
-        if (ours.size() >= peerAdvertisedLimit) {
+        if (activeCount() >= peerAdvertisedLimit) {
             return null;
         }
         if (lbConfig != null && !lbConfig.hasKey()) {
             return null;
         }
         return mint();
+    }
+
+    // The IDs the peer is to keep: those the retire_prior_to already sent
+    // does not cover. A retired one stays in the list, to be recognised,
+    // until the peer says it has retired it.
+    private int activeCount() {
+        int count = 0;
+        for (ConnectionIdEntry entry : ours) {
+            if (entry.getSequenceNumber() >= retirePriorTo) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Returns the sequence number of the connection ID of this endpoint's
+     * that equals the given bytes, or -1.
+     *
+     * @param connectionId the connection ID from a packet's header
+     * @return its sequence number, or -1 if none of this endpoint's matches
+     */
+    public long sequenceNumberOf(byte[] connectionId) {
+        for (ConnectionIdEntry entry : ours) {
+            if (Arrays.equals(entry.getConnectionId(), connectionId)) {
+                return entry.getSequenceNumber();
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Called when the peer has been seen to use the connection ID with this
+     * sequence number: the ones below it are no longer wanted (RFC 9000
+     * section 5.1.2), so the next NEW_CONNECTION_ID retires them (its
+     * {@code retire_prior_to}), and one is issued at once to take their place.
+     * A peer that finds no unused ID for a new path (nginx, with a limit of
+     * two and an ID retired only when it chooses to) is otherwise stuck at the
+     * second change of address. Only done when the peer's limit is reached: a
+     * peer that retires what it has left behind is left alone.
+     *
+     * @param sequenceNumber the sequence number of the ID in use
+     * @return the replacement, or {@code null} if nothing below the ID in use
+     *         was left to retire, or none could be issued
+     */
+    public ConnectionIdEntry replaceBelow(long sequenceNumber) {
+        if (sequenceNumber <= retirePriorTo || activeCount() < peerAdvertisedLimit) {
+            return null;
+        }
+        retirePriorTo = sequenceNumber;
+        return issueNext();
     }
 
     /**

@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.quic.cid.ConnectionIdManager;
 import org.junit.Test;
 
 /**
@@ -93,8 +94,11 @@ public class QuicLoopbackPreferredAddressTest {
         assertEquals("the client now sends to the preferred address",
                 QuicLoopback.SERVER_PREFERRED_ADDRESS, f.client.conn.getRemoteAddress());
         assertEquals("from a new local path", QuicLoopback.CLIENT_ADDRESS_2, f.client.conn.getLocalAddress());
-        assertArrayEquals("with the connection ID the parameter carried",
-                preferredCid, f.client.conn.getPeerConnectionId());
+        // the server saw the connection ID the parameter carried (sequence
+        // number 1) addressed on the new path, and so retires the first and
+        // gives the client another in its place (it then goes on with that)
+        ConnectionIdManager ids = (ConnectionIdManager) QuicForger.field(f.server.conn, "connectionIdManager");
+        assertTrue("the first connection ID is retired", ids.getRetirePriorTo() >= 1);
         assertEquals("the server validated the client's new path and moved to it",
                 QuicLoopback.CLIENT_ADDRESS_2, f.server.conn.getRemoteAddress());
         assertEquals("replying from its preferred address",

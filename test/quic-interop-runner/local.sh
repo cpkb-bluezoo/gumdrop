@@ -5,15 +5,20 @@
 # addresses, their routes via the .2 address) but with a plain router in
 # place of the ns-3 simulator. That covers the protocol cases (handshake,
 # transfer, http3, resumption, zerortt, v2, connectionmigration, ...) in
-# minutes; the cases that need the simulator to drop or rewrite packets
-# (loss, corruption, blackhole, amplification limit, rebinding) it cannot.
+# minutes; the cases that need the simulator to drop packets (loss,
+# corruption, blackhole, amplification limit) it cannot. Rebinding it can:
+# rebind-port and rebind-addr shape the link like the runner's simple-p2p
+# scenario (10 Mbps, 15 ms, 25 packets of queue) and have the router change
+# the client's source port, or address and port, one second in and every five
+# seconds after, dropping what is still sent to the old one.
 #
 #   local.sh [-b] [-v] PEER ROLE TESTCASE
 #
-#   PEER      ngtcp2, picoquic, quic-go, or an image name
+#   PEER      ngtcp2, picoquic, quic-go, quiche, xquic, nginx, haproxy, or an image name
 #   ROLE      the part gumdrop plays: server or client
 #   TESTCASE  handshake, transfer, multiconnect, http3, resumption, zerortt,
-#             v2, chacha20, retry, keyupdate, connectionmigration, ipv6
+#             v2, chacha20, retry, keyupdate, connectionmigration, ipv6,
+#             rebind-port, rebind-addr
 #   -b        rebuild the gumdrop image first (slow under emulation)
 #   -v        print both consoles even when the case passes
 #   -t        capture the server's network at the router (tcpdump), to
@@ -68,23 +73,36 @@ case $PEER in
               fi ;;
     picoquic) PEER_IMAGE=privateoctopus/picoquic:latest ;;
     quic-go)  PEER_IMAGE=martenseemann/quic-go-interop:latest ;;
+    quiche)   PEER_IMAGE=cloudflare/quiche-qns:latest ;;
+    xquic)    PEER_IMAGE=ghcr.io/alibaba/xquic/xquic-interop:latest ;;
+    nginx)    PEER_IMAGE=ghcr.io/nginx/nginx-quic-qns:latest ;;
+    haproxy)  PEER_IMAGE=haproxytech/haproxy-qns:latest ;;
     *)        PEER_IMAGE=$PEER ;;
 esac
 GUMDROP_IMAGE=gumdrop-interop
+# an image with no arm64 variant has to be asked for by platform (and runs emulated)
+PEER_PLATFORM_ARG=""
+case $PEER in
+    xquic) PEER_PLATFORM_ARG="--platform linux/amd64" ;;
+esac
 # gumdrop's own image is built for the host; a peer image runs as published
 # (emulated if it is amd64 only)
 PLATFORM=${PLATFORM:-$(podman info --format 'linux/{{.Host.Arch}}')}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 # not under build/: ant clean deletes that, and with it the logs of a sweep
-WORK=${INTEROP_LOCAL_DIR:-$HOME/.cache/gumdrop-interop-local}/$PEER-$ROLE-$CASE
+WORK=${INTEROP_LOCAL_DIR:-$HOME/.cache/gumdrop-interop-local}/$(echo "$PEER" | tr '/:' '__')-$ROLE-$CASE
 TIMEOUT=${TIMEOUT:-180}
 
 if [ "$ROLE" = server ]; then
     SERVER_IMAGE=$GUMDROP_IMAGE
     CLIENT_IMAGE=$PEER_IMAGE
+    SERVER_PLATFORM_ARG=""
+    CLIENT_PLATFORM_ARG=$PEER_PLATFORM_ARG
 else
     SERVER_IMAGE=$PEER_IMAGE
     CLIENT_IMAGE=$GUMDROP_IMAGE
+    SERVER_PLATFORM_ARG=$PEER_PLATFORM_ARG
+    CLIENT_PLATFORM_ARG=""
 fi
 
 # The names the runner gives each side of a case, and what it asks for.
@@ -95,6 +113,12 @@ case $CASE in
     keyupdate)           SERVER_CASE=transfer ;;
     connectionmigration) CLIENT_CASE=transfer; HOST=server46 ;;
     ipv6)                HOST=server6 ;;
+    rebind-port|rebind-addr) SERVER_CASE=transfer; CLIENT_CASE=transfer ;;
+esac
+REBIND=""
+case $CASE in
+    rebind-port) REBIND=port ;;
+    rebind-addr) REBIND=addr ;;
 esac
 
 if [ $BUILD -eq 1 ] || ! podman image exists $GUMDROP_IMAGE; then
@@ -120,6 +144,7 @@ case $CASE in
     chacha20)                add_file $((3 * MB)) ;;
     transfer|connectionmigration) add_file $((2 * MB)); add_file $((3 * MB)); add_file $((5 * MB)) ;;
     keyupdate)               add_file $((3 * MB)) ;;
+    rebind-port|rebind-addr) add_file $((10 * MB)) ;;
     multiconnect)            for _ in 1 2 3 4 5; do add_file $KB; done ;;
     http3)                   add_file $((5 * KB)); add_file $((10 * KB)); add_file $((500 * KB)) ;;
     resumption)              add_file $((5 * KB)); add_file $((10 * KB)) ;;
@@ -158,6 +183,14 @@ podman network exists rightnet || podman network create --ipv6 \
 
 mkdir -p "$WORK/logs/cap"
 SIM_CMD='while true; do nc -l -p 57832 >/dev/null 2>&1; done'
+if [ -n "$REBIND" ]; then
+    # the runner's simple-p2p link, and the client's traffic pinned to one
+    # source port so the rebinding below has a mapping to change
+    SIM_CMD='apk add --no-cache iptables conntrack-tools iproute2 iproute2-tc >/dev/null 2>&1;
+        for i in eth0 eth1; do tc qdisc add dev $i root netem delay 15ms rate 10mbit limit 25; done;
+        iptables -t nat -A POSTROUTING -s 193.167.0.100 -p udp -j SNAT --to-source 193.167.0.100:40000;
+        touch /cap/ready; '"$SIM_CMD"
+fi
 if [ $CAPTURE -eq 1 ]; then
     SIM_CMD='apk add --no-cache tcpdump >/dev/null 2>&1; tcpdump -i eth1 -U -w /cap/server.pcap udp >/cap/tcpdump.out 2>&1 & '"$SIM_CMD"
 fi
@@ -169,10 +202,17 @@ podman run -d --name sim --platform $PLATFORM --cap-add NET_ADMIN --cap-add NET_
     docker.io/library/alpine:latest \
     sh -c "$SIM_CMD" >/dev/null || exit 1
 [ $CAPTURE -eq 1 ] && sleep 6
+if [ -n "$REBIND" ]; then
+    for _ in $(seq 1 60); do
+        [ -f "$WORK/logs/cap/ready" ] && break
+        sleep 1
+    done
+    [ -f "$WORK/logs/cap/ready" ] || { echo "the router did not come up (NAT or traffic control unavailable?)"; cleanup; exit 1; }
+fi
 
 common_env=(-e SSLKEYLOGFILE=/logs/keys.log -e QLOGDIR=/logs/qlog/ -e INTEROP_DEBUG=1 -e "JAVA_OPTS=${JAVA_OPTS:-}")
 
-podman run -d --name server --cap-add NET_ADMIN \
+podman run -d --name server $SERVER_PLATFORM_ARG --cap-add NET_ADMIN \
     --network rightnet:ip=193.167.100.100,ip=fd00:cafe:cafe:100::100 \
     --add-host server4:193.167.100.100 --add-host server6:fd00:cafe:cafe:100::100 \
     -v "$WORK/www:/www:ro" -v "$WORK/certs:/certs:ro" -v "$WORK/logs/server:/logs" \
@@ -182,7 +222,7 @@ podman run -d --name server --cap-add NET_ADMIN \
 # the client starts when the server's console shows it is up, or after a few seconds
 sleep 8
 
-podman run -d --name client --cap-add NET_ADMIN \
+podman run -d --name client $CLIENT_PLATFORM_ARG --cap-add NET_ADMIN \
     --network leftnet:ip=193.167.0.100,ip=fd00:cafe:cafe:0::100 \
     --add-host server4:193.167.100.100 --add-host server6:fd00:cafe:cafe:100::100 \
     --add-host server46:193.167.100.100 --add-host server46:fd00:cafe:cafe:100::100 \
@@ -190,6 +230,20 @@ podman run -d --name client --cap-add NET_ADMIN \
     -v "$WORK/downloads:/downloads" -v "$WORK/logs/client:/logs" \
     "${common_env[@]}" -e ROLE=client -e TESTCASE=$CLIENT_CASE -e "REQUESTS=$REQUESTS" \
     $CLIENT_IMAGE >/dev/null || { cleanup; exit 1; }
+
+if [ -n "$REBIND" ]; then
+    # first rebinding one second in, then every five seconds; flushing the
+    # tracked flow makes the client's next packet take the new mapping, and
+    # whatever the server still sends to the old one reaches nobody
+    if [ "$REBIND" = port ]; then
+        TO='193.167.0.100:$((40000 + n))'
+    else
+        TO='193.167.0.$((100 + n)):$((40000 + n))'
+    fi
+    podman exec -d sim sh -c 'n=0; sleep 1; while true; do n=$((n + 1));
+        iptables -t nat -R POSTROUTING 1 -s 193.167.0.100 -p udp -j SNAT --to-source '"$TO"';
+        conntrack -F >/dev/null 2>&1; sleep 5; done'
+fi
 
 # ---- wait for the client, then judge -------------------------------------
 deadline=$(( $(date +%s) + TIMEOUT ))

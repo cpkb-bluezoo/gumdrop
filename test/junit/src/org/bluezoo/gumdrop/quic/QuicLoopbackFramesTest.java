@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.quic;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.ByteBuffer;
@@ -32,6 +33,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.quic.cid.ConnectionIdManager;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
@@ -180,6 +182,62 @@ public class QuicLoopbackFramesTest {
         f.lb.pump();
         assertEquals("the stream is not reset a second time", before, f.lb.toServerLog.size());
         assertFalse(f.server.conn.isClosed());
+    }
+
+    /**
+     * RFC 9000 section 5.1.2: a peer that has moved to a new path on a new
+     * connection ID of ours no longer needs the older ones. A peer limited to two active IDs
+     * (nginx) used the one spare for its first new path and, never retiring
+     * the first, found none for the second, so the next port rebinding
+     * stalled the transfer. Replace the old IDs, with a NEW_CONNECTION_ID
+     * that retires them.
+     */
+    @Test
+    public void peerMovingToASpareConnectionIdIsGivenAReplacement() throws Exception {
+        Fixture f = Fixture.create();
+        QuicForger.invoke(f.client.conn, "onAckTimeout");
+        QuicForger.invoke(f.server.conn, "onAckTimeout");
+        f.lb.pump();
+        ConnectionIdManager ids = (ConnectionIdManager) QuicForger.field(f.server.conn, "connectionIdManager");
+        byte[] spare = ids.getOurConnectionId(1);
+        assertNotNull("the server issued a spare connection ID", spare);
+        assertNull("and no more than the peer's limit allows", ids.getOurConnectionId(2));
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writePing(b);
+        b.flip();
+        f.lb.clientSource = QuicLoopback.CLIENT_ADDRESS_2; // the port was rebound
+        f.lb.injectToServer(QuicForger.forge(f.client.conn, spare, f.pn++, b));
+        f.lb.pump();
+        assertEquals("the first connection ID is to be retired", 1, ids.getRetirePriorTo());
+        assertNotNull("a replacement was issued", ids.getOurConnectionId(2));
+        assertFalse(f.server.conn.isClosed());
+        assertFalse(f.client.conn.isClosed());
+    }
+
+    /**
+     * The same for a client, which cannot see its own address change: the
+     * server addressing the next ID of the client's, from the same address,
+     * is the sign (nginx, on the client's port being rebound).
+     */
+    @Test
+    public void serverMovingToASpareConnectionIdIsGivenAReplacement() throws Exception {
+        Fixture f = Fixture.create();
+        QuicForger.invoke(f.client.conn, "onAckTimeout");
+        QuicForger.invoke(f.server.conn, "onAckTimeout");
+        f.lb.pump();
+        ConnectionIdManager ids = (ConnectionIdManager) QuicForger.field(f.client.conn, "connectionIdManager");
+        byte[] spare = ids.getOurConnectionId(1);
+        assertNotNull("the client issued a spare connection ID", spare);
+        assertNull("and no more than the server's limit allows", ids.getOurConnectionId(2));
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writePing(b);
+        b.flip();
+        f.lb.injectToClient(QuicForger.forge(f.server.conn, spare, f.pn++, b));
+        f.lb.pump();
+        assertEquals("the first connection ID is to be retired", 1, ids.getRetirePriorTo());
+        assertNotNull("a replacement was issued", ids.getOurConnectionId(2));
+        assertFalse(f.server.conn.isClosed());
+        assertFalse(f.client.conn.isClosed());
     }
 
     /** The same for a finished stream of the peer's: it is not the peer opening the stream again. */

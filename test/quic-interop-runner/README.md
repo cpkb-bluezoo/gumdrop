@@ -115,10 +115,22 @@ test/quic-interop-runner/local.sh picoquic client connectionmigration
 
 It covers the protocol cases in minutes. It does not run the runner's trace
 checks (the versions on the wire for `v2`, the 0-RTT byte counts, the first
-packet on a new path) or any case that needs packet loss, corruption or
-rebinding. On Apple silicon the peer images are `linux/amd64` and run
-emulated; ngtcp2's image is built with AddressSanitizer, which does not start
-under emulation.
+packet on a new path) or any case that needs packet loss or corruption.
+
+The cases `rebind-port` and `rebind-addr` do run: the router shapes the link
+like the runner's `simple-p2p` scenario (10 Mbps, 15 ms, 25 packets of queue)
+and rewrites the client's source port, or address and port, one second in and
+every five seconds after, so that what a server still sends to the old one
+reaches nobody. The peer's own logs then show what it made of the new path:
+
+```bash
+test/quic-interop-runner/local.sh nginx client rebind-port
+```
+
+Peers can be named `ngtcp2`, `picoquic`, `quic-go`, `quiche`, `xquic`, `nginx`
+or `haproxy`. On Apple silicon the peer images are `linux/amd64` and run
+emulated (xquic is asked for by platform); ngtcp2's image is built with
+AddressSanitizer, which does not start under emulation.
 
 ## Running the endpoint without Docker
 

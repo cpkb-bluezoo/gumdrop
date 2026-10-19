@@ -129,9 +129,23 @@ public final class QuicForger {
      */
     public static byte[] forge(QuicConnection sender, QuicConnection receiver, long packetNumber,
             ByteBuffer frames) throws Exception {
+        return forge(sender, receiver.getOurConnectionId(), packetNumber, frames);
+    }
+
+    /**
+     * Forges a protected 1-RTT datagram addressed to a given connection ID.
+     *
+     * @param sender the connection whose send keys are used
+     * @param dcid the Destination Connection ID
+     * @param packetNumber the packet number
+     * @param frames the encoded frames (position 0, flipped)
+     * @return the datagram
+     * @throws Exception on failure
+     */
+    public static byte[] forge(QuicConnection sender, byte[] dcid, long packetNumber,
+            ByteBuffer frames) throws Exception {
         Map<?, ?> send = (Map<?, ?>) field(sender, "sendKeys");
         PacketProtectionKeys keys = (PacketProtectionKeys) send.get(EncryptionLevel.ONE_RTT);
-        byte[] dcid = receiver.getOurConnectionId();
         int pnLength = 4;
         byte[] header = ShortHeaderCodec.build(dcid, false, packetNumber, pnLength);
         byte[] plain = new byte[frames.remaining()];
