@@ -153,6 +153,35 @@ public class QuicLoopbackFramesTest {
         assertFalse(f.server.conn.isClosed());
     }
 
+    /**
+     * RFC 9000 section 3.5: a stream is reset once. A peer that sent
+     * STOP_SENDING twice with different error codes (mvfst does) was
+     * answered with a RESET_STREAM for each, and closed the connection with
+     * STREAM_STATE_ERROR because the codes disagreed.
+     */
+    @Test
+    public void secondStopSendingDoesNotResetTheStreamAgain() throws Exception {
+        Fixture f = Fixture.create();
+        Rec c = new Rec();
+        Endpoint e = f.client.conn.openStream(c);
+        e.send(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        f.lb.pump();
+        QuicForger.invoke(f.client.conn, "onAckTimeout");
+        QuicForger.invoke(f.server.conn, "onAckTimeout");
+        f.lb.pump();
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeStopSending(b, 0, 0x3fffffffffffffffL);
+        f.toClient(b);
+        f.lb.pump();
+        int before = f.lb.toServerLog.size();
+        b = f.buf();
+        QuicFrameWriter.writeStopSending(b, 0, 0);
+        f.toClient(b);
+        f.lb.pump();
+        assertEquals("the stream is not reset a second time", before, f.lb.toServerLog.size());
+        assertFalse(f.server.conn.isClosed());
+    }
+
     /** The same for a finished stream of the peer's: it is not the peer opening the stream again. */
     @Test
     public void lateStreamFrameForPeersFinishedStreamIsIgnored() throws Exception {

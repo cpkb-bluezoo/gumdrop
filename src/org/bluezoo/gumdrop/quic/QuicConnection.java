@@ -500,6 +500,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private final Map<Long, Map<Long, List<PendingChunk>>> sentZeroRttStream = new HashMap<Long, Map<Long, List<PendingChunk>>>();
     // Each entry: {streamId, applicationErrorCode, finalSize}, owed a RESET_STREAM frame.
     private final List<long[]> pendingResetStreams = new ArrayList<long[]>();
+    // Streams already reset: RFC 9000 section 3.5 has the sending part in
+    // Reset Sent from then on, and a second RESET_STREAM with another error
+    // code is a STREAM_STATE_ERROR to the peer. Forgotten with the stream's
+    // send records.
+    private final Set<Long> resetStreamIds = new HashSet<Long>();
     // RFC 9221 DATAGRAM payloads queued for the next 1-RTT packet. Not
     // retransmitted if the packet is lost -- unreliable by design.
     private final List<byte[]> pendingDatagrams = new ArrayList<byte[]>();
@@ -1930,6 +1935,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             return;
         }
         streamSendOffset.remove(key);
+        resetStreamIds.remove(key);
         peerMaxStreamData.remove(key);
         streamBytesSent.remove(key);
         streamDataBlockedOwed.remove(key);
@@ -2012,6 +2018,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // delivered, so there is nothing to reset (RFC 9000 section
             // 3.5). A RESET_STREAM here would read its final size as 0 and
             // contradict the FIN the peer has, a FINAL_SIZE_ERROR.
+            return;
+        }
+        if (!resetStreamIds.add(key)) {
             return;
         }
         long finalSize = streamSendOffset.containsKey(key) ? streamSendOffset.get(key).longValue() : 0;
