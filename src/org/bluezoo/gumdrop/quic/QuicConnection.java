@@ -718,6 +718,9 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // A client's PING in the Initial space, before the handshake is done,
     // is a probe: its timer ran out without hearing from this server.
     private boolean clientProbedBeforeHandshake;
+    // How far into the ClientHello (the Initial CRYPTO stream) this server
+    // has seen; a frame ending no further is the client saying it again.
+    private long clientInitialCryptoEnd;
     private boolean decryptFailedOrUnparseableThisDatagram;
 
 
@@ -3008,6 +3011,13 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 qlogFrames.crypto(offset, data.remaining());
             }
             ackEliciting = true;
+            if (isServer && level == EncryptionLevel.INITIAL && !established) {
+                long end = offset + data.remaining();
+                if (end <= clientInitialCryptoEnd) {
+                    clientProbedBeforeHandshake = true;
+                }
+                clientInitialCryptoEnd = Math.max(clientInitialCryptoEnd, end);
+            }
             if (!isServer && level == EncryptionLevel.INITIAL && serverInitialSourceConnectionId == null) {
                 // The server's ServerHello: its Initial Source Connection
                 // ID is now final (RFC 9000 section 7.2).

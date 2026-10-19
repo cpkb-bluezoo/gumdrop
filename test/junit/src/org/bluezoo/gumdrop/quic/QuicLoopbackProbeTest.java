@@ -202,6 +202,38 @@ public class QuicLoopbackProbeTest {
                 largest > 600);
     }
 
+    // quic-go's probe in the Initial space is the ClientHello again, without
+    // a PING; to the server that is the same news.
+    @Test
+    public void repeatedClientHelloMakesServerSendItsFlightAgain() throws Exception {
+        final QuicLoopback lb = new QuicLoopback();
+        lb.startFactories();
+        lb.clientFactory.setNamedGroups("x25519");
+        lb.serverFactory.setNamedGroups("x25519");
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        lb.filter = new QuicLoopback.Filter() {
+            @Override
+            public boolean deliver(boolean toServer, int index, byte[] datagram) {
+                return toServer;
+            }
+        };
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        assertTrue("the ClientHello was sent", lb.toServerLog.size() >= 1);
+        byte[] hello = lb.toServerLog.get(0);
+        int before = lb.toClientLog.size();
+        lb.injectToServer(hello);
+        lb.pump();
+        int largest = 0;
+        for (int i = before; i < lb.toClientLog.size(); i++) {
+            largest = Math.max(largest, lb.toClientLog.get(i).length);
+        }
+        assertTrue("the server sent its flight again, not just an acknowledgement (largest " + largest + ")",
+                largest > 600);
+    }
+
     // A server that hits the anti-amplification limit has not sent what it
     // withholds, and must send it, in order, once the client's next
     // datagram raises the limit. It counted the withheld CRYPTO data as
