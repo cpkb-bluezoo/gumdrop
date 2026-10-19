@@ -111,6 +111,62 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **QUIC and HTTP/3 interoperability fixes found by the interoperability
+  runner against other implementations** (quic-go, quiche, msquic, ngtcp2,
+  picoquic, nginx, lsquic, xquic, kwik, mvfst, aioquic and others):
+  - A STOP_SENDING for a stream whose sending part had finished produced a
+    RESET_STREAM with its final size read as 0, which nginx rejected with
+    `FINAL_SIZE_ERROR`; a retired stream is no longer reset. A stream that
+    is still open is reset once, however many STOP_SENDING frames arrive, as
+    mvfst closed the connection when two with different codes were answered
+    by two RESET_STREAMs with different codes (RFC 9000 section 3.5).
+  - The `early_data` size in a TLS NewSessionTicket is an unsigned 32-bit
+    value, and a QUIC server now sends `0xffffffff` (RFC 9001 section
+    4.6.1). The client read it as negative, took it for "no 0-RTT" and sent
+    none, and strict clients (xquic, quic-go) discard tickets that carry
+    anything else. A client's first ClientHello now offers
+    `psk_key_exchange_modes`, without which picotls and NSS servers (picoquic,
+    neqo) issue no resumption ticket, and a `record_size_limit` of 2^14 + 1
+    from the peer is accepted.
+  - HTTP/3 held back all but one large non-incremental response body, and
+    closed the stream without sending the held one, so a client that asked
+    for a large and a small file together got the small one as headers alone.
+    The QPACK encoder declared a Required Insert Count larger than the
+    section needed, which lsquic rejects with `QPACK_DECOMPRESSION_FAILED`;
+    it is now one more than the largest referenced absolute index, 0 for
+    none.
+  - All early data goes in the client's first flight, so 0-RTT requests no
+    longer wait for acknowledgements and go at 1-RTT, and 0-RTT data is sent
+    again as 0-RTT after a Retry (lsquic).
+  - A server held back by the anti-amplification limit put the withheld
+    CRYPTO data back, so the flight resumes in order instead of after a gap
+    or never (kwik gave up with `CRYPTO_BUFFER_EXCEEDED`).
+  - A server reports the client's version information before a
+    HelloRetryRequest, so the retry goes out in v2 when it should
+    (ngtcp2), and sends an acknowledgement-only Initial in the client's
+    version before switching, as RFC 9368 section 2.3 requires (picoquic).
+    A QUIC server also takes the preferred group among those the client
+    sent a key share for (`HandshakeConfig.acceptOfferedKeyShare`) instead of
+    a HelloRetryRequest, which saves a round trip.
+  - Connection migration. An endpoint now supplies its peer with spare
+    connection IDs when the handshake finishes and reads
+    `active_connection_id_limit`; nothing issued any before, so a peer had no
+    ID for a second path (RFC 9000 section 9.5), which stopped ngtcp2 and
+    picoquic answering a client's PATH_CHALLENGE at the preferred address and
+    stopped servers following a rebound client. A client moves to the
+    preferred address with a non-probing packet, and a server's own challenge
+    on a new path is the first thing it sends there.
+  - A server keeps reading Handshake packets until its HANDSHAKE_DONE is
+    acknowledged. A client that rebound before receiving it went on sending
+    at the Handshake level from its new address, and the server, having
+    discarded those keys, never saw an authenticated packet from the new
+    path (aioquic).
+  - Loss during the handshake. A Probe Timeout now sends two datagrams in
+    every packet number space (RFC 9002 section 6.2.4); a server resends its
+    unacknowledged Initial and Handshake data at once when a client probes
+    with a PING or repeats its ClientHello, instead of waiting for its own,
+    backed-off timer. A peer that gives up on a handshake after a few seconds
+    (quic-go) was gone before the third probe.
 
 - **A closed QUIC stream leaves no records behind.** Its advertised limit,
   bytes received and updates owed go when the stream is retired, and its

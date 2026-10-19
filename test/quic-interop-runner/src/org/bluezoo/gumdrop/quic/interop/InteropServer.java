@@ -106,7 +106,9 @@ public final class InteropServer {
             System.setProperty("gumdrop.tls.disableCertificateCompression", "true");
         }
         factory.setRequireRetry(testCase == InteropTestCase.RETRY);
-        factory.setEarlyDataEnabled(testCase == InteropTestCase.ZERORTT);
+        // xquic keeps a session ticket only if it allows early data, so the
+        // resumption case issues such tickets too.
+        factory.setEarlyDataEnabled(testCase == InteropTestCase.ZERORTT || testCase == InteropTestCase.RESUMPTION);
         if (testCase == InteropTestCase.CHACHA20) {
             factory.setCipherSuites(CHACHA20_ONLY);
         }
