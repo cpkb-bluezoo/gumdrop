@@ -777,6 +777,11 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // so that the frame is queued again if that packet is declared lost
     // (RFC 9000 section 13.3: sent until acknowledged).
     private long handshakeDonePacketNumber = -1;
+    // A server keeps reading Handshake packets until its HANDSHAKE_DONE is
+    // acknowledged: a client that never saw it goes on sending at the
+    // Handshake level, perhaps from a new address, and those packets are the
+    // only way to learn where it now is.
+    private boolean handshakeDoneAcknowledged;
     private boolean closed;
     private String deferredCloseReason;
     private long deferredCloseErrorCode;
@@ -2726,6 +2731,12 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 // client's address could not have produced this.
                 addressValidated = true;
                 receivedHandshakePacket = true;
+                if (isServer && established) {
+                    // Still sent after the handshake finished: the client
+                    // holds the keys, so a new source address is a
+                    // candidate migration like one on a 1-RTT packet.
+                    sawValidOneRttThisReceive = true;
+                }
             } else if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
                 // Likewise proves the peer holds the 1-RTT keys -- the
                 // signal receive() uses to tell a genuine candidate
@@ -3436,6 +3447,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         for (SentPacket acked : result.getNewlyAcked()) {
             if (acked.getPacketNumber() == handshakeDonePacketNumber) {
                 handshakeDonePacketNumber = -1; // acknowledged: no longer needs sending again
+                handshakeDoneAcknowledged = true;
             }
             long[] sent = sentAckFrequency.remove(Long.valueOf(acked.getPacketNumber()));
             if (sent != null) {
@@ -3732,10 +3744,13 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             // them once it has successfully processed one.
             discardEncryptionLevel(EncryptionLevel.INITIAL);
         }
-        if (handshakeConfirmed) {
+        if (handshakeConfirmed && (!isServer || handshakeDoneAcknowledged)) {
             // RFC 9001 section 4.9.2: both sides discard Handshake
             // keys once the handshake is confirmed (see
-            // handshakeConfirmed's own two set sites).
+            // handshakeConfirmed's own two set sites). A server waits
+            // for its HANDSHAKE_DONE to be acknowledged, so that a
+            // client which lost it, and rebinds meanwhile, can still be
+            // heard and found.
             discardEncryptionLevel(EncryptionLevel.HANDSHAKE);
         }
 

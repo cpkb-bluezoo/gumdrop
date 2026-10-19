@@ -28,6 +28,7 @@ import static org.junit.Assert.assertTrue;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
+import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 import org.junit.Test;
 
 /**
@@ -96,5 +97,49 @@ public class QuicLoopbackHandshakeDoneTest {
             lb.pump();
         }
         assertTrue("client confirmed the handshake", ((Boolean) QuicForger.field(clientConn, "handshakeConfirmed")).booleanValue());
+    }
+
+    // Handshake keys the server still holds: while HANDSHAKE_DONE is
+    // unacknowledged a client that never saw it keeps sending at the
+    // Handshake level, possibly from a new address, and only a server
+    // that can still read those packets can find that out.
+    private static boolean serverReadsHandshake(QuicConnection serverConn) throws Exception {
+        java.util.Map<?, ?> keys = (java.util.Map<?, ?>) QuicForger.field(serverConn, "recvKeys");
+        return keys.containsKey(EncryptionLevel.HANDSHAKE);
+    }
+
+    @Test
+    public void serverKeepsHandshakeKeysUntilHandshakeDoneIsAcknowledged() throws Exception {
+        final QuicLoopback lb = new QuicLoopback();
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        final boolean[] dropped = new boolean[1];
+        lb.filter = new QuicLoopback.Filter() {
+            @Override
+            public boolean deliver(boolean toServer, int index, byte[] datagram) {
+                if (toServer || dropped[0] || !carriesOneRtt(datagram)) {
+                    return true;
+                }
+                dropped[0] = true;
+                return false;
+            }
+        };
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        assertTrue("the datagram with HANDSHAKE_DONE was dropped", dropped[0]);
+        QuicConnection clientConn = QuicForger.clientConnection(lb.clientEngine);
+        QuicConnection serverConn = QuicForger.serverConnection(lb.serverEngine);
+        assertTrue("server can still read Handshake packets", serverReadsHandshake(serverConn));
+
+        for (int round = 0; round < 6 && !((Boolean) QuicForger.field(clientConn, "handshakeConfirmed")).booleanValue(); round++) {
+            serverConn.clockOffsetMillis += 1500;
+            clientConn.clockOffsetMillis += 1500;
+            QuicForger.invoke(serverConn, "onLossDetectionTimeout");
+            lb.pump();
+        }
+        lb.pump();
+        assertFalse("keys discarded once HANDSHAKE_DONE was acknowledged", serverReadsHandshake(serverConn));
     }
 }
