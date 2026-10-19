@@ -94,6 +94,7 @@ public class QuicLoopbackProbeTest {
         // A PING with an IMMEDIATE_ACK is some 40 bytes; a probe that
         // repeats the oldest lost chunk is a full datagram.
         assertTrue("probe of " + probe.length + " bytes carries stream data", probe.length > 1000);
+        assertEquals("a second probe datagram follows", 2, lb.toServerLog.size() - beforeProbe);
         lb.pump();
         assertTrue("the probe's data reached the server", server.bidi.recs.get(0).bytes > 0);
     }
