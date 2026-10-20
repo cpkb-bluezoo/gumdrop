@@ -21,7 +21,7 @@
 <project name='gumdrop' default='dist' xmlns:jacoco='antlib:org.jacoco.ant'>
 
   <!-- Project version -->
-  <property name='version' value='3.1.0'/>
+  <property name='version' value='3.1.1'/>
 
   <!-- External dependency versions (sync with pom.xml and boms/* — Ant-only build) -->
   <property file='boms/versions.properties'/>

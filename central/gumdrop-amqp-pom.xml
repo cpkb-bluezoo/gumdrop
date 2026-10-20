@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-amqp</artifactId>
-    <version>3.1.0</version>
+    <version>3.1.1</version>
     <packaging>jar</packaging>
     <name>Gumdrop AMQP</name>
     <description>AMQP client for Gumdrop</description>

@@ -6,7 +6,7 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-ldap</artifactId>
-    <version>3.1.0</version>
+    <version>3.1.1</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop LDAP Realm</name>
