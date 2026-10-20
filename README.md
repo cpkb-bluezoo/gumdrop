@@ -545,6 +545,7 @@ There is extensive documentation for all Gumdrop features:
 - [Javadoc package and class documentation](https://cpkb-bluezoo.github.io/gumdrop/doc/)
 - [RFC compliance matrix](RFC-COMPLIANCE.md) showing extent of support for mandatory and optional RFC features
 - [Framework comparison](docs/FRAMEWORK-COMPARISON.md) — deployment size and speed vs Netty, Jetty, Tomcat, Spring Boot
+- [QUIC interoperability testing](docs/QUIC-INTEROP.md) - how to run the QUIC Interop Runner against Gumdrop (published image, GitHub Actions workflow, local podman script) and read the results
 - [Cloud container deployment](docs/CONTAINER-DEPLOYMENT.md) — Docker/Podman/Kubernetes for custom Gumdrop apps and the optional servlet-container image; lifecycle, sizing, and scaling (local servlet smoke: [BUILDING.md](BUILDING.md))
 
 ## Configuration

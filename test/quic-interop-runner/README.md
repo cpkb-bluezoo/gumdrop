@@ -17,6 +17,10 @@ everything needed to be one of those implementations:
 | `logging.properties`, `logging-debug.properties` | Console logging for the endpoint JVM (`INTEROP_DEBUG=1` selects the verbose one) |
 | `classes/`, `results/`, `logs/` | Build output and runner logs; ignored by git |
 
+To run the tests against Gumdrop, or to use the published image, see
+[QUIC interoperability testing](../../docs/QUIC-INTEROP.md); this file
+describes the endpoint itself.
+
 The matrix is run by the `QUIC interop` GitHub Actions workflow
 (`.github/workflows/quic-interop.yml`), on demand and weekly. It is not
 part of `ant test`.

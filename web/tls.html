@@ -70,7 +70,11 @@ and quotas see <a href="security.html">Security</a>.
 <li><a href="#tls13">TLS 1.3 engine</a></li>
 <li><a href="#tls12">TLS 1.2 engine</a></li>
 <li><a href="#dtls">DTLS 1.2 and DTLS 1.3</a></li>
-<li><a href="#quic">QUIC integration</a></li>
+<li><a href="#quic">QUIC integration</a>
+  <ul>
+  <li><a href="#interop">Interoperability testing</a></li>
+  </ul>
+</li>
 <li><a href="#security">Security practices</a></li>
 <li><a href="#fips">FIPS mode</a></li>
 <li><a href="#configuration">Configuration for implementers</a>
@@ -427,6 +431,36 @@ read and written through blocking <code>java.io</code> streams, and on the
 server one shared thread reads the socket and queues each datagram to the
 receiver thread of the connection it belongs to. The remaining Java options (such as
 Netty&rsquo;s incubator codec) wrap native code.
+</p>
+
+<h3 id="interop">Interoperability testing</h3>
+
+<p>
+Gumdrop&rsquo;s QUIC and HTTP/3 stack is tested against other implementations
+with the <a href="https://github.com/quic-interop/quic-interop-runner">QUIC
+Interop Runner</a>, the harness behind the public matrix at
+<a href="https://interop.seemann.io/">interop.seemann.io</a>. Each release
+publishes an endpoint image, <code>ghcr.io/cpkb-bluezoo/gumdrop-interop</code>
+(<code>linux/amd64</code> and <code>linux/arm64</code>), that plays either the
+server or the client, so another implementation can be checked against Gumdrop
+by registering that image with a local copy of the runner:
+</p>
+
+<pre>
+jq '. + {"gumdrop": {"image": "ghcr.io/cpkb-bluezoo/gumdrop-interop:latest",
+      "url": "https://github.com/cpkb-bluezoo/gumdrop", "role": "both"}}' \
+  implementations_quic.json &gt; tmp.json &amp;&amp; mv tmp.json implementations_quic.json
+python3 run.py -s gumdrop -c quic-go
+</pre>
+
+<p>
+The repository also has a GitHub Actions workflow that builds the endpoint
+from any commit and runs it against many implementations in both directions,
+and a script that runs one case against one peer in podman, including port and
+address rebinding. See
+<a href="https://github.com/cpkb-bluezoo/gumdrop/blob/main/docs/QUIC-INTEROP.md">QUIC
+interoperability testing</a> for all three, for the options, and for how to
+read the results.
 </p>
 
 <h2 id="security">Security practices</h2>
