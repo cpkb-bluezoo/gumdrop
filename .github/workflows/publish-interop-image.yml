@@ -1,0 +1,106 @@
+name: Publish interop image
+
+# Builds the QUIC interoperability endpoint (test/quic-interop-runner) for
+# linux/amd64 and linux/arm64 and publishes it to the GitHub Container
+# Registry, where the quic-interop-runner pulls it from:
+#
+#   ghcr.io/cpkb-bluezoo/gumdrop-interop:latest
+#
+# A published release pushes <version> and latest. A manual run pushes the
+# tag it is given (edge by default), from any ref, without touching latest.
+#
+# The package must be public for the runner to pull it: after the first
+# push, check its visibility under the repository's Packages.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to push (latest is only pushed for releases)'
+        default: 'edge'
+        type: string
+      ref:
+        description: 'Commit, branch or tag to build (empty builds this workflow''s own commit)'
+        default: ''
+        type: string
+
+env:
+  IMAGE: ghcr.io/cpkb-bluezoo/gumdrop-interop
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Tags
+        id: tags
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT" = release ]; then
+            # v3.1.1 -> 3.1.1
+            echo "tags=$IMAGE:${RELEASE_TAG#v},$IMAGE:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=$IMAGE:${INPUT_TAG:-edge}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The endpoint exits 127 for a test case it does not know, which is how
+      # the runner finds out what is unsupported; check that on the image the
+      # runner will get before publishing it. The entrypoint script runs the
+      # simulator's network setup first, which needs the simulator, so the
+      # Java main is run directly: it decides on the exit status itself.
+      - name: Build and smoke-test linux/amd64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: test/quic-interop-runner/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: gumdrop-interop:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Unsupported test case exits 127
+        run: |
+          set +e
+          docker run --rm --entrypoint java -e ROLE=server -e TESTCASE=no-such-case \
+            gumdrop-interop:smoke -cp '/gumdrop/classes:/gumdrop/lib/*' \
+            org.bluezoo.gumdrop.quic.interop.InteropServer
+          status=$?
+          echo "exit status $status"
+          test "$status" = 127
+
+      - name: Push linux/amd64 and linux/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: test/quic-interop-runner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/cpkb-bluezoo/gumdrop
+            org.opencontainers.image.description=Gumdrop endpoint for the QUIC Interop Runner
+            org.opencontainers.image.licenses=LGPL-3.0-or-later
+          cache-from: type=gha

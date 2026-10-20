@@ -7,10 +7,14 @@
 #   docker build -f test/quic-interop-runner/Dockerfile -t gumdrop-interop .
 #
 # The public runner needs linux/amd64; on Apple silicon add
-# --platform linux/amd64, or use buildx for a multi-platform image.
+# --platform linux/amd64, or use buildx for a multi-platform image
+# (.github/workflows/publish-interop-image.yml does).
 
 # ---- Build: jars and the endpoint classes --------------------------------
-FROM eclipse-temurin:25-jdk AS build
+# Always on the build host's own platform: the jars and classes are the same
+# for every target, so a multi-platform build compiles once, not under
+# emulation.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jdk AS build
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ant \
