@@ -7,7 +7,8 @@ name: Publish interop image
 #   ghcr.io/cpkb-bluezoo/gumdrop-interop:latest
 #
 # A published release pushes <version> and latest. A manual run pushes the
-# tag it is given (edge by default), from any ref, without touching latest.
+# one tag it is given (edge by default), from any ref; it only changes latest
+# if latest is the tag you give it.
 #
 # The package must be public for the runner to pull it: after the first
 # push, check its visibility under the repository's Packages.
@@ -18,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Image tag to push (latest is only pushed for releases)'
+        description: 'Tag to give the image, e.g. edge for a test build or latest (a release pushes its own version and latest, whatever this says)'
         default: 'edge'
         type: string
       ref:
@@ -55,6 +56,8 @@ jobs:
           else
             echo "tags=$IMAGE:${INPUT_TAG:-edge}" >> "$GITHUB_OUTPUT"
           fi
+          # the commit that was checked out (a manual run may build any ref)
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -101,6 +104,7 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/cpkb-bluezoo/gumdrop
+            org.opencontainers.image.revision=${{ steps.tags.outputs.revision }}
             org.opencontainers.image.description=Gumdrop endpoint for the QUIC Interop Runner
             org.opencontainers.image.licenses=LGPL-3.0-or-later
           cache-from: type=gha
