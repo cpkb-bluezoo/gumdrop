@@ -397,12 +397,58 @@ and streaming JSON writing with <code>JSONWriter</code>;</li>
 
 <p>
 <code>FieldHandler</code> picks one string field out of a JSON object, and is used for the
-request and for the downstream response. <code>LookupHandler</code> parses the
+request and for the downstream response. jsonparser delivers a string value in pieces
+(<code>startStringValue</code>, <code>stringValueContent</code>, <code>endStringValue</code>),
+so the handler collects the pieces only for the field it wants and skips every other string
+without holding it. <code>JsonFeed</code> hands each body chunk to the parser: the parser
+leaves a token that straddles the end of a chunk unconsumed and expects it back at the
+head of the next buffer, so <code>JsonFeed</code> keeps those bytes and appends the next chunk. <code>LookupHandler</code> parses the
 request in <code>bodyContent</code> and, in <code>endMessage</code>, starts the outbound
 call; its inner <code>DownstreamResponse</code> reads the downstream response as it
 arrives. The handler gets the <code>Gumdrop</code> instance from its constructor, as a client
 is given the runtime it connects on.
 </p>
+
+<pre>
+import java.nio.ByteBuffer;
+
+import org.bluezoo.json.JSONException;
+import org.bluezoo.json.JSONParser;
+
+/**
+ * Passes body chunks to a {@link JSONParser}. The parser leaves a token that
+ * straddles the end of a chunk (a key, a literal, half of a multi-byte
+ * character) unconsumed and expects it back at the head of the next buffer,
+ * so the chunk is appended to those bytes here. The buffer is kept larger
+ * than the longest key the parser allows, or the parser would refuse a
+ * small chunk that holds an unfinished token.
+ */
+final class JsonFeed {
+
+    private static final int BUFFER_SIZE = 8192;
+
+    private final JSONParser parser;
+    private ByteBuffer pending = ByteBuffer.allocate(BUFFER_SIZE);
+
+    JsonFeed(JSONParser parser) {
+        this.parser = parser;
+    }
+
+    void receive(ByteBuffer data) throws JSONException {
+        int needed = pending.position() + data.remaining();
+        if (pending.capacity() &lt; needed) {
+            ByteBuffer larger = ByteBuffer.allocate(needed);
+            pending.flip();
+            larger.put(pending);
+            pending = larger;
+        }
+        pending.put(data);
+        pending.flip();
+        parser.receive(pending);
+        pending.compact();
+    }
+}
+</pre>
 
 <pre>
 import java.io.IOException;
@@ -437,6 +483,7 @@ public final class LookupService {
         private final String wanted;
         private String currentKey;
         private String value;
+        private StringBuilder capture;
 
         FieldHandler(String wanted) {
             this.wanted = wanted;
@@ -448,9 +495,24 @@ public final class LookupService {
         }
 
         @Override
-        public void stringValue(String text) throws JSONException {
+        public void startStringValue() throws JSONException {
             if (wanted.equals(currentKey)) {
-                value = text;
+                capture = new StringBuilder();
+            }
+        }
+
+        @Override
+        public void stringValueContent(CharSequence content) throws JSONException {
+            if (capture != null) {
+                capture.append(content);
+            }
+        }
+
+        @Override
+        public void endStringValue() throws JSONException {
+            if (capture != null) {
+                value = capture.toString();
+                capture = null;
             }
         }
 
@@ -471,6 +533,7 @@ public final class LookupService {
         private final int downstreamPort;
         private final HttpResponse response;
         private final JSONParser jsonParser = new JSONParser();
+        private final JsonFeed jsonFeed = new JsonFeed(jsonParser);
         private final FieldHandler query = new FieldHandler("query");
         private HttpMethod method;
         private String path;
@@ -513,7 +576,7 @@ public final class LookupService {
                 return;
             }
             try {
-                jsonParser.receive(data);
+                jsonFeed.receive(data);
             } catch (JSONException e) {
                 accepted = false;
                 sendError(400, "Invalid JSON: " + e.getMessage());
@@ -590,6 +653,7 @@ public final class LookupService {
         private final class DownstreamResponse extends DefaultHttpResponseHandler {
             private final HttpClient client;
             private final JSONParser parser = new JSONParser();
+            private final JsonFeed feed = new JsonFeed(parser);
             private final FieldHandler result = new FieldHandler("result");
             private int status;
             private boolean failed;
@@ -610,7 +674,7 @@ public final class LookupService {
                     return;
                 }
                 try {
-                    parser.receive(data);
+                    feed.receive(data);
                 } catch (JSONException e) {
                     failed = true;
                 }

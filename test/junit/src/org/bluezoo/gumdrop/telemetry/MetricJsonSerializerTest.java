@@ -150,6 +150,54 @@ public class MetricJsonSerializerTest {
         assertTrue("Should contain asDouble", json.contains("\"asDouble\":"));
     }
 
+    @Test
+    public void testNonFiniteGaugeIsWrittenAsProtobufJsonString() throws IOException {
+        long now = System.currentTimeMillis() * 1_000_000L;
+        List<NumberDataPoint> points = new ArrayList<NumberDataPoint>();
+        points.add(new NumberDataPoint(Attributes.empty(), now - 60_000_000_000L, now, Double.NaN));
+
+        MetricData metric = MetricData.gauge("ratio")
+                .setNumberDataPoints(points)
+                .build();
+
+        List<MetricData> metrics = new ArrayList<MetricData>();
+        metrics.add(metric);
+
+        String json = serializeMetrics(metrics);
+
+        assertTrue("NaN is the string form protobuf JSON uses",
+                json.contains("\"asDouble\":\"NaN\""));
+    }
+
+    @Test
+    public void testNonFiniteHistogramStatisticsAreWrittenAsStrings() throws IOException {
+        long now = System.currentTimeMillis() * 1_000_000L;
+        double[] bounds = {10.0, Double.POSITIVE_INFINITY};
+        long[] bucketCounts = {0, 0, 0};
+
+        List<HistogramDataPoint> points = new ArrayList<HistogramDataPoint>();
+        points.add(new HistogramDataPoint(
+                Attributes.empty(),
+                now - 60_000_000_000L, now,
+                0, 0.0,
+                bucketCounts, bounds,
+                Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY));
+
+        MetricData metric = MetricData.histogram("empty")
+                .setTemporality(AggregationTemporality.CUMULATIVE)
+                .setHistogramDataPoints(points)
+                .build();
+
+        List<MetricData> metrics = new ArrayList<MetricData>();
+        metrics.add(metric);
+
+        String json = serializeMetrics(metrics);
+
+        assertTrue(json.contains("\"explicitBounds\":[10.0,\"Infinity\"]"));
+        assertTrue(json.contains("\"min\":\"Infinity\""));
+        assertTrue(json.contains("\"max\":\"-Infinity\""));
+    }
+
     private String serializeMetrics(List<MetricData> metrics) throws IOException {
         MetricJsonSerializer serializer = new MetricJsonSerializer(
                 "test-service", "1.0.0", null, null);

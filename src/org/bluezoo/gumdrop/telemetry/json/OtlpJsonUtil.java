@@ -84,10 +84,25 @@ final class OtlpJsonUtil {
                 break;
             case Attribute.TYPE_DOUBLE:
                 w.writeKey("doubleValue");
-                w.writeNumber(Double.valueOf(attr.getDoubleValue()));
+                writeDouble(w, attr.getDoubleValue());
                 break;
         }
         w.writeEndObject();
+    }
+
+    /**
+     * Writes a double value. JSON has no NaN or infinity, so the protobuf
+     * JSON mapping (which OTLP/JSON follows) writes them as the strings
+     * {@code "NaN"}, {@code "Infinity"} and {@code "-Infinity"}.
+     */
+    static void writeDouble(JSONWriter w, double value) throws IOException {
+        if (Double.isNaN(value)) {
+            w.writeString("NaN");
+        } else if (Double.isInfinite(value)) {
+            w.writeString(value > 0 ? "Infinity" : "-Infinity");
+        } else {
+            w.writeNumber(Double.valueOf(value));
+        }
     }
 
     /**

@@ -39,14 +39,14 @@ For a pure async microservice without servlets:
 
 **Required (libraries the modules depend on):**
 - `gonzalez-core-1.2.0.jar` — XML parsing (149,662 bytes)
-- `jsonparser-1.3.jar` — JSON parsing (31,331 bytes)
+- `jsonparser-2.0.0.jar` — JSON parsing (38,745 bytes)
 - `jprotobuf-1.1.1.jar` — protobuf for OTLP export (16,941 bytes)
 - `micula-1.1.0.jar` — Brotli, for HTTP content encoding and TLS certificate compression (437,500 bytes)
 
 **Total:** ~2.5 MB of Gumdrop modules plus ~0.6 MB of libraries, ~3.1 MB overall. The module descriptors declare all four libraries as `requires`, so they are needed on the module path even if your service only uses JSON or only XML. Add further protocol modules (`gumdrop-smtp`, `gumdrop-mqtt`, ...) only if you use them.
 
 **Dependencies:** Downloaded from Maven Central on first build. Ant `resolve-deps` fetches:
-- jsonparser: https://repo1.maven.org/maven2/org/bluezoo/jsonparser/1.3/jsonparser-1.3.jar
+- jsonparser: https://repo1.maven.org/maven2/org/bluezoo/jsonparser/2.0.0/jsonparser-2.0.0.jar
 - gonzalez-core: https://repo1.maven.org/maven2/org/bluezoo/gonzalez-core/1.2.0/gonzalez-core-1.2.0.jar
 
 **Build:** `ant dist` — downloads jars from Maven Central, compiles, produces the `gumdrop-*.jar` module jars in `dist/` (plus an aggregate `gumdrop.jar`). No Maven/Gradle required for build.
@@ -59,7 +59,7 @@ For a pure async microservice without servlets:
 **Bundled inside fat JAR:**
 - gumdrop.jar (aggregate of all modules, 5.5 MB)
 - gonzalez-core-1.2.0.jar
-- jsonparser-1.3.jar
+- jsonparser-2.0.0.jar
 - jprotobuf-1.1.1.jar
 - micula-1.1.0.jar
 - jakarta.servlet-api-6.1.0.jar (398 KB)
@@ -85,7 +85,7 @@ For a pure async microservice without servlets:
 | gumdrop.jar (aggregate of all modules) | 5,495,926 bytes |
 | gumdrop-container.jar | 7,268,988 bytes |
 | gonzalez-core-1.2.0.jar | 149,662 bytes |
-| jsonparser-1.3.jar | 31,331 bytes |
+| jsonparser-2.0.0.jar | 38,745 bytes |
 | jprotobuf-1.1.1.jar | 16,941 bytes |
 | micula-1.1.0.jar | 437,500 bytes |
 | lib/ total (all deps) | ~3.5 MB |
@@ -400,7 +400,7 @@ There is no XML or properties-only way to deploy an external WAR; it requires Ja
 |-------------|---------|-------|-------|--------|-------------|
 | **HTTP server** | ✓ Built-in | ✓ Codec | ✓ Embedded | ✓ Embedded | ✓ Via Tomcat |
 | **Servlet API** | ✓ Optional | ✗ | ✓ | ✓ | ✓ |
-| **JSON parsing** | jsonparser (31 KB, required alongside gonzalez-core) | netty-codec (JsonObjectDecoder) + jackson-core non-blocking parser | Add lib | Add lib | Jackson (included) |
+| **JSON parsing** | jsonparser (39 KB, required alongside gonzalez-core) | netty-codec (JsonObjectDecoder) + jackson-core non-blocking parser | Add lib | Add lib | Jackson (included) |
 | **XML parsing** | gonzalez-core (~146 KB) | netty-codec-xml (Aalto, async) | Add lib | Add lib | Add lib |
 | **DI framework** | ✗ (composition in Java) | ✗ | ✗ | ✗ | ✓ (Spring, full) |
 | **Build tool** | Ant (or Maven for deps) | Maven/Gradle | Maven/Gradle | Maven/Gradle | Maven/Gradle |

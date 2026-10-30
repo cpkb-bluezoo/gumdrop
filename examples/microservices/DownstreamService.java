@@ -22,6 +22,7 @@ public final class DownstreamService {
     private static final class ReverseHandler extends DefaultHttpRequestHandler {
         private final HttpResponse response;
         private final JSONParser parser = new JSONParser();
+        private final JsonFeed feed = new JsonFeed(parser);
         private final LookupService.FieldHandler query = new LookupService.FieldHandler("query");
 
         ReverseHandler(HttpResponse response) {
@@ -32,7 +33,7 @@ public final class DownstreamService {
         @Override
         public void bodyContent(ByteBuffer data) {
             try {
-                parser.receive(data);
+                feed.receive(data);
             } catch (JSONException e) {
                 // reported when the request ends
             }

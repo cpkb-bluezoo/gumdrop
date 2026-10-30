@@ -114,9 +114,21 @@ public final class FlatJson {
                 segments.add(k);
             }
 
+            private final StringBuilder text = new StringBuilder();
+
             @Override
-            public void stringValue(String v) {
-                scalar(v);
+            public void startStringValue() {
+                text.setLength(0);
+            }
+
+            @Override
+            public void stringValueContent(CharSequence content) {
+                text.append(content);
+            }
+
+            @Override
+            public void endStringValue() {
+                scalar(text.toString());
             }
 
             @Override

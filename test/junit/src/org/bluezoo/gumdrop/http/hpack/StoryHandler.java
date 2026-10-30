@@ -86,7 +86,21 @@ class StoryHandler extends JSONDefaultHandler {
         stack.addLast(key);
     }
 
-    public void stringValue(String value) throws JSONException {
+    private final StringBuilder text = new StringBuilder();
+
+    @Override
+    public void startStringValue() throws JSONException {
+        text.setLength(0);
+    }
+
+    @Override
+    public void stringValueContent(CharSequence content) throws JSONException {
+        text.append(content);
+    }
+
+    @Override
+    public void endStringValue() throws JSONException {
+        String value = text.toString();
         String state = stack.getLast();
         switch (state) {
             case "context":

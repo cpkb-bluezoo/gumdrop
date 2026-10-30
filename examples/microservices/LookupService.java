@@ -35,6 +35,7 @@ public final class LookupService {
         private final String wanted;
         private String currentKey;
         private String value;
+        private StringBuilder capture;
 
         FieldHandler(String wanted) {
             this.wanted = wanted;
@@ -46,9 +47,24 @@ public final class LookupService {
         }
 
         @Override
-        public void stringValue(String text) throws JSONException {
+        public void startStringValue() throws JSONException {
             if (wanted.equals(currentKey)) {
-                value = text;
+                capture = new StringBuilder();
+            }
+        }
+
+        @Override
+        public void stringValueContent(CharSequence content) throws JSONException {
+            if (capture != null) {
+                capture.append(content);
+            }
+        }
+
+        @Override
+        public void endStringValue() throws JSONException {
+            if (capture != null) {
+                value = capture.toString();
+                capture = null;
             }
         }
 
@@ -69,6 +85,7 @@ public final class LookupService {
         private final int downstreamPort;
         private final HttpResponse response;
         private final JSONParser jsonParser = new JSONParser();
+        private final JsonFeed jsonFeed = new JsonFeed(jsonParser);
         private final FieldHandler query = new FieldHandler("query");
         private HttpMethod method;
         private String path;
@@ -111,7 +128,7 @@ public final class LookupService {
                 return;
             }
             try {
-                jsonParser.receive(data);
+                jsonFeed.receive(data);
             } catch (JSONException e) {
                 accepted = false;
                 sendError(400, "Invalid JSON: " + e.getMessage());
@@ -188,6 +205,7 @@ public final class LookupService {
         private final class DownstreamResponse extends DefaultHttpResponseHandler {
             private final HttpClient client;
             private final JSONParser parser = new JSONParser();
+            private final JsonFeed feed = new JsonFeed(parser);
             private final FieldHandler result = new FieldHandler("result");
             private int status;
             private boolean failed;
@@ -208,7 +226,7 @@ public final class LookupService {
                     return;
                 }
                 try {
-                    parser.receive(data);
+                    feed.receive(data);
                 } catch (JSONException e) {
                     failed = true;
                 }
