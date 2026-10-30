@@ -4,6 +4,26 @@ All notable changes to Gumdrop will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **jsonparser 2.0.0.** Gumdrop now builds against jsonparser 2.0.0 (was
+  1.3), whose content handler and `receive()` contract changed.
+  - OAuth token introspection and JWT validation read JSON strings as they
+    stream in. Only the fields they use (`username`, `sub`, `scope`, and the
+    JOSE and claims fields that are validated) are collected; every other
+    string is skipped without being held, and a JWT `aud` claim is compared
+    to the configured audience piece by piece.
+  - The introspection response parser keeps the bytes of a token that
+    straddles two body chunks and presents them again with the next chunk,
+    as jsonparser 2 requires. Without this a key, literal or multi-byte
+    character split across chunks was lost.
+  - OTLP/JSON export writes NaN and infinite doubles (gauge values, histogram
+    sums, bounds, minimum and maximum) as the strings `"NaN"`, `"Infinity"`
+    and `"-Infinity"`, as the protobuf JSON mapping specifies. jsonparser 2's
+    `JSONWriter` refuses to write them as numbers.
+
 ## [3.1.1] - 2026-10-20
 
 ### Fixed

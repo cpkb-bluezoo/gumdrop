@@ -239,8 +239,21 @@ public class GenerateTestData {
             }
         }
 
+        private final StringBuilder text = new StringBuilder();
+
         @Override
-        public void stringValue(String value) throws JSONException {
+        public void startStringValue() throws JSONException {
+            text.setLength(0);
+        }
+
+        @Override
+        public void stringValueContent(CharSequence content) throws JSONException {
+            text.append(content);
+        }
+
+        @Override
+        public void endStringValue() throws JSONException {
+            String value = text.toString();
             String state = stack.getLast();
             if ("headers".equals(state)) {
                 // Header value

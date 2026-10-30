@@ -240,7 +240,7 @@ public final class MetricJsonSerializer {
 
         if (point.isDouble()) {
             w.writeKey("asDouble");
-            w.writeNumber(Double.valueOf(point.getDoubleValue()));
+            OtlpJsonUtil.writeDouble(w, point.getDoubleValue());
         } else {
             w.writeKey("asInt");
             w.writeString(Long.toString(point.getLongValue()));
@@ -268,7 +268,7 @@ public final class MetricJsonSerializer {
         w.writeString(Long.toString(point.getCount()));
 
         w.writeKey("sum");
-        w.writeNumber(Double.valueOf(point.getSum()));
+        OtlpJsonUtil.writeDouble(w, point.getSum());
 
         long[] bucketCounts = point.getBucketCounts();
         w.writeKey("bucketCounts");
@@ -282,7 +282,7 @@ public final class MetricJsonSerializer {
         w.writeKey("explicitBounds");
         w.writeStartArray();
         for (double bound : bounds) {
-            w.writeNumber(Double.valueOf(bound));
+            OtlpJsonUtil.writeDouble(w, bound);
         }
         w.writeEndArray();
 
@@ -293,10 +293,10 @@ public final class MetricJsonSerializer {
         }
 
         w.writeKey("min");
-        w.writeNumber(Double.valueOf(point.getMin()));
+        OtlpJsonUtil.writeDouble(w, point.getMin());
 
         w.writeKey("max");
-        w.writeNumber(Double.valueOf(point.getMax()));
+        OtlpJsonUtil.writeDouble(w, point.getMax());
 
         w.writeEndObject();
     }

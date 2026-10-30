@@ -151,6 +151,9 @@ public class OAuthRealm implements Realm {
                 org.bluezoo.gumdrop.auth.Realm.class.getModule());   
     private static final Logger LOGGER = Logger.getLogger(OAuthRealm.class.getName());
 
+    /** Smallest buffer given to the JSON parser; it must exceed the longest key (4096 bytes). */
+    private static final int PARSE_BUFFER_SIZE = 8192;
+
     private EventLogger events() {
         return (selectorLoop != null ? selectorLoop.getTelemetryConfig() : new TelemetryConfig()).getLogger(OAuthRealm.class, L10N);
     }
@@ -783,6 +786,8 @@ public class OAuthRealm implements Realm {
             final DefaultHttpResponseHandler responseHandler = new DefaultHttpResponseHandler() {
                 private final IntrospectionResponseHandler jsonHandler = new IntrospectionResponseHandler();
                 private final JSONParser jsonParser = new JSONParser();
+                // bytes the parser could not use yet, in write mode
+                private ByteBuffer pending;
                 private boolean parserInitialized = false;
                 private Exception parseError = null;
                 private int statusCode = 0;
@@ -805,6 +810,32 @@ public class OAuthRealm implements Realm {
                     }
                 }
 
+                /**
+                 * Passes a body chunk to the parser. The parser leaves a
+                 * token that straddles the end of the chunk unconsumed and
+                 * expects it back at the head of the next buffer, so the
+                 * chunk is appended to those bytes here. The buffer must
+                 * be larger than the longest key the parser allows, or it
+                 * refuses a small chunk that holds an unfinished token.
+                 */
+                private void feed(ByteBuffer data) throws JSONException {
+                    int needed = pending == null ? data.remaining()
+                            : pending.position() + data.remaining();
+                    if (pending == null || pending.capacity() < needed) {
+                        ByteBuffer larger = ByteBuffer.allocate(
+                                Math.max(needed, PARSE_BUFFER_SIZE));
+                        if (pending != null) {
+                            pending.flip();
+                            larger.put(pending);
+                        }
+                        pending = larger;
+                    }
+                    pending.put(data);
+                    pending.flip();
+                    jsonParser.receive(pending);
+                    pending.compact();
+                }
+
                 @Override
                 public void bodyContent(ByteBuffer data) {
                     if (parseError != null) {
@@ -814,7 +845,7 @@ public class OAuthRealm implements Realm {
                     initParser();
 
                     try {
-                        jsonParser.receive(data);
+                        feed(data);
                     } catch (JSONException e) {
                         events().warn("err.json_parse_streaming").thrown(e).emit();
                         parseError = e;
@@ -1106,6 +1137,13 @@ public class OAuthRealm implements Realm {
         private boolean audMatched;
         private final Map<String, String> strings = new HashMap<String, String>();
         private final Map<String, Long> numbers = new HashMap<String, Long>();
+        // The audience is matched piece by piece as the string streams in,
+        // so an aud claim is never held in memory to be compared.
+        private boolean matchingAud;
+        private boolean audEqual;
+        private int audPos;
+        // Content of the string being read, only when its claim is wanted.
+        private StringBuilder captured;
 
         JwtClaimsHandler(String expectedAudience) {
             this.expectedAudience = expectedAudience;
@@ -1128,17 +1166,56 @@ public class OAuthRealm implements Realm {
         }
 
         @Override
-        public void stringValue(String value) throws JSONException {
+        public void startStringValue() throws JSONException {
+            audPos = 0;
+            audEqual = true;
+            captured = null;
             if (currentKey == null) {
                 return;
             }
-            if ("aud".equals(currentKey) && expectedAudience != null
-                    && expectedAudience.equals(value)) {
-                audMatched = true;
+            if (expectedAudience != null && "aud".equals(currentKey)) {
+                matchingAud = true;
             }
-            if (!inArray) {
-                strings.put(currentKey, value);
+            if (!inArray && isReadClaim(currentKey)) {
+                captured = new StringBuilder();
             }
+        }
+
+        @Override
+        public void stringValueContent(CharSequence content) throws JSONException {
+            if (matchingAud && audEqual) {
+                int n = content.length();
+                if (audPos + n > expectedAudience.length()
+                        || !expectedAudience.regionMatches(audPos, content.toString(), 0, n)) {
+                    audEqual = false;
+                } else {
+                    audPos += n;
+                }
+            }
+            if (captured != null) {
+                captured.append(content);
+            }
+        }
+
+        @Override
+        public void endStringValue() throws JSONException {
+            if (matchingAud) {
+                if (audEqual && audPos == expectedAudience.length()) {
+                    audMatched = true;
+                }
+                matchingAud = false;
+            }
+            if (captured != null) {
+                strings.put(currentKey, captured.toString());
+                captured = null;
+            }
+        }
+
+        /** The claims validateJwt reads as strings; others are not buffered. */
+        private static boolean isReadClaim(String key) {
+            return "alg".equals(key) || "iss".equals(key) || "aud".equals(key)
+                    || "sub".equals(key) || "username".equals(key)
+                    || "scope".equals(key);
         }
 
         @Override
@@ -1193,6 +1270,9 @@ public class OAuthRealm implements Realm {
         // are the RFC 7662 section 2.2 response fields; same-named members
         // of nested objects or arrays must not override them.
         private int depth;
+        // Content of the string being read, only for the fields we keep;
+        // every other string is skipped without being held.
+        private StringBuilder captured;
         
         // Extracted token information
         private boolean active = false;
@@ -1230,10 +1310,31 @@ public class OAuthRealm implements Realm {
         }
         
         @Override
-        public void stringValue(String value) throws JSONException {
+        public void startStringValue() throws JSONException {
+            captured = null;
             if (currentKey == null || depth != 1) {
                 return;
             }
+            if ("username".equals(currentKey) || "sub".equals(currentKey)
+                    || "scope".equals(currentKey)) {
+                captured = new StringBuilder();
+            }
+        }
+
+        @Override
+        public void stringValueContent(CharSequence content) throws JSONException {
+            if (captured != null) {
+                captured.append(content);
+            }
+        }
+
+        @Override
+        public void endStringValue() throws JSONException {
+            if (captured == null) {
+                return;
+            }
+            String value = captured.toString();
+            captured = null;
             if ("username".equals(currentKey)) {
                 this.username = value;
             } else if ("sub".equals(currentKey)) {

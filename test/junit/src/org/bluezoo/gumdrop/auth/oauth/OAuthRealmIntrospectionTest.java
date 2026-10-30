@@ -128,12 +128,26 @@ public class OAuthRealmIntrospectionTest {
         final BinaryRecordingEndpoint endpoint = new BinaryRecordingEndpoint();
         int status = 200;
         List<String> chunks = new ArrayList<String>();
+        List<byte[]> rawChunks;
         Exception connectError;
         Exception requestFailure;
         boolean silent;
         Runnable timeoutTask;
         boolean timeoutCancelled;
         boolean tls;
+
+        /** Replies with the body cut at the given byte offsets, wherever they fall. */
+        void respondCutAt(int code, String body, int... cuts) {
+            status = code;
+            rawChunks = new ArrayList<byte[]>();
+            byte[] all = body.getBytes(StandardCharsets.UTF_8);
+            int from = 0;
+            for (int i = 0; i <= cuts.length; i++) {
+                int to = i < cuts.length ? cuts[i] : all.length;
+                rawChunks.add(java.util.Arrays.copyOfRange(all, from, to));
+                from = to;
+            }
+        }
 
         void respond(int code, String... parts) {
             status = code;
@@ -241,7 +255,12 @@ public class OAuthRealmIntrospectionTest {
             }
             h.status(st.code);
             h.endHeaders();
-            for (int i = 0; i < chunks.size(); i++) {
+            if (rawChunks != null) {
+                for (int i = 0; i < rawChunks.size(); i++) {
+                    h.bodyContent(ByteBuffer.wrap(rawChunks.get(i)));
+                }
+            }
+            for (int i = 0; rawChunks == null && i < chunks.size(); i++) {
                 byte[] b = chunks.get(i).getBytes(StandardCharsets.UTF_8);
                 h.bodyContent(ByteBuffer.wrap(b));
             }
@@ -306,6 +325,23 @@ public class OAuthRealmIntrospectionTest {
         Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "t");
         assertTrue(r.valid);
         assertEquals("carol", r.username);
+    }
+
+    @Test
+    public void multiByteCharacterSplitBetweenChunksIsKept() {
+        String body = "{\"active\":true,\"username\":\"j\u00e9r\u00f4me\",\"scope\":\"a b\"}";
+        int accent = body.getBytes(StandardCharsets.UTF_8).length;
+        // cut every byte so each multi-byte character is split too
+        int[] cuts = new int[accent - 1];
+        for (int i = 0; i < cuts.length; i++) {
+            cuts[i] = i + 1;
+        }
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respondCutAt(200, body, cuts);
+        OAuthRealm realm = realm(false, ex);
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "t");
+        assertTrue(r.valid);
+        assertEquals("j\u00e9r\u00f4me", r.username);
     }
 
     @Test
