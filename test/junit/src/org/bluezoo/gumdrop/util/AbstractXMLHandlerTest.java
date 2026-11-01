@@ -106,6 +106,65 @@ public class AbstractXMLHandlerTest {
     }
 
     @Test
+    public void testXmlPrefixIsAlwaysBound() throws Exception {
+        parse("<root xml:lang=\"fr\"/>");
+        assertEquals("http://www.w3.org/XML/1998/namespace", handler.lastAttrs.getURI(0));
+        assertEquals("lang", handler.lastAttrs.getLocalName(0));
+        assertEquals("fr", handler.lastAttrs.getValue("http://www.w3.org/XML/1998/namespace", "lang"));
+    }
+
+    /** Records, while the live attributes are valid, the answers to every lookup. */
+    private static final class AttributeProbe extends AbstractXMLHandler {
+        final List<String> answers = new ArrayList<String>();
+
+        @Override
+        protected void startElement(String uri, String localName, String qName, Attributes atts)
+                throws SAXException {
+            answers.add(String.valueOf(atts.getLength()));
+            answers.add(String.valueOf(atts.getIndex("urn:test", "foo")));
+            answers.add(String.valueOf(atts.getIndex("urn:test", "missing")));
+            answers.add(String.valueOf(atts.getIndex("x:foo")));
+            answers.add(String.valueOf(atts.getIndex("missing")));
+            answers.add(atts.getType(0));
+            answers.add(atts.getType("urn:test", "foo"));
+            answers.add(String.valueOf(atts.getType("urn:test", "missing")));
+            answers.add(atts.getType("plain"));
+            answers.add(String.valueOf(atts.getType("missing")));
+            answers.add(atts.getValue("urn:test", "foo"));
+            answers.add(String.valueOf(atts.getValue("urn:test", "missing")));
+            answers.add(String.valueOf(atts.getValue("missing")));
+            answers.add(atts.getQName(0));
+            answers.add(String.valueOf(atts.getURI(7)));
+            answers.add(String.valueOf(atts.getLocalName(-1)));
+            answers.add(String.valueOf(atts.getQName(7)));
+            answers.add(String.valueOf(atts.getType(7)));
+            answers.add(String.valueOf(atts.getValue(7)));
+        }
+    }
+
+    @Test
+    public void testAttributeLookupByNameAndPosition() throws Exception {
+        AttributeProbe probe = new AttributeProbe();
+        parser.setXMLHandler(probe);
+        parse("<root xmlns:x=\"urn:test\" x:foo=\"bar\" plain=\"1\"/>");
+        String[] expected = {"2", "0", "-1", "0", "-1", "CDATA", "CDATA", "null", "CDATA", "null",
+                "bar", "null", "null", "x:foo", "null", "null", "null", "null", "null"};
+        assertEquals(java.util.Arrays.asList(expected), probe.answers);
+    }
+
+    @Test
+    public void testMarkupCallbacksAreIgnoredByDefault() throws Exception {
+        parse("<?xml version=\"1.0\"?><!DOCTYPE root [<!ENTITY e \"x\"><!NOTATION n SYSTEM \"n\">]>"
+                + "<root><!--note--><![CDATA[raw]]><?target data?>&e;</root>");
+        assertEquals(1, handler.starts.size());
+    }
+
+    @Test
+    public void testReportedErrorIsIgnoredByDefault() throws Exception {
+        handler.error("recoverable");
+    }
+
+    @Test
     public void testEndElementMatchesStartElementIdentity() throws Exception {
         parse("<D:root xmlns:D=\"DAV:\"><D:child/></D:root>");
         assertEquals(2, handler.ends.size());
