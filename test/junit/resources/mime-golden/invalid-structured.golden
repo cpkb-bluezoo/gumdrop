@@ -1,0 +1,10 @@
+locator
+startEntity: null
+unexpectedHeader: To = "<<<broken"
+addressHeader: From | "null" <a@example.com> comments=null
+unexpectedHeader: Date = "not a date"
+unexpectedHeader: Message-ID = "nonsense"
+header: Subject = "ok"
+endHeaders: offset=204 line=10
+body: "body\r\n"
+endEntity: null

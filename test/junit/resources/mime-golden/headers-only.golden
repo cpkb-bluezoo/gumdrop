@@ -1,0 +1,6 @@
+locator
+startEntity: null
+header: Subject = "x"
+addressHeader: To | "null" <a@example.com> comments=null
+endHeaders: offset=31 line=3
+endEntity: null

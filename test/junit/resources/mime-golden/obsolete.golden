@@ -1,0 +1,13 @@
+locator
+startEntity: null
+obsoleteStructure: OBSOLETE_ADDRESS_SYNTAX
+addressHeader: From | "null" <Alice <@route1> comments=null | "null" <alice@example.com>> comments=null
+obsoleteStructure: OBSOLETE_ADDRESS_SYNTAX
+addressHeader: To | "null" <"a"."b"@example.com> comments=null | "null" <x@example.com> comments=null
+obsoleteStructure: OBSOLETE_DATE_TIME_SYNTAX
+dateHeader: Date = 1997-11-21T09:55-05:00
+unexpectedHeader: Message-ID = "<a b@c.d>"
+header: Subject = "obs"
+endHeaders: offset=161 line=6
+body: "body\r\n"
+endEntity: null

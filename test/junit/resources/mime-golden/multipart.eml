@@ -1,0 +1,32 @@
+From: a@example.com
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer"
+
+preamble text
+--outer
+Content-Type: text/plain
+
+part one
+
+--outer
+Content-Type: multipart/alternative; boundary=inner
+
+--inner
+Content-Type: text/plain
+
+alt a
+--inner
+Content-Type: text/html
+
+<p>alt b</p>
+--inner--
+--outer
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="a b.bin"
+Content-ID: <cid1@example.com>
+Content-Description: a binary thing
+
+-- not a boundary
+--outerish not a boundary either
+--outer--
+epilogue text

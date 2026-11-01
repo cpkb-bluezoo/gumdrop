@@ -1,0 +1,6 @@
+locator
+startEntity: null
+contentType: multipart/mixed
+endHeaders: offset=33 line=2
+body: "--x\r\n\r\nnot parsed as parts\r\n"
+endEntity: null

@@ -1,0 +1,7 @@
+locator
+startEntity: null
+header: Subject = "caf\u00e9 \u00ff"
+addressHeader: From | "J\u00f6rg" <j@example.com> comments=null
+endHeaders: offset=66 line=3
+body: "body\r\n"
+endEntity: null

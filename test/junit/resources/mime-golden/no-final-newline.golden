@@ -1,0 +1,5 @@
+locator
+startEntity: null
+header: Subject = "x"
+endHeaders: offset=14 line=2
+endEntity: null

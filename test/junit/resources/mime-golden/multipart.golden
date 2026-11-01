@@ -1,0 +1,36 @@
+locator
+startEntity: null
+addressHeader: From | "null" <a@example.com> comments=null
+mimeVersion: 1.0
+contentType: multipart/mixed; boundary=outer
+endHeaders: offset=91 line=4
+unexpectedContent: "preamble text"
+startEntity: outer
+contentType: text/plain
+endHeaders: offset=143 line=8
+body: "part one\r\n"
+endEntity: outer
+startEntity: outer
+contentType: multipart/alternative; boundary=inner
+endHeaders: offset=219 line=13
+startEntity: inner
+contentType: text/plain
+endHeaders: offset=256 line=16
+body: "alt a"
+endEntity: inner
+startEntity: inner
+contentType: text/html
+endHeaders: offset=299 line=20
+body: "<p>alt b</p>"
+endEntity: inner
+endEntity: outer
+startEntity: outer
+contentType: application/octet-stream
+contentDisposition: attachment; filename="a b.bin"
+contentID: <cid1@example.com>
+contentDescription: "a binary thing"
+endHeaders: offset=497 line=28
+body: "-- not a boundary\r\n--outerish not a boundary either"
+endEntity: outer
+unexpectedContent: "epilogue text\r\n"
+endEntity: null

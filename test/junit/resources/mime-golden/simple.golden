@@ -1,0 +1,19 @@
+locator
+startEntity: null
+addressHeader: From | "Alice Example" <alice@example.com> comments=null
+addressHeader: To | "null" <bob@example.com> comments=null | "Carol, C." <carol@example.org> comments=null
+unexpectedHeader: Cc = "undisclosed-recipients:;"
+header: Subject = "caf\u00e9 is open and folded"
+dateHeader: Date = 1997-11-21T09:55:06-06:00
+messageIDHeader: Message-ID | <1234@local.machine.example>
+messageIDHeader: In-Reply-To | <a@x> | <b@y>
+messageIDHeader: References | <a@x> | <b@y>
+header: X-Custom = "some value"
+header: Received = "from a by b; Fri, 21 Nov 1997 09:55:06 -0600"
+header: Comments = "hello"
+mimeVersion: 1.0
+contentType: text/plain; charset=utf-8
+contentTransferEncoding: 8bit
+endHeaders: offset=538 line=16
+body: "Hello world\r\nSecond line\r\n"
+endEntity: null

@@ -1,0 +1,7 @@
+From: Alice <@route1,@route2:alice@example.com>
+To: "a"."b"@example.com, ,x@example.com
+Date: Fri, 21 Nov 97 09:55 EST
+Message-ID: <a b@c.d>
+Subject: obs
+
+body
