@@ -54,10 +54,13 @@ import java.util.ResourceBundle;
  * stream contract:
  * <ul>
  *   <li>The caller provides a buffer in read mode (ready for get operations)</li>
- *   <li>The parser consumes as many complete lines as possible</li>
+ *   <li>Header lines are consumed whole: the parser consumes as many complete
+ *       header lines as possible, and an incomplete one stays in the buffer</li>
+ *   <li>A body is consumed as it arrives, whether or not its lines are
+ *       complete, so a body line of any length needs no buffer space</li>
  *   <li>After {@link #receive(ByteBuffer)} returns, the buffer's position
  *       indicates where unconsumed data begins</li>
- *   <li>If there is unconsumed data (partial line), the caller MUST call
+ *   <li>If there is unconsumed data (a partial header line), the caller MUST call
  *       {@link ByteBuffer#compact()} before reading more data into the buffer</li>
  *   <li>The next {@code receive()} call will continue from where parsing left off</li>
  * </ul>
@@ -118,9 +121,47 @@ public class MimeParser {
 			return columnNumber;
 		}
 
+		/** The last byte counted, to recognise a CR that ended a line by itself. */
+		private byte last;
+
 		void reset() {
 			offset = 0L;
 			lineNumber = 1L;
+			columnNumber = 0L;
+			last = (byte) 0;
+		}
+
+		/**
+		 * Counts the bytes in [from, to). A line feed ends a line. If
+		 * crLineEnd is set a CR that is not followed by a line feed does
+		 * too, and the byte that shows it is the first of the next line.
+		 */
+		void advance(ByteBuffer data, int from, int to, boolean crLineEnd) {
+			for (int p = from; p < to; p++) {
+				byte c = data.get(p);
+				offset++;
+				columnNumber++;
+				if (c == '\n') {
+					lineNumber++;
+					columnNumber = 0L;
+				} else if (crLineEnd && last == '\r') {
+					lineNumber++;
+					columnNumber = 1L;
+				}
+				last = c;
+			}
+		}
+
+		/** Counts a line feed without ending its line yet. */
+		void countLineFeed() {
+			offset++;
+			columnNumber++;
+			last = (byte) '\n';
+		}
+
+		/** Ends the line whose line feed was counted with countLineFeed. */
+		void endLine() {
+			lineNumber++;
 			columnNumber = 0L;
 		}
 
@@ -141,6 +182,16 @@ public class MimeParser {
 		QUOTED_PRINTABLE;
 	}
 
+	/** Where the body scanner is within a line (multipart states only). */
+	enum LineState {
+		/** At the start of a line; held may hold the previous line's ending. */
+		START,
+		/** Assembling a line that starts with '-': it may be a boundary. */
+		CANDIDATE,
+		/** Inside an ordinary content line. */
+		MID;
+	}
+
 	/**
 	 * RFC 2046 defines the maximum boundary length of 70 characters. So a
 	 * maximum boundary line length including the terminating CRLF will be
@@ -154,8 +205,28 @@ public class MimeParser {
 	 */
 	private static final int MAX_HEADER_LINE_LENGTH = 1000;
 
+	/**
+	 * The most transport padding (spaces and tabs, RFC 2046 section 5.1.1)
+	 * that is looked for after a boundary delimiter. A line with more is
+	 * ordinary content.
+	 */
+	private static final int MAX_BOUNDARY_PADDING = 64;
+
+	/**
+	 * The longest line that is assembled to see whether it is a boundary:
+	 * two hyphens, a boundary of at most 70 characters, two more hyphens,
+	 * padding and a line ending, with room to complete a CRLF.
+	 */
+	private static final int MAX_CANDIDATE_LINE = 70 + 6 + MAX_BOUNDARY_PADDING;
+
+	/**
+	 * The longest quoted-printable or base64 line that is held whole to be
+	 * decoded. A longer one is decoded as if it ended there. The RFCs limit
+	 * these lines to 76 characters.
+	 */
+	private static final int MAX_ENCODED_LINE = 8192;
+
 	private static final int INITIAL_HEADER_VALUE_CAPACITY = 1024;
-	private static final int INITIAL_PENDING_BODY_CAPACITY = 4096;
 
 	/** Default max unfolded header value size (32 KB), per Gmail/Exchange practice. */
 	private static final int DEFAULT_MAX_HEADER_VALUE_SIZE = 32 * 1024;
@@ -175,14 +246,20 @@ public class MimeParser {
 	private int maxHeaderValueSize = DEFAULT_MAX_HEADER_VALUE_SIZE;
 	private ParserLimits limits = new ParserLimits();
 	private ByteBuffer decodeBuffer;  // Lazy allocated when needed for decoding
-	private boolean contentFlushed; // manage state for content flushing
-	private ByteBuffer pendingBodyContent; // Buffer for deferred body content flushing (null until first use)
-	private boolean pendingBodyContentUnexpected; // Whether pending content is unexpected
+	// Body scanner state, all of it of fixed size. See scanMultipart.
+	private LineState lineState = LineState.START;
+	private final byte[] held = new byte[2]; // line ending withheld until the next line is known not to be a boundary
+	private int heldLen;
+	private final ByteBuffer heldView = ByteBuffer.wrap(held);
+	private final byte[] cand = new byte[MAX_CANDIDATE_LINE + 2]; // line being assembled to see if it is a boundary
+	private int candLen;
+	private final ByteBuffer candView = ByteBuffer.wrap(cand);
+	private int bodyLocated; // body bytes of the current receive already counted by the locator
+	private byte[] lineCarry = new byte[256]; // partial encoded line awaiting its end
+	private int lineCarryLen;
 	private TransferEncoding transferEncoding = TransferEncoding.BINARY;
 	private boolean allowCRLineEnd = false;
-	private byte last = (byte) 0; // last byte read (preserve over receive invocations)
 	private boolean underflow = false; // true if last receive() had unconsumed data
-	private int rescanLength = 0; // bytes of unconsumed data the caller will re-supply
 
 	/**
 	 * Constructor.
@@ -283,14 +360,15 @@ public class MimeParser {
 	 * given byte buffer.
 	 *
 	 * <p>Multiple invocations of this method will typically occur, containing
-	 * incomplete data. The parser will process as many complete lines as it can.
+	 * incomplete data. The parser will process as many complete header lines
+	 * as it can, and as much of the body as it is given.
 	 *
 	 * <p><strong>Buffer Contract:</strong> The byte buffer must be in read mode
 	 * (after {@code flip()}). After this method returns:
 	 * <ul>
 	 *   <li>The buffer's position indicates where unconsumed data begins</li>
-	 *   <li>If {@code position() < limit()}, there is a partial line that needs
-	 *       more data to complete</li>
+	 *   <li>If {@code position() < limit()}, there is a partial header line that
+	 *       needs more data to complete (a body is always consumed whole)</li>
 	 *   <li>The caller MUST call {@code buffer.compact()} before reading more
 	 *       data into the buffer</li>
 	 * </ul>
@@ -310,88 +388,92 @@ public class MimeParser {
 		// Reset underflow at start of each receive
 		underflow = false;
 
-		// The caller re-supplies the unconsumed partial line in front of the
-		// new data, so it is scanned again: take back what the previous scan
-		// counted and forget its last byte, so neither the locator nor CR
-		// line-end detection is thrown off by the repeat.
-		if (rescanLength > 0) {
-			locator.offset = Math.max(0L, locator.offset - rescanLength);
-			locator.columnNumber = Math.max(0L, locator.columnNumber - rescanLength);
-			last = (byte) 0;
-			rescanLength = 0;
+		if (state == State.INIT) {
+			locator.reset();
+			handler.setLocator(locator);
+			handler.startEntity(null);
+			startHeaders();
 		}
 
-		switch (state) {
-			case INIT:
-				locator.reset();
-				handler.setLocator(locator);
-				handler.startEntity(null);
-				startHeaders();
-				break;
-		}
-
-		// Process data line by line
-		int start = data.position();  // Position at start of current line
-		int end = data.limit();
-		int pos = start;
-		int eol = -1;
-
-		while (pos < end) {
-			// Look for line ending starting from current position
-			byte c = data.get(pos++);
-			locator.offset++;
-			locator.columnNumber++;
-			boolean crOnlyBreak = false;
-			if (c == '\n') {
-				eol = pos;
-			} else if (allowCRLineEnd && last == '\r') {
-				// Previous was CR, this is not LF, so CR was a line ending by
-				// itself: the line ends before this byte, which starts the next
-				eol = pos - 1;
-				crOnlyBreak = true;
-			}
-			last = c;
-
-			if (eol != -1) {
-				// Found line delimiter, process the line
-				// Set buffer window to line: position(start), limit(eol)
-				data.limit(eol);
-				data.position(start);
-
-				switch (state) {
-					case HEADER:
-						// Exclude line delimiter for headers
-						headerLine(data);
-						break;
-					default: // body of some variety
-						// Include line delimiter for body
-						bodyLine(data);
-						break;
+		// Header lines are processed whole; a body is consumed as it
+		// arrives, whether or not its lines are complete
+		while (data.hasRemaining()) {
+			if (state == State.HEADER) {
+				if (!headerLineFrom(data)) {
+					break;
 				}
-				// Reset window
-				data.limit(end);
-
-				// Move to next line
-				start = eol;
-				eol = -1;
-				locator.lineNumber++;
-				// The byte that revealed a CR-only break is already the first
-				// byte of the new line
-				locator.columnNumber = crOnlyBreak ? 1L : 0L;
+			} else {
+				int used = bodyChunk(data);
+				data.position(data.position() + used);
 			}
 		}
 
-		// Position buffer at start of unconsumed data (partial line)
-		data.position(start);
-		data.limit(end);
-
-		if (state == State.HEADER && data.hasRemaining()) {
-			checkIncompleteHeaderLine(data);
+		if (state == State.HEADER) {
+			if (data.hasRemaining()) {
+				checkIncompleteHeaderLine(data);
+			}
+			// An incomplete header line is left in the buffer
+			underflow = data.hasRemaining();
+		} else {
+			// A partial line of a multipart body has been consumed: it is
+			// held by the scanner, and close() reports it if it never ends
+			underflow = isMultipart(state) && lineState != LineState.START;
 		}
-		
-		// Set underflow flag if there's unconsumed data
-		underflow = data.hasRemaining();
-		rescanLength = data.remaining();
+	}
+
+	private static boolean isMultipart(State state) {
+		return state == State.FIRST_BOUNDARY
+			|| state == State.BOUNDARY_OR_CONTENT
+			|| state == State.BOUNDARY_ONLY;
+	}
+
+	/**
+	 * Takes the header line at the front of data if it is complete: the
+	 * line, with its line ending, is presented to headerLine with the
+	 * buffer's position and limit set to enclose it.
+	 * @return false if the line is incomplete (and so left in the buffer)
+	 */
+	private boolean headerLineFrom(ByteBuffer data) throws MimeParseException {
+		int start = data.position();
+		int end = data.limit();
+		int eol = -1;
+		boolean crOnly = false;
+		for (int p = start; p < end; p++) {
+			byte c = data.get(p);
+			if (c == '\n') {
+				eol = p + 1;
+				break;
+			}
+			if (c == '\r' && allowCRLineEnd) {
+				if (p + 1 >= end) {
+					break; // CR or CRLF: wait to see
+				}
+				if (data.get(p + 1) != '\n') {
+					eol = p + 1;
+					crOnly = true;
+					break;
+				}
+			}
+		}
+		if (eol < 0) {
+			return false;
+		}
+		// The line's line feed is counted but its line is not ended until
+		// the line has been dealt with
+		if (crOnly) {
+			locator.advance(data, start, eol, true);
+		} else {
+			locator.advance(data, start, eol - 1, allowCRLineEnd);
+			locator.countLineFeed();
+		}
+		data.limit(eol);
+		headerLine(data);
+		data.limit(end);
+		data.position(eol);
+		if (!crOnly) {
+			locator.endLine();
+		}
+		return true;
 	}
 
 	/**
@@ -847,9 +929,8 @@ public class MimeParser {
 	private void startHeaders() throws MimeParseException {
 		state = State.HEADER;
 		boundarySet = false;
-		contentFlushed = false;  // Reset for new part boundary detection
 		transferEncoding = TransferEncoding.BINARY;  // Reset transfer encoding for new part
-		clearPendingBodyContent();  // Clear any pending body content from previous part
+		resetBodyScanner();
 	}
 
 	private void endHeaders() throws MimeParseException {
@@ -871,163 +952,473 @@ public class MimeParser {
 	}
 
 	/**
-	 * We have received a complete or partial (end of) line up to and
-	 * including the CRLF/CR/LF in the body.
-	 * Buffer position/limit should be set to the line range (including line delimiter).
+	 * Receives the raw bytes of the body of the entity, in order, as they
+	 * are consumed: everything after the headers, including boundary lines,
+	 * preamble and epilogue, exactly as they arrived. Does nothing by
+	 * default. A subclass that needs the body as it was transmitted (to
+	 * compute a signature) overrides this. The runs have no particular
+	 * size and need not end at a line ending.
+	 * @param data the consumed bytes, valid only for the duration of the call
+	 * @exception MimeParseException if the subclass wishes to cancel the parse
 	 */
-	protected void bodyLine(ByteBuffer buffer) throws MimeParseException {
-		contentFlushed = false;  // Reset per line - only prevents boundary detection within the same line
-		int start = buffer.position();
-		int end = buffer.limit();
-		switch (state) {
-			case FIRST_BOUNDARY: // expecting first boundary
-			case BOUNDARY_ONLY: // we have completed a multipart part, expect parent boundary
-				if (!contentFlushed && !boundaries.isEmpty()) {
-					// Check if we have a boundary match
-					// Buffer position/limit are already set correctly by caller
-					BoundaryMatch match = detectBoundary(buffer);
-					if (match != null) {
-						// Flush any pending content with isBeforeBoundary=true (strip CRLF)
-						flushPendingBodyContent(true);
+	protected void rawBodyContent(ByteBuffer data) throws MimeParseException {
+	}
 
-						if (match.isEndBoundary) { // end boundary
-							handler.endEntity(match.boundary);
-							transferEncoding = TransferEncoding.BINARY;
-							// This is the end of the multipart
-							boundaries.removeLast();
-							state = State.BOUNDARY_ONLY;
-							return;
-						} else { // boundary to start first part
-							handler.startEntity(match.boundary);
-							transferEncoding = TransferEncoding.BINARY;
-							startHeaders(); // state will be HEADER
-							return;
-						}
-					}
-				}
-				// Boundary not detected - flush pending with isBeforeBoundary=false and buffer current
-				flushPendingBodyContent(false);
-				bufferBodyContent(buffer, true);
-				break;
-			case BOUNDARY_OR_CONTENT: // subsequent body lines
-				if (!contentFlushed && !boundaries.isEmpty()) {
-					// Check if we have a boundary match
-					// Buffer position/limit are already set correctly by caller
-					BoundaryMatch match = detectBoundary(buffer);
-					if (match != null) {
-						// Flush any pending content with isBeforeBoundary=true (strip CRLF)
-						flushPendingBodyContent(true);
+	/**
+	 * Consumes body bytes from the buffer. The bytes are used as they arrive
+	 * and not held waiting for a line to end.
+	 * @return the number of bytes consumed. This is all of them unless a
+	 * boundary line was found that starts a new entity's headers, which
+	 * are then to be read from the remainder.
+	 */
+	private int bodyChunk(ByteBuffer data) throws MimeParseException {
+		int base = data.position();
+		int len = data.remaining();
+		bodyLocated = base;
+		int used;
+		if (state == State.BODY) {
+			emitContent(data, base, base + len);
+			used = len;
+		} else {
+			used = scanMultipart(data);
+		}
+		syncLocator(data, base + used);
+		rawBodyContent(window(data, base, base + used));
+		return used;
+	}
 
-						if (match.isEndBoundary) { // end boundary
-							handler.endEntity(match.boundary); // end of the body part
-							transferEncoding = TransferEncoding.BINARY;
-							// This is the end of the multipart
-							boundaries.removeLast();
-							if (!boundaries.isEmpty()) {
-								handler.endEntity(boundaries.getLast());
-							}
-							state = State.BOUNDARY_ONLY;
-							return;
-						} else { // boundary between body parts
-							handler.endEntity(match.boundary);
-							handler.startEntity(match.boundary);
-							transferEncoding = TransferEncoding.BINARY;
-							startHeaders(); // state will be HEADER
-							return;
-						}
-					}
-				}
-				// boundary not detected - flush pending with isBeforeBoundary=false and buffer current
-				flushPendingBodyContent(false);
-				bufferBodyContent(buffer, false);
-				break;
-			case BODY: // body not in multipart
-				flushBodyContent(buffer, false, false);
-				break;
-			case INIT:
-			case HEADER:
-				// Defensive programming: these states should not occur in bodyLine processing
-				// If they do, it indicates a parser state management issue
-				String msg = MessageFormat.format(L10N.getString("err.unexpected_parser_state"), state);
-				throw new MimeParseException(msg, locator);
+	/** Brings the locator up to the given absolute position in data. */
+	private void syncLocator(ByteBuffer data, int upTo) {
+		if (upTo > bodyLocated) {
+			locator.advance(data, bodyLocated, upTo, allowCRLineEnd);
+			bodyLocated = upTo;
 		}
 	}
 
-	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary) throws MimeParseException {
-		flushBodyContent(buffer, unexpected, isBeforeBoundary, false);
+	private static ByteBuffer window(ByteBuffer src, int from, int to) {
+		ByteBuffer w = src.duplicate();
+		w.limit(to);
+		w.position(from);
+		return w;
 	}
 
-	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary, boolean endOfStream) throws MimeParseException {
-		// Buffer position/limit already correctly set by caller
-		switch (transferEncoding) {
-			case BASE64:
-			case QUOTED_PRINTABLE:
-				flushBodyContentWithDecoding(buffer, unexpected, transferEncoding, isBeforeBoundary, endOfStream);
+	private void resetBodyScanner() {
+		lineState = LineState.START;
+		heldLen = 0;
+		candLen = 0;
+		lineCarryLen = 0;
+	}
+
+	/** The longest line that could be a boundary delimiter line. */
+	private int boundaryLineLimit() {
+		if (boundaries.isEmpty()) {
+			return 0;
+		}
+		return Math.min(boundaries.getLast().length() + 6 + MAX_BOUNDARY_PADDING, MAX_CANDIDATE_LINE);
+	}
+
+	/**
+	 * Scans multipart body bytes. Runs of ordinary lines go to the content
+	 * pipeline straight from the buffer. A line that starts with '-' is
+	 * assembled to see whether it is a boundary delimiter. The line ending
+	 * before a line is withheld until that line is known not to be a
+	 * delimiter, because the ending belongs to the delimiter if it is
+	 * (RFC 2046 section 5.1.1). Nothing else is held, so the memory used
+	 * does not depend on the length of a line.
+	 * @return the number of bytes consumed
+	 */
+	private int scanMultipart(ByteBuffer data) throws MimeParseException {
+		int base = data.position();
+		int end = data.limit();
+		int i = base;
+		while (i < end) {
+			switch (lineState) {
+				case START:
+					if (data.get(i) == '-' && !boundaries.isEmpty()) {
+						candLen = 0;
+						lineState = LineState.CANDIDATE;
+					} else {
+						releaseHeld();
+						lineState = LineState.MID;
+					}
+					break;
+
+				case CANDIDATE: {
+					if (allowCRLineEnd && candLen > 0 && cand[candLen - 1] == '\r') {
+						// The CR that ended the chunk: a line end by itself,
+						// or the first half of CRLF
+						if (data.get(i) == '\n') {
+							cand[candLen++] = '\n';
+							i++;
+						}
+						if (candidateLineComplete(data, i)) {
+							return i - base;
+						}
+						break;
+					}
+					int take = end - i;
+					boolean complete = false;
+					for (int p = i; p < end; p++) {
+						byte c = data.get(p);
+						if (c == '\n') {
+							take = p + 1 - i;
+							complete = true;
+							break;
+						}
+						if (c == '\r' && allowCRLineEnd) {
+							if (p + 1 < end) {
+								take = (data.get(p + 1) == '\n') ? p + 2 - i : p + 1 - i;
+								complete = true;
+							} else {
+								take = p + 1 - i; // CR or CRLF: wait to see
+							}
+							break;
+						}
+					}
+					if (candLen + take > boundaryLineLimit()) {
+						// Too long to be a delimiter line: ordinary content
+						releaseHeld();
+						int n = candLen;
+						candLen = 0;
+						lineState = LineState.MID;
+						// A trailing CR may be half a line ending: withhold it
+						boolean cr = n > 0 && cand[n - 1] == '\r';
+						if (cr) {
+							n--;
+						}
+						candView.clear();
+						emitContent(candView, 0, n);
+						if (cr) {
+							held[0] = '\r';
+							heldLen = 1;
+						}
+						break;
+					}
+					data.get(i, cand, candLen, take);
+					candLen += take;
+					i += take;
+					if (complete && candidateLineComplete(data, i)) {
+						return i - base;
+					}
+					break;
+				}
+
+				case MID:
+					i = scanMid(data, i, end);
+					break;
+			}
+		}
+		return i - base;
+	}
+
+	/**
+	 * Scans ordinary line content. The run ends at the first line ending
+	 * that is followed by a hyphen (a possible delimiter) or by the end of
+	 * the input.
+	 * @return the position of the first byte not consumed
+	 */
+	private int scanMid(ByteBuffer data, int i, int end) throws MimeParseException {
+		if (heldLen == 1 && held[0] == '\r') {
+			// A CR withheld at the end of the last chunk
+			if (data.get(i) == '\n') {
+				held[1] = '\n';
+				heldLen = 2;
+				lineState = LineState.START;
+				return i + 1;
+			}
+			if (allowCRLineEnd) {
+				lineState = LineState.START; // the CR ended the line by itself
+				return i;
+			}
+			releaseHeld(); // the CR is content
+		}
+		int runStart = i;
+		int p = i;
+		while (p < end) {
+			byte c = data.get(p);
+			int es; // where the line ending starts
+			int el; // its length
+			if (c == '\n') {
+				es = (p > runStart && data.get(p - 1) == '\r') ? p - 1 : p;
+				el = p + 1 - es;
+			} else if (c == '\r') {
+				if (p + 1 >= end) {
+					// Perhaps the first half of CRLF: withhold it
+					emitContent(data, runStart, p);
+					held[0] = '\r';
+					heldLen = 1;
+					return end;
+				}
+				if (!allowCRLineEnd) {
+					p++;
+					continue;
+				}
+				es = p;
+				el = (data.get(p + 1) == '\n') ? 2 : 1;
+			} else {
+				p++;
+				continue;
+			}
+			int next = es + el;
+			if (next >= end || data.get(next) == '-') {
+				emitContent(data, runStart, es);
+				for (int k = 0; k < el; k++) {
+					held[k] = data.get(es + k);
+				}
+				heldLen = el;
+				lineState = LineState.START;
+				return next;
+			}
+			p = next;
+		}
+		emitContent(data, runStart, end);
+		return end;
+	}
+
+	/**
+	 * A line that started with a hyphen is complete in cand. If it is a
+	 * boundary delimiter the entity structure events follow from it.
+	 * @param data the buffer being scanned
+	 * @param i the position after the line in data
+	 * @return true if the line starts a new entity, whose headers are then to
+	 * be read from the data after it
+	 */
+	private boolean candidateLineComplete(ByteBuffer data, int i) throws MimeParseException {
+		int n = candLen;
+		candLen = 0;
+		lineState = LineState.START;
+		candView.clear();
+		candView.limit(n);
+		BoundaryMatch match = detectBoundary(candView);
+		if (match == null) {
+			releaseHeld();
+			int el = lineEndingLength(n);
+			candView.clear();
+			emitContent(candView, 0, n - el);
+			for (int k = 0; k < el; k++) {
+				held[k] = cand[n - el + k];
+			}
+			heldLen = el;
+			return false;
+		}
+
+		// The line ending before the delimiter belongs to the delimiter
+		heldLen = 0;
+		endContent();
+
+		// The delimiter line is counted, but its line is not ended until its
+		// events have been delivered
+		boolean lineFeed = cand[n - 1] == '\n';
+		if (lineFeed) {
+			syncLocator(data, i - 1);
+			locator.countLineFeed();
+			bodyLocated = i;
+		} else {
+			syncLocator(data, i);
+		}
+
+		boolean startsEntity;
+		switch (state) {
+			case FIRST_BOUNDARY:
+			case BOUNDARY_ONLY:
+				if (match.isEndBoundary) {
+					handler.endEntity(match.boundary);
+					transferEncoding = TransferEncoding.BINARY;
+					boundaries.removeLast();
+					state = State.BOUNDARY_ONLY;
+					startsEntity = false;
+				} else {
+					handler.startEntity(match.boundary);
+					transferEncoding = TransferEncoding.BINARY;
+					startHeaders();
+					startsEntity = true;
+				}
 				break;
-			default:
-				// Pass through as-is for binary, 7bit, 8bit, x-token encodings
-				flushBodyContentBinary(buffer, unexpected, isBeforeBoundary);
+			default: // BOUNDARY_OR_CONTENT
+				if (match.isEndBoundary) {
+					handler.endEntity(match.boundary);
+					transferEncoding = TransferEncoding.BINARY;
+					boundaries.removeLast();
+					if (!boundaries.isEmpty()) {
+						handler.endEntity(boundaries.getLast());
+					}
+					state = State.BOUNDARY_ONLY;
+					startsEntity = false;
+				} else {
+					handler.endEntity(match.boundary);
+					handler.startEntity(match.boundary);
+					transferEncoding = TransferEncoding.BINARY;
+					startHeaders();
+					startsEntity = true;
+				}
 				break;
+		}
+		if (lineFeed) {
+			locator.endLine();
+		}
+		return startsEntity;
+	}
+
+	/** The length of the line ending at the end of the first n bytes of cand. */
+	private int lineEndingLength(int n) {
+		if (n >= 2 && cand[n - 2] == '\r' && cand[n - 1] == '\n') {
+			return 2;
+		}
+		if (n >= 1 && (cand[n - 1] == '\n' || (allowCRLineEnd && cand[n - 1] == '\r'))) {
+			return 1;
+		}
+		return 0;
+	}
+
+	/** Delivers the withheld line ending as content. */
+	private void releaseHeld() throws MimeParseException {
+		if (heldLen > 0) {
+			int n = heldLen;
+			heldLen = 0;
+			heldView.clear();
+			emitContent(heldView, 0, n);
 		}
 	}
 
 	/**
-	 * Flushes body content with decoding, handling chunked processing when decoded content exceeds maxBufferSize
-	 * @param source ByteBuffer containing the encoded content to decode
-	 * @param unexpected true if this content should be reported as unexpected
-	 * @param transferEncoding the Content-Transfer-Encoding (BASE64 or Quoted-Printable)
-	 * @param isBeforeBoundary true if this content precedes a boundary, causing trailing CRLF/CR/LF to be stripped
-	 * @param endOfStream true if this is the final content (no more data coming)
+	 * Sends body bytes in [from, to) of the buffer through the
+	 * Content-Transfer-Encoding decoder, if any, to the handler.
 	 */
-	private void flushBodyContentWithDecoding(ByteBuffer source, boolean unexpected, TransferEncoding transferEncoding, boolean isBeforeBoundary, boolean endOfStream) throws MimeParseException {
+	private void emitContent(ByteBuffer data, int from, int to) throws MimeParseException {
+		if (from >= to) {
+			return;
+		}
+		switch (transferEncoding) {
+			case BASE64:
+			case QUOTED_PRINTABLE:
+				decodeLineStream(data, from, to);
+				break;
+			default:
+				// Pass through as-is for binary, 7bit, 8bit, x-token encodings
+				for (int p = from; p < to; p += maxBufferSize) {
+					route(window(data, p, Math.min(to, p + maxBufferSize)));
+				}
+				break;
+		}
+	}
+
+	/** Delivers content to the handler: preamble and epilogue are unexpected. */
+	private void route(ByteBuffer content) throws MimeParseException {
+		if (state == State.FIRST_BOUNDARY || state == State.BOUNDARY_ONLY) {
+			handler.unexpectedContent(content);
+		} else {
+			handler.bodyContent(content);
+		}
+	}
+
+	/**
+	 * Base64 and quoted-printable content is decoded a line at a time:
+	 * complete lines are decoded straight from the buffer, and a partial
+	 * line waits in lineCarry.
+	 */
+	private void decodeLineStream(ByteBuffer data, int from, int to) throws MimeParseException {
+		int p = from;
+		if (lineCarryLen > 0) {
+			int nl = indexOf(data, p, to, (byte) '\n');
+			if (nl < 0) {
+				appendCarry(data, p, to);
+				limitCarry();
+				return;
+			}
+			appendCarry(data, p, nl + 1);
+			p = nl + 1;
+			decodeCarry(false);
+		}
+		while (p < to) {
+			int nl = indexOf(data, p, to, (byte) '\n');
+			if (nl < 0) {
+				appendCarry(data, p, to);
+				limitCarry();
+				return;
+			}
+			decodeLine(window(data, p, nl + 1), false);
+			p = nl + 1;
+		}
+	}
+
+	private static int indexOf(ByteBuffer data, int from, int to, byte target) {
+		for (int p = from; p < to; p++) {
+			if (data.get(p) == target) {
+				return p;
+			}
+		}
+		return -1;
+	}
+
+	private void appendCarry(ByteBuffer data, int from, int to) {
+		int n = to - from;
+		if (lineCarryLen + n > lineCarry.length) {
+			byte[] bigger = new byte[Math.max(lineCarry.length * 2, lineCarryLen + n)];
+			System.arraycopy(lineCarry, 0, bigger, 0, lineCarryLen);
+			lineCarry = bigger;
+		}
+		data.get(from, lineCarry, lineCarryLen, n);
+		lineCarryLen += n;
+	}
+
+	/** An endless line cannot wait for ever: decode what is held. */
+	private void limitCarry() throws MimeParseException {
+		if (lineCarryLen > MAX_ENCODED_LINE) {
+			decodeCarry(true);
+		}
+	}
+
+	private void decodeCarry(boolean endOfStream) throws MimeParseException {
+		int n = lineCarryLen;
+		lineCarryLen = 0;
+		decodeLine(ByteBuffer.wrap(lineCarry, 0, n), endOfStream);
+	}
+
+	/**
+	 * The end of an entity's body: decodes what is held of the last line,
+	 * which has no line ending since that belonged to the delimiter.
+	 */
+	private void endContent() throws MimeParseException {
+		if (lineCarryLen > 0) {
+			decodeCarry(true);
+		}
+	}
+
+	/**
+	 * Decodes one line of encoded content, handing the result to the
+	 * handler in pieces of at most maxBufferSize bytes.
+	 * @param source the encoded line, with its line ending if it has one
+	 * @param endOfStream true if no more of the content follows, so that
+	 * the residue (an unpadded base64 tail, a dangling '=' in
+	 * quoted-printable) is to be decoded as well
+	 */
+	private void decodeLine(ByteBuffer source, boolean endOfStream) throws MimeParseException {
 		// Lazy allocation of decodeBuffer - only allocate when actually needed for decoding
 		if (decodeBuffer == null || decodeBuffer.capacity() < maxBufferSize) {
 			ByteBufferPool.release(decodeBuffer);
 			decodeBuffer = ByteBufferPool.acquire(maxBufferSize);
 		}
-
-		boolean hasProcessedContent = false;
-
-		// The line ending before a boundary belongs to the boundary, not to
-		// the part (RFC 2046 section 5.1.1). Drop it from the encoded text
-		// before decoding, so it cannot be mistaken for decoded payload bytes.
-		if (isBeforeBoundary) {
-			stripTrailingLineEnding(source);
-		}
-		boolean flushWanted = isBeforeBoundary || endOfStream;
-
 		while (source.hasRemaining()) {
 			decodeBuffer.clear();
-
 			int consumed = decodeChunk(source, decodeBuffer, transferEncoding,
 					maxBufferSize, false);
-			if (flushWanted && source.hasRemaining()
+			if (endOfStream && source.hasRemaining()
 					&& decodeBuffer.position() + 3 <= maxBufferSize) {
 				// The decoder has taken every complete unit it can and the
-				// content is complete: flush the residue (an unpadded base64
-				// tail, a dangling '=' in quoted-printable).
+				// content is complete: flush the residue
 				int room = maxBufferSize - decodeBuffer.position();
 				consumed += decodeChunk(source, decodeBuffer, transferEncoding,
 						room, true);
 			}
 			if (decodeBuffer.position() > 0) {
 				decodeBuffer.flip(); // ready for reading
-				if (unexpected) {
-					handler.unexpectedContent(decodeBuffer);
-				} else {
-					handler.bodyContent(decodeBuffer);
-				}
-				hasProcessedContent = true;
+				route(decodeBuffer);
 			}
-
-			// Check if we made progress
 			if (consumed <= 0) {
 				// If no progress made, stop to avoid infinite loop
 				break;
 			}
 		}
-		// Set contentFlushed appropriately - indicates we processed content
-		contentFlushed = hasProcessedContent;
 	}
 
 	private int decodeChunk(ByteBuffer source, ByteBuffer dest, TransferEncoding encoding,
@@ -1042,122 +1433,6 @@ public class MimeParser {
 				String msg = MessageFormat.format(
 						L10N.getString("err.unsupported_parser_encoding"), encoding);
 				throw new IllegalArgumentException(msg);
-		}
-	}
-
-	/**
-	 * Flushes binary content without allocation - passes through input buffer directly in chunks
-	 * @param source ByteBuffer containing the binary content to pass through
-	 * @param unexpected true if this content should be reported as unexpected
-	 * @param isBeforeBoundary true if this content precedes a boundary, causing trailing CRLF/CR/LF to be stripped
-	 */
-	private void flushBodyContentBinary(ByteBuffer source, boolean unexpected, boolean isBeforeBoundary) throws MimeParseException {
-		boolean hasProcessedContent = false;
-
-		while (source.hasRemaining()) {
-			int chunkSize = Math.min(source.remaining(), maxBufferSize);
-			int chunkStart = source.position();
-			source.position(chunkStart + chunkSize);
-
-			boolean isLastChunk = !source.hasRemaining();
-			ByteBuffer chunk = source.duplicate();
-			chunk.position(chunkStart);
-			chunk.limit(chunkStart + chunkSize);
-
-			if (isLastChunk && isBeforeBoundary) {
-				stripTrailingLineEnding(chunk);
-			}
-
-			if (chunk.hasRemaining()) {
-				if (unexpected) {
-					handler.unexpectedContent(chunk);
-				} else {
-					handler.bodyContent(chunk);
-				}
-			}
-
-			hasProcessedContent = true;
-		}
-		// Set contentFlushed appropriately - indicates we processed content in chunks
-		contentFlushed = hasProcessedContent;
-	}
-
-	/**
-	 * Truncates a body chunk view to drop the line delimiter that precedes a
-	 * multipart boundary (RFC 2046 section 5.1).
-	 */
-	private void stripTrailingLineEnding(ByteBuffer chunk) {
-		int lim = chunk.limit();
-		if (lim - chunk.position() >= 2) {
-			if (chunk.get(lim - 2) == '\r' && chunk.get(lim - 1) == '\n') {
-				chunk.limit(lim - 2);
-				return;
-			}
-		}
-		if (lim - chunk.position() >= 1) {
-			byte lastByte = chunk.get(lim - 1);
-			if (lastByte == '\n' || (allowCRLineEnd && lastByte == '\r')) {
-				chunk.limit(lim - 1);
-			}
-		}
-	}
-
-	/**
-	 * Buffers body content for deferred flushing. In multipart entities, we need to
-	 * defer flushing until we know if a boundary follows, so we can strip the
-	 * trailing CRLF that is part of the boundary delimiter.
-	 * @param buffer the content to buffer
-	 * @param unexpected whether this content is unexpected
-	 */
-	private void bufferBodyContent(ByteBuffer buffer, boolean unexpected) {
-		if (pendingBodyContent == null) {
-			pendingBodyContent = ByteBufferPool.acquire(INITIAL_PENDING_BODY_CAPACITY);
-		}
-		ensurePendingBodyContentCapacity(buffer.remaining());
-		pendingBodyContent.put(buffer);
-		pendingBodyContentUnexpected = unexpected;
-	}
-
-	/**
-	 * Ensures pendingBodyContent has at least {@code required} bytes remaining.
-	 */
-	private void ensurePendingBodyContentCapacity(int required) {
-		if (pendingBodyContent.remaining() >= required) {
-			return;
-		}
-		// Flip to read mode so compact() preserves the data written so far
-		pendingBodyContent.flip();
-		pendingBodyContent.compact();
-		if (pendingBodyContent.remaining() < required) {
-			int newCapacity = Math.max(pendingBodyContent.capacity() * 2, pendingBodyContent.position() + required);
-			ByteBuffer newBuf = ByteBufferPool.acquire(newCapacity);
-			pendingBodyContent.flip();
-			newBuf.put(pendingBodyContent);
-			ByteBufferPool.release(pendingBodyContent);
-			pendingBodyContent = newBuf;
-		}
-	}
-
-	/**
-	 * Flushes any pending body content.
-	 * @param isBeforeBoundary true if this content precedes a boundary
-	 */
-	private void flushPendingBodyContent(boolean isBeforeBoundary) throws MimeParseException {
-		if (pendingBodyContent != null && pendingBodyContent.position() > 0) {
-			ByteBuffer view = pendingBodyContent.duplicate();
-			view.flip();
-			flushBodyContent(view, pendingBodyContentUnexpected, isBeforeBoundary);
-			pendingBodyContent.clear();
-		}
-	}
-
-	/**
-	 * Clears any pending body content without flushing.
-	 */
-	private void clearPendingBodyContent() {
-		if (pendingBodyContent != null) {
-			ByteBufferPool.release(pendingBodyContent);
-			pendingBodyContent = null;
 		}
 	}
 
@@ -1194,8 +1469,10 @@ public class MimeParser {
 			endHeaders();
 		}
 
-		// Flush any pending body content with isBeforeBoundary=false since we're at EOF
-		flushPendingBodyContent(false);
+		// What the scanner is holding back is content, since no boundary
+		// followed it
+		releaseHeld();
+		endContent();
 
 		// Validate that all multipart boundaries are properly closed
 		if (!boundaries.isEmpty()) {
@@ -1217,11 +1494,8 @@ public class MimeParser {
 		headerValueSink = ByteBufferPool.acquire(INITIAL_HEADER_VALUE_CAPACITY);
 		ByteBufferPool.release(decodeBuffer);
 		decodeBuffer = null;
-		contentFlushed = false;
-		clearPendingBodyContent();  // Clear any pending body content
-		last = (byte) 0;
+		resetBodyScanner();
 		underflow = false;
-		rescanLength = 0;
 	}
 
 	/**

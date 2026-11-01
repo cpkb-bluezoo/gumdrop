@@ -249,6 +249,8 @@ public class DkimMessageParser extends MessageParser {
 
     /** Sink for potential trailing empty lines */
     private ByteArrayOutputStream trailingSink;
+    /** The start of the body line being read, until its line ending arrives. */
+    private final ByteArrayOutputStream bodyLineCarry = new ByteArrayOutputStream();
 
     /** Whether to use relaxed body canonicalization */
     private boolean bodyRelaxed;
@@ -564,6 +566,7 @@ public class DkimMessageParser extends MessageParser {
             trailingSink.reset();
         }
         bodyBytesProcessed = 0;
+        bodyLineCarry.reset();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -607,7 +610,13 @@ public class DkimMessageParser extends MessageParser {
     }
 
     /**
-     * Intercepts body lines to compute the DKIM body hash.
+     * Intercepts the raw body to compute the DKIM body hash.
+     *
+     * <p>The body arrives in runs of any size. The canonicalisation works a
+     * line at a time, so a line is completed in {@code bodyLineCarry} before
+     * it is hashed; a final line with no line ending is not hashed. (A line
+     * is therefore held whole while it is read. A streaming canonicaliser
+     * would remove that.)
      *
      * <p>Uses a sink to defer hashing of potential trailing empty lines.
      * Lines with content cause the sink to be flushed to the digest first.
@@ -616,19 +625,41 @@ public class DkimMessageParser extends MessageParser {
      * from the DKIM-Signature header (if present).
      */
     @Override
-    protected void bodyLine(ByteBuffer buffer) throws MimeParseException {
+    protected void rawBodyContent(ByteBuffer data) throws MimeParseException {
         // Auto-initialize body hash if not yet done
         if (bodyHashDigest == null && headersComplete) {
             autoInitBodyHash();
         }
-
-        // Compute body hash if initialized
-        if (bodyHashDigest != null) {
-            hashBodyLine(buffer);
+        if (bodyHashDigest == null) {
+            return;
         }
-
-        // Call parent for normal MIME processing
-        super.bodyLine(buffer);
+        int start = data.position();
+        int end = data.limit();
+        int lineStart = start;
+        for (int i = start; i < end; i++) {
+            if (data.get(i) != '\n') {
+                continue;
+            }
+            ByteBuffer line;
+            if (bodyLineCarry.size() > 0) {
+                byte[] tail = new byte[i + 1 - lineStart];
+                data.get(lineStart, tail);
+                bodyLineCarry.write(tail, 0, tail.length);
+                line = ByteBuffer.wrap(bodyLineCarry.toByteArray());
+                bodyLineCarry.reset();
+            } else {
+                line = data.duplicate();
+                line.limit(i + 1);
+                line.position(lineStart);
+            }
+            hashBodyLine(line);
+            lineStart = i + 1;
+        }
+        if (lineStart < end) {
+            byte[] tail = new byte[end - lineStart];
+            data.get(lineStart, tail);
+            bodyLineCarry.write(tail, 0, tail.length);
+        }
     }
 
     /**
