@@ -47,6 +47,12 @@ public class HeaderStreamGoldenTest {
 
     /** name, value (one char per byte), expected events */
     private static final String[][] CASES = {
+        {"To", "\"a\".\"b\"@example.com",
+            "obsolete OBSOLETE_ADDRESS_SYNTAX; addresses [-|\"a\".\"b\"|example.com]"},
+        {"To", "Bob <a.\"b c\".d@example.com>",
+            "obsolete OBSOLETE_ADDRESS_SYNTAX; addresses [Bob|a.\"b c\".d|example.com]"},
+        {"To", "\"a\".@example.com",
+            "malformed (not a mailbox) \"\\\"a\\\".@example.com\""},
         {"To", "a@example.com",
             "addresses [-|a|example.com]"},
         {"To", "Alice <alice@example.com>",

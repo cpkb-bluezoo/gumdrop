@@ -140,6 +140,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  * @see ProtocolHandler
  * @see HttpLineLexer
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class HttpProtocolHandler extends HttpConnectionLike
         implements ProtocolHandler, H2FrameHandler {
 

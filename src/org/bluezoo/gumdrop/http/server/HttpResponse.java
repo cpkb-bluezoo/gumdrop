@@ -112,6 +112,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequestHandler
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface HttpResponse {
 
     // ─────────────────────────────────────────────────────────────────────────

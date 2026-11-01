@@ -98,6 +98,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.7">RFC 5321 §3.7</a> (mail relay)
  * @see org.bluezoo.gumdrop.smtp.server.SimpleRelaySessionProvider
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         MailFromHandler, RecipientHandler, MessageDataHandler {
 

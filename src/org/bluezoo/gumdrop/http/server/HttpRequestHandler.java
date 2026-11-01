@@ -94,6 +94,7 @@ import java.nio.ByteBuffer;
  * @see HttpResponse
  * @see HttpStreamHandler
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface HttpRequestHandler extends HttpMessageHandler {
 
     // ---- HttpMessageHandler events ----

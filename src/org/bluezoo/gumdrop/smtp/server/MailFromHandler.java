@@ -43,6 +43,7 @@ import org.bluezoo.gumdrop.smtp.SmtpPipeline;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.2">RFC 5321 §4.1.1.2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6531">RFC 6531</a> (SMTPUTF8)
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface MailFromHandler {
 
     /**

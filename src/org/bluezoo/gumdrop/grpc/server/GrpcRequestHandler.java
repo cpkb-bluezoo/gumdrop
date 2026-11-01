@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.http.server.NotFoundHttpRequestHandler;
  * handler, not in the HTTP protocol layer.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class GrpcRequestHandler implements HttpStreamHandler {
 
     private static final String CONTENT_TYPE_GRPC = "application/grpc";

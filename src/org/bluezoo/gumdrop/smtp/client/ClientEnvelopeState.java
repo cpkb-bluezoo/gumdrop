@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @see ClientEnvelopeReady
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface ClientEnvelopeState {
 
     /**

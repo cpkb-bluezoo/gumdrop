@@ -71,6 +71,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.3">RFC 5321 §3.3</a>
  * @see org.bluezoo.gumdrop.smtp.auth.AuthPipeline
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface SmtpPipeline {
 
     /**

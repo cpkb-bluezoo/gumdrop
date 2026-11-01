@@ -1724,25 +1724,62 @@ public class MimeParser {
 	 * connection event, indicating that there will be no more invocations
 	 * of receive.
 	 *
+	 * <p>Use {@link #close(ByteBuffer)} if the caller may still hold data
+	 * that receive left unconsumed. With this method such data is lost, and
+	 * an incomplete header line is an error.
+	 *
 	 * @throws MimeParseException if there was unconsumed data in a context
 	 *         where it's not allowed (headers or multipart boundaries)
 	 */
 	public void close() throws MimeParseException {
+		close(null);
+	}
+
+	/**
+	 * Notifies the parser of an end of input, as {@link #close()} does, and
+	 * gives it what the caller still holds of the input: the part of the
+	 * last line of the headers that receive left unconsumed because its line
+	 * ending had not arrived. At the end of the input it is the last line of
+	 * the headers, and is read as if its line ending had arrived. Nothing
+	 * that is not text (only white space) is ignored. The buffer is consumed:
+	 * its position is its limit when this method returns.
+	 *
+	 * <p>The last line of a multipart body that has no line ending is read
+	 * as well, so a closing delimiter that is not followed by one is found.
+	 * Text after the closing delimiter of the outermost multipart is never
+	 * of any meaning, and nothing is made of it.
+	 *
+	 * @param remaining the unconsumed data, or null if there is none
+	 * @throws MimeParseException if the end of the input is in a place where
+	 *         it is an error: a multipart that is not closed, or a header
+	 *         line that was left unconsumed and not given
+	 */
+	public void close(ByteBuffer remaining) throws MimeParseException {
+		if (remaining != null && remaining.hasRemaining()) {
+			if (state == State.INIT || state == State.HEADER) {
+				finalHeaderLine(remaining);
+				underflow = false; // it was given, so it is not lost
+			}
+			remaining.position(remaining.limit());
+		}
+
+		// A delimiter line at the very end has no line ending
+		if (isMultipart(state) && lineState == LineState.CANDIDATE && candLen > 0) {
+			candidateLineComplete(ByteBuffer.allocate(0), 0);
+			underflow = lineState != LineState.START;
+		}
+
 		// Check underflow based on state
 		if (underflow) {
 			switch (state) {
 				case INIT:
 				case HEADER:
-					// Incomplete headers are always an error
+					// An incomplete header line that was not given is an error
 					throw new MimeParseException(L10N.getString("err.incomplete_header"), locator);
-				case FIRST_BOUNDARY:
-				case BOUNDARY_OR_CONTENT:
-				case BOUNDARY_ONLY:
-					// Incomplete data in multipart context is an error
-					throw new MimeParseException(L10N.getString("err.incomplete_multipart"), locator);
-				case BODY:
-					// Non-multipart body can end without final newline - this is valid
-					// The underflow content is just the final line of the body
+				default:
+					// A partial line of a multipart body is content, or after the
+					// last delimiter nothing; an unclosed boundary is reported below.
+					// A non-multipart body can end without a final newline.
 					break;
 			}
 		}
@@ -1764,6 +1801,30 @@ public class MimeParser {
 		}
 
 		handler.endEntity(null);
+	}
+
+	/**
+	 * Reads the unterminated last line of the headers at the end of the
+	 * input, if it is more than white space.
+	 */
+	private void finalHeaderLine(ByteBuffer remaining) throws MimeParseException {
+		int n = remaining.remaining();
+		boolean text = false;
+		for (int i = remaining.position(); i < remaining.limit(); i++) {
+			byte b = remaining.get(i);
+			if (b != ' ' && b != '\t' && b != '\r' && b != '\n') {
+				text = true;
+				break;
+			}
+		}
+		if (!text) {
+			return;
+		}
+		ByteBuffer line = ByteBuffer.allocate(n + 2);
+		line.put(remaining.duplicate());
+		line.put((byte) '\r').put((byte) '\n');
+		line.flip();
+		receive(line);
 	}
 
 	/**

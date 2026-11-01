@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @see MessageStartState
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.3">RFC 5321 §4.1.1.3</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface RecipientHandler {
 
     /**

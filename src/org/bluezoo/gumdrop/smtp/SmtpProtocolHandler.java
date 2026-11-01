@@ -147,6 +147,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class SmtpProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<SmtpServerLexer.Token>,
                    ConnectedState, HelloState, AuthenticateState,

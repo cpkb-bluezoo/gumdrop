@@ -159,7 +159,8 @@ public class MessageIndexBuilder {
             // Only close parser if we read the entire message
             // Otherwise we may get errors about incomplete multipart boundaries
             if (!handler.isHeadersComplete()) {
-                parser.close();
+                buffer.flip();
+                parser.close(buffer); // what is left is the last line, which has no line ending
             }
         } catch (MimeParseException e) {
             // If headers are complete, ignore parsing errors (e.g., incomplete body)

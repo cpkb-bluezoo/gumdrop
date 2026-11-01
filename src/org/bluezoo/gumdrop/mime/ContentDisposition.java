@@ -30,7 +30,10 @@ import java.util.Map;
  * A MIME Content-Disposition value.
  * @see <a href='https://www.ietf.org/rfc/rfc2183.txt'>RFC 2183</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: Content-Disposition is delivered as {@link MimeHandler#startContentDisposition(String)} and the parameter events; use {@link HeaderValueBuilder} to rebuild the text.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public final class ContentDisposition {
 
 	private final String dispositionType;

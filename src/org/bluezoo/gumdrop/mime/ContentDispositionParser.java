@@ -31,7 +31,10 @@ import java.util.List;
  * Parser for MIME Content-Disposition header values.
  * @see <a href='https://www.ietf.org/rfc/rfc2183.txt'>RFC 2183</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: it holds the whole header; read Content-Disposition with {@link MimeParser}, which streams it.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public final class ContentDispositionParser {
 
 	private ContentDispositionParser() {

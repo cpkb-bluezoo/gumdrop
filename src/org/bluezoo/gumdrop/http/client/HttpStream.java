@@ -51,6 +51,7 @@ import org.bluezoo.gumdrop.http.PriorityParams;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 class HttpStream implements HttpRequest {
 
     private static final ResourceBundle L10N = 

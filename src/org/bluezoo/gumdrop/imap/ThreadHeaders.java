@@ -37,6 +37,7 @@ import java.util.List;
  * Message-ID and References extraction for RFC 5256 REFERENCES threading.
   * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class ThreadHeaders {
 
     private static final CharsetDecoder MSGID_DECODER =

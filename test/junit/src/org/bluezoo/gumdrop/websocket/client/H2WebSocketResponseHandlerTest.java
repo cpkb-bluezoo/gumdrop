@@ -51,6 +51,7 @@ import org.junit.Test;
  * {@link HttpRequest} standing in for the H2 stream.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class H2WebSocketResponseHandlerTest {
 
     private static final class StubRequest implements HttpRequest {

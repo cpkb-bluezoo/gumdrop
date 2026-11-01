@@ -42,7 +42,10 @@ import java.util.List;
  * and convert them to modern objects.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-4">RFC 5322 §4 — Obsolete Syntax</a>
+ * @deprecated to be removed in the next major version: it holds the whole header; {@link MessageParser} streams address and message-id headers, obsolete syntax included.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public class ObsoleteParserUtils {
 
 	// ===========================================

@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
  * Unit tests for AuthCheck message processing.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class AuthCheckTest {
 
     private InetAddress clientIP;

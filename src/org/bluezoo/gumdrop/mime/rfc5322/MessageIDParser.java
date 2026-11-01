@@ -33,7 +33,10 @@ import java.util.List;
 /**
  * Parser for RFC 5322 Message-ID lists.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: it holds the whole header; message-id headers are streamed by {@link MessageParser}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public class MessageIDParser {
 
     // Prevent instantiation

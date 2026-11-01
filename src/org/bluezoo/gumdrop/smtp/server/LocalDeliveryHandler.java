@@ -82,6 +82,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-2.3.10">RFC 5321 §2.3.10</a> (final delivery)
  * @see MailboxFactory
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class LocalDeliveryHandler
         implements ClientConnected, HelloHandler, MailFromHandler, 
                    RecipientHandler, MessageDataHandler {

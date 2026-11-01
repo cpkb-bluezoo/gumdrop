@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.mime.MimeParseException;
  * @see <a href='https://datatracker.ietf.org/doc/html/rfc5322'>RFC 5322</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface MessageHandler extends MimeHandler {
 
 	/**

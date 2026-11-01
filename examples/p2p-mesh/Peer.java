@@ -41,6 +41,7 @@ import java.nio.charset.StandardCharsets;
  * side and {@code client.secure(true)} on the client side; see
  * web/tls.html.
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class Peer {
 
     private static final long DIAL_DELAY_MS = 2000L;

@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 final class ElementParser {
 
 	/** A mailbox read from one element of an address list. */
@@ -127,9 +128,17 @@ final class ElementParser {
 				input, length, pos, new StringBuilder(64), utf8);
 			if (address != null) {
 				EmailAddressParser.skipWhitespaceAndComments(input, length, pos);
-				if (pos[0] == length && validParts(address.getLocalPart(), address.getDomain(), utf8)) {
+				if (pos[0] == length && standardLocalPart(address.getLocalPart(), utf8)
+						&& validParts(address.getLocalPart(), address.getDomain(), utf8)) {
 					return new Mailbox(decodeWords(address.getDisplayName()),
 						address.getLocalPart(), address.getDomain(), false);
+				}
+				// words joined by dots: valid, but only in the obsolete syntax
+				if (pos[0] == length
+						&& EmailAddressParser.isValidObsoleteLocalPart(address.getLocalPart(), utf8)
+						&& EmailAddressParser.isValidDomain(address.getDomain(), utf8)) {
+					return new Mailbox(decodeWords(address.getDisplayName()),
+						address.getLocalPart(), address.getDomain(), true);
 				}
 			}
 		} catch (IllegalArgumentException e) {
@@ -198,6 +207,25 @@ final class ElementParser {
 		return Rfc2047Decoder.decodeEncodedWords(name);
 	}
 
+	/**
+	 * Returns whether a local part is in the current syntax: a dot-atom or
+	 * one quoted-string, not words joined by dots.
+	 */
+	private static boolean standardLocalPart(String local, boolean utf8) {
+		if (local.startsWith("\"")) {
+			for (int i = 1; i < local.length(); i++) {
+				char c = local.charAt(i);
+				if (c == '\\') {
+					i++;
+				} else if (c == '"') {
+					return i == local.length() - 1;
+				}
+			}
+			return false;
+		}
+		return true;
+	}
+
 	private static boolean validParts(String local, String domain, boolean utf8) {
 		return EmailAddressParser.isValidLocalPart(local, utf8)
 			&& EmailAddressParser.isValidDomain(domain, utf8);
@@ -249,7 +277,9 @@ final class ElementParser {
 		}
 		String local = inner.substring(0, at);
 		String domain = inner.substring(at + 1);
-		if (!validParts(local, domain, utf8)) {
+		if (!validParts(local, domain, utf8)
+				&& !(EmailAddressParser.isValidObsoleteLocalPart(local, utf8)
+					&& EmailAddressParser.isValidDomain(domain, utf8))) {
 			return null;
 		}
 		// a bare address is only obsolete if it is a route

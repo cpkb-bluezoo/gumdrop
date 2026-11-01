@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * last; that domain must instead be invalidated so DMARC cannot pass on it.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class DMARCMessageHandlerTest {
 
     private static class RecordingCallback implements DmarcMessageHandler.FromDomainCallback {

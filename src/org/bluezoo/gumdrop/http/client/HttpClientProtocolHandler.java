@@ -100,6 +100,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class HttpClientProtocolHandler extends HttpClientConnectionOps
         implements ProtocolHandler, H2FrameHandler {
 

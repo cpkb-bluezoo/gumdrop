@@ -76,12 +76,22 @@ class MultipartParser {
 			parser.receive(ByteBuffer.wrap(header.getBytes(StandardCharsets.US_ASCII)));
 
 			// Feed the request body
-			byte[] buf = new byte[8192];
+			// A header line of a part may be split between reads: the parser
+			// leaves it unconsumed, and it is kept with what comes after it
+			byte[] bytes = new byte[8192];
+			ByteBuffer buf = ByteBuffer.wrap(bytes);
 			int len;
-			while ((len = inputStream.read(buf)) != -1) {
-				parser.receive(ByteBuffer.wrap(buf, 0, len));
+			while ((len = inputStream.read(bytes, buf.position(), buf.remaining())) != -1) {
+				buf.position(buf.position() + len);
+				buf.flip();
+				parser.receive(buf);
+				if (buf.limit() == buf.capacity() && buf.position() == 0) {
+					throw new IOException("Header line too long in multipart");
+				}
+				buf.compact();
 			}
-			parser.close();
+			buf.flip();
+			parser.close(buf);
 		} catch (MimeParseException e) {
 			throw new IOException("Failed to parse multipart: " + e.getMessage(), e);
 		}

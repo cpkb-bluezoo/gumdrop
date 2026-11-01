@@ -26,7 +26,10 @@ package org.bluezoo.gumdrop.mime;
  * There is only one known value for this field.
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2045#section-4'>RFC 2045</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: use {@link MimeHandler#mimeVersion(int, int)}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public enum MimeVersion {
 
 	VERSION_1_0("1.0");

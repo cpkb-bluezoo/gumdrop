@@ -76,6 +76,7 @@ import org.bluezoo.gumdrop.smtp.SmtpPipeline;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class AuthPipeline implements SmtpPipeline {
 
     private static final Logger LOGGER = Logger.getLogger(AuthPipeline.class.getName());
@@ -104,6 +105,9 @@ public class AuthPipeline implements SmtpPipeline {
 
     // Per-message state
     private DkimMessageParser parser;
+
+    /** The channel the message is written to, which holds an incomplete header line. */
+    private ParserChannel channel;
     private DmarcValidator dmarcValidator;
 
     /**
@@ -198,7 +202,8 @@ public class AuthPipeline implements SmtpPipeline {
         if (parser == null) {
             return null;
         }
-        return new ParserChannel(parser);
+        channel = new ParserChannel(parser);
+        return channel;
     }
 
     @Override
@@ -207,9 +212,14 @@ public class AuthPipeline implements SmtpPipeline {
             return;
         }
 
-        // Close parser
+        // Close parser, giving it what the channel still holds of the
+        // last header line
         try {
-            parser.close();
+            if (channel != null) {
+                channel.finish();
+            } else {
+                parser.close();
+            }
         } catch (MimeParseException e) {
             LOGGER.log(Level.WARNING, L10N.getString("err.close_parser"), e);
         }
@@ -265,6 +275,7 @@ public class AuthPipeline implements SmtpPipeline {
     @Override
     public void reset() {
         parser = null;
+        channel = null;
         dmarcValidator = null;
     }
 
@@ -276,6 +287,9 @@ public class AuthPipeline implements SmtpPipeline {
         private final DkimMessageParser parser;
         private boolean open = true;
 
+        /** Header data the parser has not consumed, with the data after it. */
+        private final ByteBuffer pending = ByteBuffer.allocate(8192);
+
         ParserChannel(DkimMessageParser parser) {
             this.parser = parser;
         }
@@ -286,14 +300,33 @@ public class AuthPipeline implements SmtpPipeline {
                 throw new IOException("Channel is closed");
             }
             int count = src.remaining();
-            if (count > 0) {
-                try {
-                    parser.receive(src);
-                } catch (MimeParseException e) {
-                    throw new IOException("Parse error", e);
+            try {
+                // The parser leaves an incomplete header line unconsumed, so
+                // it is kept here with what comes after it
+                while (src.hasRemaining()) {
+                    int n = Math.min(src.remaining(), pending.remaining());
+                    if (n == 0) {
+                        throw new IOException("Header line too long");
+                    }
+                    int limit = src.limit();
+                    src.limit(src.position() + n);
+                    pending.put(src);
+                    src.limit(limit);
+                    pending.flip();
+                    parser.receive(pending);
+                    pending.compact();
                 }
+            } catch (MimeParseException e) {
+                throw new IOException("Parse error", e);
             }
             return count;
+        }
+
+        /** Ends the input, giving the parser what is left of the last line. */
+        void finish() throws MimeParseException {
+            pending.flip();
+            parser.close(pending);
+            pending.clear();
         }
 
         @Override

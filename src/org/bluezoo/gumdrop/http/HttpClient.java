@@ -134,6 +134,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * @see HttpClientHandler
  * @see HttpRequest
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class HttpClient implements AltSvcListener {
 
     private static final Logger LOGGER =

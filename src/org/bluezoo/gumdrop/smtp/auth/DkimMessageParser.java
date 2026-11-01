@@ -29,8 +29,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
@@ -52,19 +56,22 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
  *
  * <h4>Captured Headers</h4>
  *
- * <p>All headers are captured, but DKIM typically signs:
+ * <p>Only a few headers are captured: those DKIM signatures cover in
+ * practice, and the ones DKIM and ARC verification read themselves.
  * <ul>
- *   <li>From (required)</li>
- *   <li>To, Cc, Reply-To</li>
- *   <li>Subject</li>
- *   <li>Date</li>
- *   <li>Message-ID</li>
- *   <li>Content-Type, MIME-Version</li>
+ *   <li>From (required), Sender, Reply-To, To, Cc</li>
+ *   <li>Subject, Date</li>
+ *   <li>Message-ID, In-Reply-To, References</li>
+ *   <li>MIME-Version, Content-Type, Content-Transfer-Encoding</li>
  *   <li>DKIM-Signature (itself, with b= removed)</li>
+ *   <li>ARC-Seal, ARC-Message-Signature, ARC-Authentication-Results</li>
  * </ul>
- *
- * <p>The actual signed headers are determined by the h= tag in the
- * DKIM-Signature header.
+ * A header that a signature's h= tag names but that is not on the list is
+ * seen as absent, so the signature does not verify. What is captured is also
+ * capped in total, at {@link #MAX_CAPTURED_HEADERS} headers and
+ * {@link #MAX_CAPTURED_BYTES} bytes; a header that would pass either cap is
+ * not captured (see {@link #isCaptureTruncated()}), which again can only make
+ * a signature fail. Nothing else of the headers is held.
  *
  * <h4>Usage</h4>
  *
@@ -84,6 +91,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
  * @see DkimValidator
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class DkimMessageParser extends MessageParser {
 
     /**
@@ -227,6 +235,30 @@ public class DkimMessageParser extends MessageParser {
         }
     }
 
+    /**
+     * The most headers that are captured. ARC allows 50 sets of three.
+     */
+    public static final int MAX_CAPTURED_HEADERS = 256;
+
+    /**
+     * The most bytes of header that are captured in all.
+     */
+    public static final int MAX_CAPTURED_BYTES = 1048576;
+
+    /** The lower-case names of the headers that are captured. */
+    private static final Set<String> CAPTURED = new HashSet<String>(Arrays.asList(
+        "from", "sender", "reply-to", "to", "cc", "subject", "date",
+        "message-id", "in-reply-to", "references",
+        "mime-version", "content-type", "content-transfer-encoding",
+        "dkim-signature", "arc-seal", "arc-message-signature",
+        "arc-authentication-results"));
+
+    /** Bytes of header captured so far. */
+    private int capturedBytes;
+
+    /** Whether a header that was to be captured was left out because of a cap. */
+    private boolean captureTruncated;
+
     /** All headers in order of appearance */
     private List<RawHeader> rawHeaders;
 
@@ -331,6 +363,10 @@ public class DkimMessageParser extends MessageParser {
 
             // Extract header name from this line
             currentHeaderName = extractHeaderName(buffer, start, end);
+            if (currentHeaderName != null
+                    && !CAPTURED.contains(currentHeaderName.toLowerCase(Locale.ROOT))) {
+                currentHeaderName = null; // not one that is captured: nothing of it is held
+            }
             if (currentHeaderName != null) {
                 appendRawBytes(buffer, start, end);
             }
@@ -396,7 +432,15 @@ public class DkimMessageParser extends MessageParser {
             return;
         }
 
+        if (rawHeaders.size() >= MAX_CAPTURED_HEADERS
+                || capturedBytes + currentHeaderBytes.size() > MAX_CAPTURED_BYTES) {
+            captureTruncated = true;
+            currentHeaderName = null;
+            currentHeaderBytes.reset();
+            return;
+        }
         byte[] bytes = currentHeaderBytes.toByteArray();
+        capturedBytes += bytes.length;
         RawHeader header = new RawHeader(currentHeaderName, bytes);
 
         // Add to ordered list
@@ -500,6 +544,17 @@ public class DkimMessageParser extends MessageParser {
     }
 
     /**
+     * Returns whether a header that is captured was left out because the
+     * total captured would have passed {@link #MAX_CAPTURED_HEADERS} or
+     * {@link #MAX_CAPTURED_BYTES}.
+     *
+     * @return true if a header was left out
+     */
+    public boolean isCaptureTruncated() {
+        return captureTruncated;
+    }
+
+    /**
      * Returns whether headers have been completely processed.
      *
      * @return true if the empty line terminating headers has been seen
@@ -555,6 +610,8 @@ public class DkimMessageParser extends MessageParser {
         super.reset();
         rawHeaders.clear();
         rawHeaderMap.clear();
+        capturedBytes = 0;
+        captureTruncated = false;
         currentHeaderBytes.reset();
         currentHeaderName = null;
         headersComplete = false;

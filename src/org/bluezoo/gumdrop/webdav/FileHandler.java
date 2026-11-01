@@ -99,6 +99,7 @@ import java.util.logging.Logger;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918 - WebDAV</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9110">RFC 9110 - HTTP Semantics</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 class FileHandler extends DefaultHttpRequestHandler {
 
     @Override

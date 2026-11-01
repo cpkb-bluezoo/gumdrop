@@ -56,6 +56,7 @@ import org.junit.Test;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class GrpcClientStreamingTest {
 
     private static final String PROTO = ""

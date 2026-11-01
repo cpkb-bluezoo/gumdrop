@@ -73,6 +73,7 @@ import org.bluezoo.gumdrop.mime.ContentType;
  * @see HttpRequest
  * @see DefaultHttpResponseHandler
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface HttpResponseHandler extends HttpMessageHandler {
 
     // ---- HttpMessageHandler events ----

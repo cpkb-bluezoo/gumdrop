@@ -43,6 +43,7 @@ import static org.junit.Assert.*;
  * covering every reply-code branch.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class SmtpClientSessionFlowTest {
 
     private final List<String> sent = new ArrayList<String>();

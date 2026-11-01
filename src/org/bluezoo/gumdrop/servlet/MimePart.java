@@ -51,6 +51,7 @@ import jakarta.servlet.http.Part;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 class MimePart implements Part {
 
 	private final MultipartConfigDef config;

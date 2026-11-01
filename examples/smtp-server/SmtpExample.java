@@ -60,6 +60,7 @@ import org.bluezoo.gumdrop.smtp.SmtpListener;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class SmtpExample {
 
     private static final int SMTP_PORT = 2525;

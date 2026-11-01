@@ -34,6 +34,7 @@ import java.util.List;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 final class ParameterCollector {
 
 	private final List<Parameter> parameters = new ArrayList<Parameter>();

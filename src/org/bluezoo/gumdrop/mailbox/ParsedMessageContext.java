@@ -176,7 +176,8 @@ public class ParsedMessageContext implements MessageContext {
                 parser.receive(buffer);
                 buffer.compact(); // keep a partial line for the next read
             }
-            parser.close();
+            buffer.flip();
+            parser.close(buffer); // what is left is the last line, which has no line ending
         } catch (MimeParseException e) {
             throw new IOException("Failed to parse message", e);
         }
