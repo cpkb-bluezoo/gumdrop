@@ -1,8 +1,8 @@
 locator
 startEntity: null
 addressHeader: From | "Alice Example" <alice@example.com> comments=null
-addressHeader: To | "null" <bob@example.com> comments=null | "Carol, C." <carol@example.org> comments=null
-unexpectedHeader: Cc = "undisclosed-recipients:;"
+addressHeader: To | "null" <bob@example.com> comments=null | "Carol, C." <carol@example.org> comments=null | group "Group" ["null" <d@example.net> comments=null, "null" <e@example.net> comments=null]
+addressHeader: Cc | group "undisclosed-recipients" []
 header: Subject = "caf\u00e9 is open and folded"
 dateHeader: Date = 1997-11-21T09:55:06-06:00
 messageIDHeader: Message-ID | <1234@local.machine.example>

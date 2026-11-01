@@ -1,9 +1,8 @@
 locator
 startEntity: null
 obsoleteStructure: OBSOLETE_ADDRESS_SYNTAX
-addressHeader: From | "null" <Alice <@route1> comments=null | "null" <alice@example.com>> comments=null
-obsoleteStructure: OBSOLETE_ADDRESS_SYNTAX
-addressHeader: To | "null" <"a"."b"@example.com> comments=null | "null" <x@example.com> comments=null
+addressHeader: From | "Alice" <alice@example.com> comments=null
+unexpectedHeader: To = "\"a\".\"b\"@example.com, ,x@example.com"
 obsoleteStructure: OBSOLETE_DATE_TIME_SYNTAX
 dateHeader: Date = 1997-11-21T09:55-05:00
 unexpectedHeader: Message-ID = "<a b@c.d>"

@@ -86,7 +86,7 @@ public class MessageParserHeaderRoutingTest {
 
     @Test
     public void obsoleteAddressUsesFallbackAndReportsStructure() throws MimeParseException {
-        MessageParserTest.TestMessageHandler h = run("To: @relay.example:user@host.example\r\n");
+        MessageParserTest.TestMessageHandler h = run("To: <@relay.example:user@host.example>\r\n");
         assertEquals("user@host.example", h.addressHeaders.get("To").get(0).getAddress());
         assertEquals(1, h.obsoleteStructures.size());
         assertEquals(ObsoleteStructureType.OBSOLETE_ADDRESS_SYNTAX, h.obsoleteStructures.get(0));

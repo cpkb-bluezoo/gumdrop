@@ -45,13 +45,15 @@ final class MessageBridge implements MimeHandler {
 
 	private final MessageParser parser;
 	private final MessageHandler inner;
+	private final MimeHandler mime; // takes the events that are not structured headers
 	private final HeaderStream stream;
 	private HeaderStream.Kind claimed; // set by headerDelivery until the startHeader that follows
 	private boolean legacy = true;
 
-	MessageBridge(MessageParser parser, MessageHandler inner) {
+	MessageBridge(MessageParser parser, MessageHandler inner, MimeHandler mime) {
 		this.parser = parser;
 		this.inner = inner;
+		this.mime = mime;
 		this.stream = new HeaderStream(inner);
 	}
 
@@ -103,18 +105,16 @@ final class MessageBridge implements MimeHandler {
 
 	@Override
 	public boolean wantsLegacyEvents() {
-		legacy = inner.wantsLegacyEvents();
+		legacy = mime.wantsLegacyEvents();
 		return legacy;
 	}
 
 	@Override
 	public HeaderDelivery headerDelivery(String name) {
 		HeaderStream.Kind kind = classify(name);
-		// The older events make the date themselves, so while they are
-		// wanted the date is left to them
-		if (kind == null || (kind == HeaderStream.Kind.DATE && legacy)) {
+		if (kind == null) {
 			claimed = null;
-			return inner.headerDelivery(name);
+			return mime.headerDelivery(name);
 		}
 		claimed = kind;
 		return HeaderDelivery.RAW;
@@ -123,18 +123,18 @@ final class MessageBridge implements MimeHandler {
 	@Override
 	public void startHeader(String name) throws MimeParseException {
 		if (claimed == null) {
-			inner.startHeader(name);
+			mime.startHeader(name);
 			return;
 		}
 		HeaderStream.Kind kind = claimed;
 		claimed = null;
 		stream.start(kind, name, parser.isSmtputf8(),
-			parser.getLimits().getMaxElementLength(), !legacy);
+			parser.getLimits().getMaxElementLength(), legacy);
 	}
 
 	@Override
 	public void headerContent(String text) throws MimeParseException {
-		inner.headerContent(text);
+		mime.headerContent(text);
 	}
 
 	@Override
@@ -142,7 +142,7 @@ final class MessageBridge implements MimeHandler {
 		if (stream.active()) {
 			stream.feed(bytes);
 		} else {
-			inner.rawHeaderContent(bytes);
+			mime.rawHeaderContent(bytes);
 		}
 	}
 
@@ -151,108 +151,108 @@ final class MessageBridge implements MimeHandler {
 		if (stream.active()) {
 			stream.finish();
 		} else {
-			inner.endHeader();
+			mime.endHeader();
 		}
 	}
 
 	@Override
 	public void setLocator(MimeLocator locator) {
-		inner.setLocator(locator);
+		mime.setLocator(locator);
 	}
 
 	@Override
 	public void startEntity(String boundary) throws MimeParseException {
-		inner.startEntity(boundary);
+		mime.startEntity(boundary);
 	}
 
 	@Override
 	public void startContentType(String primary, String sub) throws MimeParseException {
-		inner.startContentType(primary, sub);
+		mime.startContentType(primary, sub);
 	}
 
 	@Override
 	public void endContentType() throws MimeParseException {
-		inner.endContentType();
+		mime.endContentType();
 	}
 
 	@Override
 	public void startContentDisposition(String kind) throws MimeParseException {
-		inner.startContentDisposition(kind);
+		mime.startContentDisposition(kind);
 	}
 
 	@Override
 	public void endContentDisposition() throws MimeParseException {
-		inner.endContentDisposition();
+		mime.endContentDisposition();
 	}
 
 	@Override
 	public void startParameter(String name, String language) throws MimeParseException {
-		inner.startParameter(name, language);
+		mime.startParameter(name, language);
 	}
 
 	@Override
 	public void parameterContent(String text) throws MimeParseException {
-		inner.parameterContent(text);
+		mime.parameterContent(text);
 	}
 
 	@Override
 	public void endParameter() throws MimeParseException {
-		inner.endParameter();
+		mime.endParameter();
 	}
 
 	@Override
 	public void malformedHeader(String name, String reason) throws MimeParseException {
-		inner.malformedHeader(name, reason);
+		mime.malformedHeader(name, reason);
 	}
 
 	@Override
 	public void contentType(ContentType contentType) throws MimeParseException {
-		inner.contentType(contentType);
+		mime.contentType(contentType);
 	}
 
 	@Override
 	public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
-		inner.contentDisposition(contentDisposition);
+		mime.contentDisposition(contentDisposition);
 	}
 
 	@Override
 	public void contentTransferEncoding(String encoding) throws MimeParseException {
-		inner.contentTransferEncoding(encoding);
+		mime.contentTransferEncoding(encoding);
 	}
 
 	@Override
 	public void contentID(ContentID contentID) throws MimeParseException {
-		inner.contentID(contentID);
+		mime.contentID(contentID);
 	}
 
 	@Override
 	public void contentDescription(String description) throws MimeParseException {
-		inner.contentDescription(description);
+		mime.contentDescription(description);
 	}
 
 	@Override
 	public void mimeVersion(MimeVersion version) throws MimeParseException {
-		inner.mimeVersion(version);
+		mime.mimeVersion(version);
 	}
 
 	@Override
 	public void endHeaders() throws MimeParseException {
-		inner.endHeaders();
+		mime.endHeaders();
 	}
 
 	@Override
 	public void bodyContent(ByteBuffer data) throws MimeParseException {
-		inner.bodyContent(data);
+		mime.bodyContent(data);
 	}
 
 	@Override
 	public void unexpectedContent(ByteBuffer data) throws MimeParseException {
-		inner.unexpectedContent(data);
+		mime.unexpectedContent(data);
 	}
 
 	@Override
 	public void endEntity(String boundary) throws MimeParseException {
-		inner.endEntity(boundary);
+		mime.endEntity(boundary);
 	}
 
 }

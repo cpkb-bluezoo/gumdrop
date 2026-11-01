@@ -313,9 +313,34 @@ public class HeaderStreamTest {
         assertEquals(1, addressHeaders);
         // the older events report the obsolete date; the stream leaves it to them
         assertEquals(log.events.toString(), 1, obsolete);
-        // (the date, which this layer leaves to the older events, is also text)
-        assertEquals(Arrays.asList("text \"21 Nov 97 09:55:06 GMT\"", "obsolete OBSOLETE_DATE_TIME_SYNTAX", "start To", "mailbox -|a|x.org",
+        assertEquals(Arrays.asList("obsolete OBSOLETE_DATE_TIME_SYNTAX", "start To", "mailbox -|a|x.org",
             "mailbox -|b|y.org", "end"), log.events);
+    }
+
+    private static Log runLegacy(String headers) throws MimeParseException {
+        Log log = new Log() {
+            @Override
+            public boolean wantsLegacyEvents() {
+                return true;
+            }
+        };
+        MessageParser parser = new MessageParser();
+        parser.setMessageHandler(log);
+        parser.receive(ByteBuffer.wrap((headers + "\r\n").getBytes(StandardCharsets.UTF_8)));
+        parser.close();
+        return log;
+    }
+
+    @Test
+    public void whatWasReadBeforeABadElementIsStillGivenToTheOlderEvents() throws MimeParseException {
+        Log log = runLegacy("To: a@x.org, garbage\r\n");
+        assertEquals(Arrays.asList("LEGACY addressHeader To", "LEGACY unexpectedHeader To"), log.out);
+    }
+
+    @Test
+    public void aGroupIsGivenToTheOlderEventsAndNotDropped() throws MimeParseException {
+        Log log = runLegacy("Cc: undisclosed-recipients:;\r\n");
+        assertEquals(Arrays.asList("LEGACY addressHeader Cc"), log.out);
     }
 
 }

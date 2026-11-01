@@ -24,7 +24,10 @@ package org.bluezoo.gumdrop.mime.rfc5322;
 
 import java.nio.ByteBuffer;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
+import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.MimeParseException;
 import org.bluezoo.gumdrop.mime.rfc2047.HeaderTextDecoder;
 
@@ -78,13 +81,21 @@ final class HeaderStream {
 		}
 	}
 
+	/** The most of the text of a failed header that is kept for the older unexpectedHeader event. */
+	private static final int MAX_LEGACY_TEXT = 32768;
+
 	private final MessageHandler inner;
 	private final HeaderTextDecoder.Sink textSink;
 	private Kind kind; // null when no header is being read
 	private String name;
 	private boolean utf8;
 	private int maxElement; // 0 or less for no limit
-	private boolean emitShared; // whether obsoleteStructure is delivered
+	private boolean legacy; // whether the older whole-header events are made from the elements
+	private final List<EmailAddress> legacyAddresses = new ArrayList<EmailAddress>();
+	private final List<ContentID> legacyIds = new ArrayList<ContentID>();
+	private String legacyGroup;
+	private List<EmailAddress> legacyMembers;
+	private final StringBuilder legacyText = new StringBuilder(); // text of a header that failed, as far as it is kept
 	private byte[] buf = new byte[128]; // the element being read
 	private int len;
 	private boolean quote;
@@ -104,6 +115,9 @@ final class HeaderStream {
 		this.textSink = new HeaderTextDecoder.Sink() {
 			@Override
 			public void text(String s) throws MimeParseException {
+				if (legacy && legacyText.length() < MAX_LEGACY_TEXT) {
+					legacyText.append(s);
+				}
 				inner.headerContent(s);
 			}
 		};
@@ -120,10 +134,10 @@ final class HeaderStream {
 	 * @param name the header name, as written
 	 * @param utf8 true in an SMTPUTF8 message
 	 * @param maxElement the longest element held, or zero or less for no limit
-	 * @param emitShared whether obsoleteStructure is delivered; the older
-	 * events also deliver it
+	 * @param legacy whether the older addressHeader, messageIDHeader and
+	 * unexpectedHeader events are made from the elements, as well
 	 */
-	void start(Kind kind, String name, boolean utf8, int maxElement, boolean emitShared)
+	void start(Kind kind, String name, boolean utf8, int maxElement, boolean legacy)
 			throws MimeParseException {
 		this.kind = kind;
 		this.name = name;
@@ -133,7 +147,12 @@ final class HeaderStream {
 		}
 		this.utf8 = utf8;
 		this.maxElement = maxElement;
-		this.emitShared = emitShared;
+		this.legacy = legacy;
+		legacyAddresses.clear();
+		legacyIds.clear();
+		legacyGroup = null;
+		legacyMembers = null;
+		legacyText.setLength(0);
 		len = 0;
 		quote = false;
 		escaped = false;
@@ -222,14 +241,29 @@ final class HeaderStream {
 		if (failed) {
 			text.finish(textSink);
 			inner.endHeader();
+			if (legacy) {
+				// what was read before the element that failed is not lost
+				if (!legacyAddresses.isEmpty()) {
+					inner.addressHeader(name, new ArrayList<EmailAddress>(legacyAddresses));
+				} else if (!legacyIds.isEmpty()) {
+					inner.messageIDHeader(name, new ArrayList<ContentID>(legacyIds));
+				}
+				inner.unexpectedHeader(name, legacyText.toString().trim());
+			}
 			return;
 		}
 		switch (k) {
 			case ADDRESS:
 				inner.endAddressHeader();
+				if (legacy) {
+					legacyEnd(legacyAddresses.isEmpty() ? null : new ArrayList<EmailAddress>(legacyAddresses), null);
+				}
 				break;
 			case MESSAGE_ID:
 				inner.endMessageIDHeader();
+				if (legacy) {
+					legacyEnd(null, legacyIds.isEmpty() ? null : new ArrayList<ContentID>(legacyIds));
+				}
 				break;
 			default:
 				break;
@@ -306,6 +340,7 @@ final class HeaderStream {
 					if (!failed) {
 						inGroup = false;
 						afterGroup = true;
+						endLegacyGroup();
 						inner.endGroup();
 					}
 					return;
@@ -365,6 +400,15 @@ final class HeaderStream {
 			flagObsolete(ObsoleteStructureType.OBSOLETE_ADDRESS_SYNTAX);
 		}
 		inner.mailbox(mailbox.displayName, mailbox.localPart, mailbox.domain);
+		if (legacy) {
+			EmailAddress address = new EmailAddress(mailbox.displayName, mailbox.localPart,
+				mailbox.domain, mailbox.displayName == null);
+			if (legacyMembers != null) {
+				legacyMembers.add(address);
+			} else {
+				legacyAddresses.add(address);
+			}
+		}
 		len = 0;
 	}
 
@@ -377,6 +421,8 @@ final class HeaderStream {
 		afterGroup = false;
 		inGroup = true;
 		len = 0;
+		legacyGroup = groupName;
+		legacyMembers = new ArrayList<EmailAddress>();
 		inner.startGroup(groupName);
 	}
 
@@ -390,7 +436,35 @@ final class HeaderStream {
 			// a group that is never closed
 			flagObsolete(ObsoleteStructureType.OBSOLETE_ADDRESS_SYNTAX);
 			inGroup = false;
+			endLegacyGroup();
 			inner.endGroup();
+		}
+	}
+
+	private void endLegacyGroup() {
+		if (legacy && legacyMembers != null) {
+			legacyAddresses.add(new GroupEmailAddress(legacyGroup, legacyMembers, null));
+		}
+		legacyGroup = null;
+		legacyMembers = null;
+	}
+
+	private void emitId(String[] id) throws MimeParseException {
+		inner.messageID(id[0], id[1]);
+		if (legacy) {
+			legacyIds.add(new ContentID(id[0], id[1]));
+		}
+	}
+
+	/** The header is complete and was read: the older event, if the header was not empty. */
+	private void legacyEnd(List<EmailAddress> addresses, List<ContentID> idList) throws MimeParseException {
+		if (addresses != null) {
+			inner.addressHeader(name, addresses);
+		} else if (idList != null) {
+			inner.messageIDHeader(name, idList);
+		} else {
+			// the older events are never given an empty list
+			inner.unexpectedHeader(name, "");
 		}
 	}
 
@@ -466,7 +540,7 @@ final class HeaderStream {
 		String element = ElementParser.decode(buf, len, utf8);
 		String[] id = ElementParser.messageID(element, utf8);
 		if (id != null) {
-			inner.messageID(id[0], id[1]);
+			emitId(id);
 			len = 0;
 			return;
 		}
@@ -476,7 +550,7 @@ final class HeaderStream {
 			return;
 		}
 		flagObsolete(ObsoleteStructureType.OBSOLETE_MESSAGE_ID_SYNTAX);
-		inner.messageID(id[0], id[1]);
+		emitId(id);
 		len = 0;
 	}
 
@@ -488,7 +562,7 @@ final class HeaderStream {
 			return;
 		}
 		flagObsolete(ObsoleteStructureType.OBSOLETE_MESSAGE_ID_SYNTAX);
-		inner.messageID(id[0], id[1]);
+		emitId(id);
 		len = 0;
 	}
 
@@ -529,9 +603,7 @@ final class HeaderStream {
 	private void flagObsolete(ObsoleteStructureType type) throws MimeParseException {
 		if (!obsoleteFlagged) {
 			obsoleteFlagged = true;
-			if (emitShared) {
-				inner.obsoleteStructure(type);
-			}
+			inner.obsoleteStructure(type);
 		}
 	}
 
@@ -544,7 +616,9 @@ final class HeaderStream {
 		inner.malformedHeader(name, reason);
 		failed = true;
 		inGroup = false;
-		text.reset();
+		legacyMembers = null;
+		legacyGroup = null;
+		legacyText.setLength(0);
 		if (prefix != null) {
 			text.feed(ByteBuffer.wrap(prefix), textSink);
 		}

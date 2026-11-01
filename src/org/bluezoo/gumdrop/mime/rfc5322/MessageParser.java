@@ -21,17 +21,11 @@
 
 package org.bluezoo.gumdrop.mime.rfc5322;
 
-import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.MimeHandler;
 import org.bluezoo.gumdrop.mime.MimeParseException;
 import org.bluezoo.gumdrop.mime.MimeParser;
 import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
 import java.nio.ByteBuffer;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.util.List;
 
 /**
  * A parser for RFC 5322 email messages.
@@ -57,10 +51,7 @@ public class MessageParser extends MimeParser {
 
 	private MessageHandler messageHandler;
 	private MessageBridge bridge; // reads the address, message-id and date headers as elements
-	private boolean usedObsoleteSyntax = false; // track obsolete syntax in structured headers
 	private boolean smtputf8 = false; // RFC 6531/6532 internationalized email mode
-	private CharsetDecoder headerDecoder;
-	private CharsetDecoder utf8HeaderDecoder;
 
 	/**
 	 * Constructor.
@@ -103,7 +94,7 @@ public class MessageParser extends MimeParser {
 	 */
 	public void setMessageHandler(MessageHandler handler) {
 		this.messageHandler = handler;
-		this.bridge = new MessageBridge(this, handler);
+		this.bridge = new MessageBridge(this, handler, handler);
 		super.setHandler(bridge);
 	}
 
@@ -114,8 +105,8 @@ public class MessageParser extends MimeParser {
 		} else {
 			// a plain MIME handler takes the MIME events; a message handler
 			// set before it goes on getting the structured header events
-			this.bridge = null;
-			super.setHandler(handler);
+			this.bridge = messageHandler == null ? null : new MessageBridge(this, messageHandler, handler);
+			super.setHandler(bridge != null ? bridge : handler);
 		}
 	}
 
@@ -134,36 +125,6 @@ public class MessageParser extends MimeParser {
 			case "content-description":
 			case "mime-version":
 				super.header(name, value);
-				break;
-			case "date":
-			case "resent-date":
-				handleDateHeader(name, value);
-				break;
-			case "from":
-			case "sender":
-			case "to":
-			case "cc":
-			case "bcc":
-			case "reply-to":
-			case "resent-from":
-			case "return-path":
-			case "resent-sender":
-			case "resent-to":
-			case "resent-cc":
-			case "resent-bcc":
-			case "resent-reply-to":
-			case "envelope-to":
-			case "delivered-to":
-			case "x-original-to":
-			case "errors-to":
-			case "apparently-to":
-				handleAddressHeader(name, value);
-				break;
-			case "message-id":
-			case "in-reply-to":
-			case "references":
-			case "resent-message-id":
-				handleMessageIDHeader(name, value);
 				break;
 			case "received":
 				handleReceivedHeader(name, value);
@@ -193,37 +154,7 @@ public class MessageParser extends MimeParser {
 			// held whole for the older ones
 			return false;
 		}
-		String lower = name.toLowerCase();
-		switch (lower) {
-			case "date":
-			case "resent-date":
-			case "from":
-			case "sender":
-			case "to":
-			case "cc":
-			case "bcc":
-			case "reply-to":
-			case "resent-from":
-			case "return-path":
-			case "resent-sender":
-			case "resent-to":
-			case "resent-cc":
-			case "resent-bcc":
-			case "resent-reply-to":
-			case "envelope-to":
-			case "delivered-to":
-			case "x-original-to":
-			case "errors-to":
-			case "apparently-to":
-			case "message-id":
-			case "in-reply-to":
-			case "references":
-			case "resent-message-id":
-			case "received":
-				return true;
-			default:
-				return isUnstructuredHeader(lower);
-		}
+		return isUnstructuredHeader(name.toLowerCase());
 	}
 
 	private static boolean isUnstructuredHeader(String lowerName) {
@@ -249,97 +180,11 @@ public class MessageParser extends MimeParser {
 		return stripHeaderWhitespace ? s.trim() : s;
 	}
 
-	protected void handleDateHeader(String name, ByteBuffer value) throws MimeParseException {
-		if (messageHandler == null) {
-			return;
-		}
-		String valueStr = decodeTokenHeaderValue(value.duplicate(), getHeaderDecoder());
-		usedObsoleteSyntax = false;
-		OffsetDateTime dateTime = parseRFC5322DateTime(valueStr);
-		if (dateTime != null) {
-			if (usedObsoleteSyntax) {
-				messageHandler.obsoleteStructure(ObsoleteStructureType.OBSOLETE_DATE_TIME_SYNTAX);
-				usedObsoleteSyntax = false;
-			}
-			messageHandler.dateHeader(name, dateTime);
-		} else {
-			messageHandler.unexpectedHeader(name, valueStr);
-		}
-	}
-
-	protected void handleAddressHeader(String name, ByteBuffer value) throws MimeParseException {
-		if (messageHandler == null) {
-			return;
-		}
-		List<EmailAddress> addresses = EmailAddressParser.parseEmailAddressList(value.duplicate(), getHeaderDecoder());
-		if (addresses != null && !addresses.isEmpty()) {
-			messageHandler.addressHeader(name, addresses);
-		} else {
-			List<EmailAddress> obsoleteAddresses = ObsoleteParserUtils.parseObsoleteAddressList(value.duplicate(), getHeaderDecoder());
-			if (obsoleteAddresses != null && !obsoleteAddresses.isEmpty()) {
-				messageHandler.obsoleteStructure(ObsoleteStructureType.OBSOLETE_ADDRESS_SYNTAX);
-				messageHandler.addressHeader(name, obsoleteAddresses);
-			} else {
-				messageHandler.unexpectedHeader(name, decodeHeaderValueWithRFC2047(value, smtputf8));
-			}
-		}
-	}
-
-	protected void handleMessageIDHeader(String name, ByteBuffer value) throws MimeParseException {
-		if (messageHandler == null) {
-			return;
-		}
-		List<ContentID> messageIDs = MessageIDParser.parseMessageIDList(value.duplicate(), getHeaderDecoder());
-		if (messageIDs != null && !messageIDs.isEmpty()) {
-			messageHandler.messageIDHeader(name, messageIDs);
-		} else {
-			List<ContentID> obsoleteMessageIDs = ObsoleteParserUtils.parseObsoleteMessageIDList(value.duplicate(), getHeaderDecoder());
-			if (obsoleteMessageIDs != null && !obsoleteMessageIDs.isEmpty()) {
-				messageHandler.obsoleteStructure(ObsoleteStructureType.OBSOLETE_MESSAGE_ID_SYNTAX);
-				messageHandler.messageIDHeader(name, obsoleteMessageIDs);
-			} else {
-				messageHandler.unexpectedHeader(name, decodeHeaderBytes(value.duplicate(), StandardCharsets.ISO_8859_1, true));
-			}
-		}
-	}
-
 	protected void handleReceivedHeader(String name, ByteBuffer value) throws MimeParseException {
 		if (messageHandler != null) {
 			String valueStr = decodeHeaderValueWithRFC2047(value, smtputf8);
 			messageHandler.header(name, valueStr);
 		}
-	}
-
-	/**
-	 * Parses an RFC5322 date/time string into a OffsetDateTime.
-	 * Returns null if the parse failed.
-	 */
-	private OffsetDateTime parseRFC5322DateTime(String value) {
-		OffsetDateTime ret = MessageDateTimeFormatter.parseStrict(value);
-		if (ret == null) {
-			ret = MessageDateTimeFormatter.parseObsolete(value);
-			if (ret != null) {
-				this.usedObsoleteSyntax = true;
-			}
-		}
-		return ret;
-	}
-
-	private CharsetDecoder getHeaderDecoder() {
-		if (smtputf8) {
-			if (utf8HeaderDecoder == null) {
-				utf8HeaderDecoder = StandardCharsets.UTF_8.newDecoder()
-					.onMalformedInput(CodingErrorAction.REPLACE)
-					.onUnmappableCharacter(CodingErrorAction.REPLACE);
-			}
-			return utf8HeaderDecoder;
-		}
-		if (headerDecoder == null) {
-			headerDecoder = StandardCharsets.ISO_8859_1.newDecoder()
-				.onMalformedInput(CodingErrorAction.REPLACE)
-				.onUnmappableCharacter(CodingErrorAction.REPLACE);
-		}
-		return headerDecoder;
 	}
 
 	@Override
@@ -348,7 +193,6 @@ public class MessageParser extends MimeParser {
 		if (bridge != null) {
 			bridge.reset();
 		}
-		usedObsoleteSyntax = false;
 		smtputf8 = false;
 	}
 
