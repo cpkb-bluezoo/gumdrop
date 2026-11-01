@@ -60,6 +60,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Connection set-up, transport negotiation, SSRF protection, pooling,
@@ -575,5 +576,60 @@ public class HttpClientFacadeTest {
                 .connectionPool(null).credentials("u", "p"));
         assertSame(client, client.host(ip("127.0.0.1")).socketPath("/tmp/x").selectorLoop(null));
         assertNull(client.getDnsResolver());
+    }
+
+    @Test
+    public void nullTargetsAreRejected() {
+        try {
+            new HttpClient((String) null);
+            fail("null socket path");
+        } catch (NullPointerException expected) {
+            assertEquals("path", expected.getMessage());
+        }
+        try {
+            new HttpClient().host((InetAddress) null);
+            fail("null address");
+        } catch (NullPointerException expected) {
+            assertEquals("hostAddress", expected.getMessage());
+        }
+        try {
+            new HttpClient().socketPath(null);
+            fail("null path");
+        } catch (NullPointerException expected) {
+            assertEquals("socketPath", expected.getMessage());
+        }
+    }
+
+    @Test
+    public void quicHandshakeTimeoutMayNotBeNegative() {
+        HttpClient client = new HttpClient();
+        assertSame(client, client.quicHandshakeTimeoutMs(0L));
+        assertSame(client, client.quicHandshakeTimeoutMs(1500L));
+        try {
+            client.quicHandshakeTimeoutMs(-1L);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("negative"));
+        }
+        assertSame(client, client.idleTimeoutMs(30000L));
+    }
+
+    @Test
+    public void contentCodingOptionsAreAcceptedBeforeAndAfterConnecting() {
+        HttpClient client = new HttpClient("example.com", 80);
+        assertSame(client, client.sendAcceptEncodingHeader(false));
+        assertSame(client, client.decodeResponseContentCoding(false));
+        assertSame(client, client.encodeRequestBodyContentCoding(true));
+    }
+
+    @Test
+    public void priorKnowledgeHttp2NeedsHttp2ToBePermitted() {
+        Events events = new Events();
+        HttpClient client = new HttpClient("example.com", 80)
+                .versions(HttpVersion.HTTP_1_1)
+                .h2WithPriorKnowledge(true);
+        client.connect(null, events);
+        assertEquals("[error]", events.calls.toString());
+        assertTrue(events.error.getMessage().contains("h2WithPriorKnowledge"));
     }
 }

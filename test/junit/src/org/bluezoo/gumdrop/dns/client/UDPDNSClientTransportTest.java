@@ -21,7 +21,16 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.junit.Test;
+
+import org.bluezoo.gumdrop.ProtocolHandler;
 
 import static org.junit.Assert.*;
 
@@ -43,6 +52,52 @@ public class UDPDNSClientTransportTest {
     public void testCloseBeforeOpen() {
         UdpDnsClientTransport transport = new UdpDnsClientTransport();
         transport.close();
+    }
+
+    private static final class Seen implements DnsClientTransportHandler {
+        final List<ByteBuffer> received = new ArrayList<ByteBuffer>();
+        final List<Exception> errors = new ArrayList<Exception>();
+
+        @Override
+        public void onReceive(ByteBuffer data) {
+            received.add(data);
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            errors.add(cause);
+        }
+    }
+
+    @Test
+    public void testOpenWithoutALoopIsRejected() throws Exception {
+        UdpDnsClientTransport transport = new UdpDnsClientTransport();
+        try {
+            transport.open(InetAddress.getLoopbackAddress(), 53, null, new Seen());
+            fail("expected IOException");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("SelectorLoop"));
+        }
+    }
+
+    @Test
+    public void testDatagramHandlerForwardsToTheResolver() throws Exception {
+        Seen seen = new Seen();
+        Class<?> type = Class.forName(UdpDnsClientTransport.class.getName() + "$UdpProtocolHandler");
+        Constructor<?> ctor = type.getDeclaredConstructor(DnsClientTransportHandler.class);
+        ctor.setAccessible(true);
+        ProtocolHandler handler = (ProtocolHandler) ctor.newInstance(seen);
+        handler.connected(null);
+        handler.securityEstablished(null);
+        ByteBuffer datagram = ByteBuffer.wrap(new byte[] {1, 2});
+        handler.receive(datagram);
+        IOException cause = new IOException("icmp");
+        handler.error(cause);
+        handler.disconnected();
+        assertEquals(1, seen.received.size());
+        assertSame(datagram, seen.received.get(0));
+        assertEquals(1, seen.errors.size());
+        assertSame(cause, seen.errors.get(0));
     }
 
 }

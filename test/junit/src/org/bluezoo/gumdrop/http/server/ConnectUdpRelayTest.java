@@ -21,9 +21,18 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 import org.junit.Test;
+
+import static org.junit.Assert.*;
 
 /**
  * {@link ConnectUdpRelay} before its upstream socket is opened: datagrams
@@ -45,5 +54,84 @@ public class ConnectUdpRelayTest {
         relay.close();
         relay.close();
         relay.receiveDatagram(ByteBuffer.allocate(8));
+    }
+
+    /** Collects the datagrams a relay sends back to the HTTP client and the timers it arms. */
+    private static final class Recording extends HttpResponseDefaultsTest.Minimal {
+        final List<ByteBuffer> datagrams = new ArrayList<ByteBuffer>();
+        final List<Long> timers = new ArrayList<Long>();
+        int cancelled;
+
+        @Override
+        public boolean sendDatagram(ByteBuffer data) {
+            datagrams.add(data);
+            return true;
+        }
+
+        @Override
+        public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+            timers.add(Long.valueOf(delayMs));
+            return null;
+        }
+
+        @Override
+        public void cancel() {
+            cancelled++;
+        }
+    }
+
+    private static ProtocolHandler upstream(ConnectUdpRelay relay) throws Exception {
+        Class<?> type = Class.forName(ConnectUdpRelay.class.getName() + "$UpstreamHandler");
+        Constructor<?> ctor = type.getDeclaredConstructor(ConnectUdpRelay.class);
+        ctor.setAccessible(true);
+        return (ProtocolHandler) ctor.newInstance(relay);
+    }
+
+    @Test
+    public void repliesAreRelayedAsContextZeroDatagrams() throws Exception {
+        Recording response = new Recording();
+        ConnectUdpRelay relay = new ConnectUdpRelay(response, 5000L);
+        ProtocolHandler handler = upstream(relay);
+        handler.connected(null);
+        handler.securityEstablished(null);
+        handler.receive(ByteBuffer.wrap(new byte[] {9, 8, 7}));
+        assertEquals(1, response.datagrams.size());
+        HttpDatagramContext decoded = HttpDatagramContext.decode(response.datagrams.get(0));
+        assertEquals(HttpDatagramContext.REGISTERED_CONTEXT_ID, decoded.getContextId());
+        assertEquals(3, decoded.getPayload().remaining());
+        assertEquals("each reply restarts the idle timer", 1, response.timers.size());
+        assertEquals(5000L, response.timers.get(0).longValue());
+    }
+
+    @Test
+    public void nothingIsRelayedOnceClosed() throws Exception {
+        Recording response = new Recording();
+        ConnectUdpRelay relay = new ConnectUdpRelay(response, 0L);
+        ProtocolHandler handler = upstream(relay);
+        relay.close();
+        handler.receive(ByteBuffer.wrap(new byte[] {1}));
+        handler.disconnected();
+        handler.error(new java.io.IOException("late"));
+        assertTrue(response.datagrams.isEmpty());
+    }
+
+    @Test
+    public void upstreamDisconnectClosesTheRelay() throws Exception {
+        Recording response = new Recording();
+        ConnectUdpRelay relay = new ConnectUdpRelay(response, 0L);
+        ProtocolHandler handler = upstream(relay);
+        handler.disconnected();
+        handler.receive(ByteBuffer.wrap(new byte[] {1}));
+        assertTrue("closed by the disconnect", response.datagrams.isEmpty());
+    }
+
+    @Test
+    public void upstreamErrorClosesTheRelay() throws Exception {
+        Recording response = new Recording();
+        ConnectUdpRelay relay = new ConnectUdpRelay(response, 0L);
+        ProtocolHandler handler = upstream(relay);
+        handler.error(new java.io.IOException("unreachable"));
+        handler.receive(ByteBuffer.wrap(new byte[] {1}));
+        assertTrue(response.datagrams.isEmpty());
     }
 }

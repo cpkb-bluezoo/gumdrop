@@ -21,10 +21,16 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.lang.reflect.Constructor;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.bluezoo.gumdrop.http.ConnectIpAddress;
+import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 
 import org.junit.After;
@@ -34,6 +40,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -120,5 +127,91 @@ public class ConnectIpClientTest {
                 });
         assertNotNull(failure.get());
         assertTrue(failure.get().getMessage().contains("HTTP/3"));
+    }
+
+    /** Records every callback; its session is a stub that records {@code close()}. */
+    private static final class Recorder implements ConnectIpEventHandler {
+        final List<String> events = new ArrayList<String>();
+        ConnectIpClientSession session;
+
+        @Override
+        public void opened(ConnectIpClientSession session) {
+            this.session = session;
+            events.add("opened");
+        }
+
+        @Override
+        public void packetReceived(ByteBuffer packet) {
+            events.add("packet");
+        }
+
+        @Override
+        public void addressAssigned(List<ConnectIpAddress> assignments) {
+            events.add("addresses");
+        }
+
+        @Override
+        public void routeAdvertised(List<ConnectIpRoute> routes) {
+            events.add("routes");
+        }
+
+        @Override
+        public void closed() {
+            events.add("closed");
+        }
+
+        @Override
+        public void error(Throwable cause) {
+            events.add("error:" + cause.getMessage());
+        }
+    }
+
+    private static final class StubSession implements ConnectIpClientSession {
+        int closed;
+
+        @Override
+        public void sendPacket(ByteBuffer packet) {
+        }
+
+        @Override
+        public void sendAddressRequest(List<ConnectIpAddress> requested) {
+        }
+
+        @Override
+        public void close() {
+            closed++;
+        }
+    }
+
+    private void bridgeForwardsAndCapturesTheSession(String bridgeName) throws Exception {
+        ConnectIpClient client = new ConnectIpClient("proxy.example.com", 443);
+        Recorder app = new Recorder();
+        Class<?> type = Class.forName(ConnectIpClient.class.getName() + "$" + bridgeName);
+        Constructor<?> ctor = type.getDeclaredConstructor(ConnectIpClient.class, ConnectIpEventHandler.class);
+        ctor.setAccessible(true);
+        ConnectIpEventHandler bridge = (ConnectIpEventHandler) ctor.newInstance(client, app);
+        StubSession session = new StubSession();
+        assertFalse(client.isOpen());
+        bridge.opened(session);
+        assertTrue("the tunnel is open once the bridge has seen it", client.isOpen());
+        assertSame(session, app.session);
+        bridge.packetReceived(ByteBuffer.allocate(1));
+        bridge.addressAssigned(new ArrayList<ConnectIpAddress>());
+        bridge.routeAdvertised(new ArrayList<ConnectIpRoute>());
+        bridge.error(new IllegalStateException("boom"));
+        bridge.closed();
+        assertEquals("[opened, packet, addresses, routes, error:boom, closed]", app.events.toString());
+        client.close();
+        assertEquals(1, session.closed);
+    }
+
+    @Test
+    public void http2BridgeForwardsAndCapturesTheSession() throws Exception {
+        bridgeForwardsAndCapturesTheSession("H2ConnectIpEventHandlerBridge");
+    }
+
+    @Test
+    public void http3BridgeForwardsAndCapturesTheSession() throws Exception {
+        bridgeForwardsAndCapturesTheSession("H3ConnectIpEventHandlerBridge");
     }
 }

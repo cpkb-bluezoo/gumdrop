@@ -48,7 +48,8 @@ import static org.junit.Assert.*;
  */
 public class HttpResponseDefaultsTest {
 
-    private static final class Minimal implements HttpResponse {
+    /** An {@link HttpResponse} supplying only the abstract methods; subclasses override what they observe. */
+    static class Minimal implements HttpResponse {
 
         final List<String> headers = new ArrayList<String>();
         WebSocketEventHandler upgraded;
