@@ -265,7 +265,7 @@ public class ObsoleteParserUtils {
 	/**
 	 * Parse a single message-ID that may contain obsolete syntax.
 	 */
-	private static ContentID parseObsoleteMessageID(String idText) {
+	static ContentID parseObsoleteMessageID(String idText) {
 		idText = idText.trim();
 
 		// Remove comments if present: (comment)msg@domain.com(comment)

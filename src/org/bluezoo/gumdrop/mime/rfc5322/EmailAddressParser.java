@@ -344,7 +344,7 @@ public final class EmailAddressParser {
 
 	// -- Envelope address validation --
 
-	private static boolean isValidLocalPart(String localPart, boolean smtputf8) {
+	static boolean isValidLocalPart(String localPart, boolean smtputf8) {
 		int len = localPart.length();
 		if (len == 0 || len > 64) {
 			return false;
@@ -387,7 +387,7 @@ public final class EmailAddressParser {
 		return true;
 	}
 
-	private static boolean isValidDomain(String domain, boolean smtputf8) {
+	static boolean isValidDomain(String domain, boolean smtputf8) {
 		int len = domain.length();
 		if (len == 0 || len > 255) {
 			return false;
@@ -505,7 +505,7 @@ public final class EmailAddressParser {
 		return new GroupEmailAddress(groupName, members, null);
 	}
 
-	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
+	static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		skipWhitespaceAndComments(input, length, pos);
 		if (pos[0] >= length) {
 			return null;
@@ -548,7 +548,7 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
+	static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		tokenBuffer.setLength(0);
 		skipWhitespaceAndComments(input, length, pos);
 		while (pos[0] < length) {

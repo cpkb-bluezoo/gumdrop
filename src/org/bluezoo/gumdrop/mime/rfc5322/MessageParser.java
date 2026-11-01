@@ -56,6 +56,7 @@ import java.util.List;
 public class MessageParser extends MimeParser {
 
 	private MessageHandler messageHandler;
+	private MessageBridge bridge; // reads the address, message-id and date headers as elements
 	private boolean usedObsoleteSyntax = false; // track obsolete syntax in structured headers
 	private boolean smtputf8 = false; // RFC 6531/6532 internationalized email mode
 	private CharsetDecoder headerDecoder;
@@ -102,15 +103,20 @@ public class MessageParser extends MimeParser {
 	 */
 	public void setMessageHandler(MessageHandler handler) {
 		this.messageHandler = handler;
-		super.setHandler(handler);
+		this.bridge = new MessageBridge(this, handler);
+		super.setHandler(bridge);
 	}
 
 	@Override
 	public void setHandler(MimeHandler handler) {
 		if (handler instanceof MessageHandler) {
-			this.messageHandler = (MessageHandler) handler;
+			setMessageHandler((MessageHandler) handler);
+		} else {
+			// a plain MIME handler takes the MIME events; a message handler
+			// set before it goes on getting the structured header events
+			this.bridge = null;
+			super.setHandler(handler);
 		}
-		super.setHandler(handler);
 	}
 
 	/**
@@ -181,6 +187,11 @@ public class MessageParser extends MimeParser {
 	protected boolean collectsHeader(String name) {
 		if (super.collectsHeader(name)) {
 			return true;
+		}
+		if (bridge != null && !bridge.legacy()) {
+			// the handler works from the streaming events: nothing is
+			// held whole for the older ones
+			return false;
 		}
 		String lower = name.toLowerCase();
 		switch (lower) {
@@ -334,6 +345,9 @@ public class MessageParser extends MimeParser {
 	@Override
 	public void reset() {
 		super.reset();
+		if (bridge != null) {
+			bridge.reset();
+		}
 		usedObsoleteSyntax = false;
 		smtputf8 = false;
 	}

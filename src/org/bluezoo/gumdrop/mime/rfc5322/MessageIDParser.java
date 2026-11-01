@@ -156,7 +156,7 @@ public class MessageIDParser {
 	}
 
 	/** Validate id-left (dot-atom): atext or '.'; no leading/trailing dot; at least one atext. */
-	private static boolean isValidIdLeft(String s, boolean smtputf8) {
+	static boolean isValidIdLeft(String s, boolean smtputf8) {
 		if (s == null || s.isEmpty()) {
 			return false;
 		}
@@ -178,7 +178,7 @@ public class MessageIDParser {
 	}
 
 	/** Validate id-right: empty, or dot-atom, or domain-literal [...]. */
-	private static boolean isValidIdRight(String s, boolean smtputf8) {
+	static boolean isValidIdRight(String s, boolean smtputf8) {
 		if (s == null) {
 			return false;
 		}

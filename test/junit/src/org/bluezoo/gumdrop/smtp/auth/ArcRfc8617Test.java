@@ -191,7 +191,8 @@ public class ArcRfc8617Test {
                 new Class<?>[] {MessageHandler.class}, new InvocationHandler() {
                     @Override
                     public Object invoke(Object proxy, Method method, Object[] args) {
-                        return null;
+                        // every event is ignored; a question gets the default answer
+                        return method.getReturnType() == boolean.class ? Boolean.TRUE : null;
                     }
                 });
     }

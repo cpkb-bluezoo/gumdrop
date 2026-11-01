@@ -124,5 +124,86 @@ public interface MessageHandler extends MimeHandler {
 	 */
 	void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException;
 
-}
+	/**
+	 * An address header (From, To, Cc, Reply-To and so on) begins. A
+	 * {@link #mailbox(String, String, String)} follows for each address, with
+	 * {@link #startGroup(String)} and {@link #endGroup()} around the members
+	 * of a group, and then {@link #endAddressHeader()}. The header is never
+	 * held whole, so a To with a thousand addresses is a thousand
+	 * {@code mailbox} calls. If an address cannot be read,
+	 * {@link #malformedHeader(String, String)} is called instead of the rest
+	 * of these events, and the header from that address on follows as
+	 * {@link #headerContent(String)} text and {@link #endHeader()}.
+	 * @param name the header name, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startAddressHeader(String name) throws MimeParseException {
+	}
 
+	/**
+	 * A mailbox of an address header.
+	 * @param displayName the display name, decoded (quotes and comments
+	 * resolved, RFC 2047 words decoded), or null if there is none
+	 * @param localPart the local part, as written
+	 * @param domain the domain, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void mailbox(String displayName, String localPart, String domain)
+			throws MimeParseException {
+	}
+
+	/**
+	 * A group begins. Its members follow as
+	 * {@link #mailbox(String, String, String)} calls and then
+	 * {@link #endGroup()}. ({@code undisclosed-recipients:;} is a group
+	 * with no members.)
+	 * @param name the name of the group, decoded
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startGroup(String name) throws MimeParseException {
+	}
+
+	/**
+	 * The group started by {@link #startGroup(String)} ends.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endGroup() throws MimeParseException {
+	}
+
+	/**
+	 * The address header started by {@link #startAddressHeader(String)} is
+	 * complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endAddressHeader() throws MimeParseException {
+	}
+
+	/**
+	 * A message-id header (Message-ID, In-Reply-To, References and so on)
+	 * begins. A {@link #messageID(String, String)} follows for each id and
+	 * then {@link #endMessageIDHeader()}. An id that cannot be read is
+	 * reported as for {@link #startAddressHeader(String)}.
+	 * @param name the header name, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startMessageIDHeader(String name) throws MimeParseException {
+	}
+
+	/**
+	 * A message-id of a message-id header.
+	 * @param localPart the part before the at sign
+	 * @param domain the part after it
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void messageID(String localPart, String domain) throws MimeParseException {
+	}
+
+	/**
+	 * The message-id header started by {@link #startMessageIDHeader(String)}
+	 * is complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endMessageIDHeader() throws MimeParseException {
+	}
+
+}

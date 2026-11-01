@@ -71,6 +71,18 @@ public interface MimeHandler {
 	}
 
 	/**
+	 * Asked when an entity starts, before any of its headers, whether the
+	 * handler wants the events that carry a value built from the whole of a
+	 * header (those that predate the streaming events and are deprecated in
+	 * their favour). A handler that works from the streaming events answers
+	 * false, and then the parser holds no header whole on its behalf.
+	 * @return true (the default) if the older events are wanted
+	 */
+	default boolean wantsLegacyEvents() {
+		return true;
+	}
+
+	/**
 	 * Asked once for each header the parser does not itself understand
 	 * (every header but Content-Type, Content-Disposition,
 	 * Content-Transfer-Encoding, Content-ID and MIME-Version), just before

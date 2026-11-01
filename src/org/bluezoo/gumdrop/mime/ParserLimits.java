@@ -41,9 +41,13 @@ public final class ParserLimits {
 	/** The default longest token held to judge a structured header. */
 	public static final int DEFAULT_MAX_TOKEN_LENGTH = 256;
 
+	/** The default longest element of a structured RFC 5322 header. */
+	public static final int DEFAULT_MAX_ELEMENT_LENGTH = 4096;
+
 	private int maxHeaderLineLength = DEFAULT_MAX_HEADER_LINE_LENGTH;
 	private int maxHeaderNameLength = DEFAULT_MAX_HEADER_NAME_LENGTH;
 	private int maxTokenLength = DEFAULT_MAX_TOKEN_LENGTH;
+	private int maxElementLength = DEFAULT_MAX_ELEMENT_LENGTH;
 
 	/**
 	 * Returns limits with no limit set at all.
@@ -54,6 +58,7 @@ public final class ParserLimits {
 		limits.maxHeaderLineLength = 0;
 		limits.maxHeaderNameLength = 0;
 		limits.maxTokenLength = 0;
+		limits.maxElementLength = 0;
 		return limits;
 	}
 
@@ -110,6 +115,26 @@ public final class ParserLimits {
 	 */
 	public void setMaxTokenLength(int maxTokenLength) {
 		this.maxTokenLength = maxTokenLength;
+	}
+
+	/**
+	 * Returns the longest element of an RFC 5322 address, message-id or date
+	 * header that is held to be read: one mailbox, one group name, one
+	 * message-id, or a date. A header may have any number of them. An
+	 * element that is longer is not read; the rest of the header is delivered
+	 * as text.
+	 * @return the limit, or zero or less for none (default 4096)
+	 */
+	public int getMaxElementLength() {
+		return maxElementLength;
+	}
+
+	/**
+	 * Sets the longest element of a structured RFC 5322 header.
+	 * @param maxElementLength the limit, or zero or less for none
+	 */
+	public void setMaxElementLength(int maxElementLength) {
+		this.maxElementLength = maxElementLength;
 	}
 
 }
