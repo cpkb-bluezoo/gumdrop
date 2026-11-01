@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
+import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 import org.junit.Test;
 
@@ -65,6 +66,17 @@ public class QuicLoopbackAckFrequencySenderTest {
         QuicForger.invoke(f.client.conn, "onAckTimeout");
         QuicForger.invoke(f.server.conn, "onAckTimeout");
         f.lb.pump();
+    }
+
+    /**
+     * From here the only time that passes is what a test adds through the
+     * connections' clock offsets, so the delays and silences measured below
+     * are exact rather than bounded by how busy the host is.
+     */
+    private static void freezeClocks(Fixture f) {
+        long now = System.nanoTime();
+        f.client.conn.frozenNanos = now;
+        f.server.conn.frozenNanos = now;
     }
 
     private static void exchange(Fixture f, int index) throws Exception {
@@ -156,6 +168,7 @@ public class QuicLoopbackAckFrequencySenderTest {
         f.pn = ((long[]) QuicForger.field(f.server.conn, "largestReceived"))[2] + 1;
         f.toServer(b);
         settle(f);
+        freezeClocks(f);
 
         final int dropAt = f.lb.sentToServer;
         f.lb.filter = new QuicLoopback.Filter() {
@@ -186,6 +199,7 @@ public class QuicLoopbackAckFrequencySenderTest {
         f.pn = ((long[]) QuicForger.field(f.server.conn, "largestReceived"))[2] + 1;
         f.toServer(b);
         settle(f);
+        freezeClocks(f);
         setField(f.client.conn, "peerMinAckDelayMicros", -1);
 
         final int dropAt = f.lb.sentToServer;
@@ -217,6 +231,7 @@ public class QuicLoopbackAckFrequencySenderTest {
         f.pn = ((long[]) QuicForger.field(f.server.conn, "largestReceived"))[2] + 1;
         f.toServer(b);
         settle(f);
+        freezeClocks(f);
 
         Rec c = new Rec();
         Endpoint e = f.client.conn.openStream(c);
@@ -252,6 +267,7 @@ public class QuicLoopbackAckFrequencySenderTest {
         f.pn = ((long[]) QuicForger.field(f.server.conn, "largestReceived"))[2] + 1;
         f.toServer(b);
         settle(f);
+        freezeClocks(f);
 
         // Nothing in flight for five seconds: no ACK arrives because none is owed.
         f.client.conn.clockOffsetMillis += 5000;
@@ -274,13 +290,36 @@ public class QuicLoopbackAckFrequencySenderTest {
         assertEquals("the peer was asked to acknowledge at once", before + 1, f.lb.toClientLog.size());
     }
 
+    /**
+     * The request is sized from the smoothed RTT, which the handshake measures
+     * on the real clock, so on a loaded host it can be any value. This pins
+     * it, and freezes time so that the samples taken afterwards are exact too.
+     */
+    private static void pinSmoothedRtt(Fixture f, long micros) throws Exception {
+        freezeClocks(f);
+        Field detector = QuicConnection.class.getDeclaredField("lossDetector");
+        detector.setAccessible(true);
+        LossDetector loss = (LossDetector) detector.get(f.client.conn);
+        Field smoothed = RttEstimator.class.getDeclaredField("smoothedRtt");
+        smoothed.setAccessible(true);
+        smoothed.setLong(loss.getRttEstimator(), micros);
+    }
+
     @Test
     public void acknowledgedRequestReplacesThePeersMaxAckDelayForRecovery() throws Exception {
         Fixture f = Fixture.create();
         exchange(f, 0);
         settle(f);
+        long firstSequence = field(f.server.conn, "lastAckFrequencySequence");
+        pinSmoothedRtt(f, 10000);
+        QuicForger.invoke(f.client.conn, "queueAckFrequency");
+        exchange(f, 1);
+        settle(f);
+        assertTrue("a new request was received", field(f.server.conn, "lastAckFrequencySequence") > firstSequence);
         long requested = field(f.server.conn, "requestedMaxAckDelayMicros");
-        assertTrue(requested < 25000);
+        // the pinned RTT, or less as the frozen clock's zero-length samples
+        // pull it down; never the peer's 25 ms max_ack_delay it replaces
+        assertTrue("sized from the RTT: " + requested, requested >= 1000 && requested <= 10000);
         assertEquals(requested, ((Long) QuicForger.invoke(f.client.conn, "peerMaxAckDelayMicros")).longValue());
     }
 
