@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
 public class MailboxTypesTest {
 
     /** Mailbox stub that only implements the abstract methods. */
-    private static final class BareMailbox implements Mailbox {
+    private static class BareMailbox implements Mailbox {
         @Override
         public void close(boolean expunge) {
         }
@@ -98,6 +98,47 @@ public class MailboxTypesTest {
         @Override
         public String getUniqueId(int messageNumber) {
             return null;
+        }
+    }
+
+    /** Three messages: 3, 10 and 20 octets; the middle one is deleted; UIDs 7, 8 and non-numeric. */
+    private static final class ListedMailbox extends BareMailbox {
+        private final MessageDescriptor[] messages = new MessageDescriptor[] {
+            new SimpleMessageDescriptor(1, 3L, "7"),
+            new SimpleMessageDescriptor(2, 10L, "8"),
+            new SimpleMessageDescriptor(3, 20L, "opaque")
+        };
+
+        @Override
+        public int getMessageCount() {
+            return messages.length;
+        }
+
+        @Override
+        public Iterator<MessageDescriptor> getMessageList() {
+            List<MessageDescriptor> list = new ArrayList<MessageDescriptor>();
+            for (int i = 0; i < messages.length; i++) {
+                list.add(messages[i]);
+            }
+            return list.iterator();
+        }
+
+        @Override
+        public MessageDescriptor getMessage(int messageNumber) {
+            if (messageNumber < 1 || messageNumber > messages.length) {
+                return null;
+            }
+            return messages[messageNumber - 1];
+        }
+
+        @Override
+        public boolean isDeleted(int messageNumber) {
+            return messageNumber == 2;
+        }
+
+        @Override
+        public String getUniqueId(int messageNumber) {
+            return messages[messageNumber - 1].getUniqueId();
         }
     }
 
@@ -267,5 +308,72 @@ public class MailboxTypesTest {
         assertNull(withDates.getSentLocalDate());
         assertTrue(withDates.getKeywords().isEmpty());
         assertEquals(0L, withDates.getModSeq());
+    }
+
+    @Test
+    public void mailboxOptionalFeaturesAreAbsentByDefault() throws IOException {
+        Mailbox mailbox = new ListedMailbox();
+        assertNull(mailbox.getMailboxId());
+        assertNull(mailbox.getEmailId(1));
+        assertEquals(1L, mailbox.getUidValidity());
+        assertEquals(4L, mailbox.getUidNext());
+        assertEquals(0L, mailbox.getHighestModSeq());
+        assertEquals(0L, mailbox.getModSeq(1));
+        assertTrue(mailbox.getChangedSince(0L).isEmpty());
+        assertTrue(mailbox.getExpungedSince(0L).isEmpty());
+    }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void mailboxExpungeUnsupported() throws IOException {
+        new BareMailbox().expunge();
+    }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void mailboxExpungeMessagesUnsupported() throws IOException {
+        new BareMailbox().expungeMessages(Collections.singletonList(Integer.valueOf(1)));
+    }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void mailboxStartAppendUnsupported() throws IOException {
+        new BareMailbox().startAppendMessage(Collections.<Flag>emptySet(), null);
+    }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void mailboxAppendContentUnsupported() throws IOException {
+        new BareMailbox().appendMessageContent(java.nio.ByteBuffer.allocate(1));
+    }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void mailboxEndAppendUnsupported() throws IOException {
+        new BareMailbox().endAppendMessage();
+    }
+
+    @Test
+    public void messageContextUsesNumericUidAndFallsBackToMessageNumber() throws IOException {
+        Mailbox mailbox = new ListedMailbox();
+        MessageContext first = mailbox.getMessageContext(1);
+        assertEquals(7L, first.getUID());
+        assertEquals(3L, first.getSize());
+        MessageContext opaque = mailbox.getMessageContext(3);
+        assertEquals("non-numeric unique id falls back to the sequence number", 3L, opaque.getUID());
+    }
+
+    @Test
+    public void messageContextIsNullForDeletedOrMissingMessages() throws IOException {
+        Mailbox mailbox = new ListedMailbox();
+        assertNull(mailbox.getMessageContext(2));
+        assertNull(mailbox.getMessageContext(99));
+    }
+
+    @Test
+    public void searchSkipsDeletedMessagesAndAppliesCriteria() throws IOException {
+        Mailbox mailbox = new ListedMailbox();
+        List<Integer> larger = mailbox.search(SearchCriteria.larger(5L));
+        assertEquals("deleted message 2 is skipped even though it matches", 1, larger.size());
+        assertEquals(Integer.valueOf(3), larger.get(0));
+        List<Integer> smaller = mailbox.search(SearchCriteria.smaller(5L));
+        assertEquals(1, smaller.size());
+        assertEquals(Integer.valueOf(1), smaller.get(0));
+        assertTrue(mailbox.search(SearchCriteria.seen()).isEmpty());
     }
 }

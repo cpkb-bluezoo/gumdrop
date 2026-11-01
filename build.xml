@@ -1010,6 +1010,8 @@
           <fileset dir='${build.dir}'>
             <include name='**/*.class'/>
             <exclude name='**/module-info.class'/>
+            <!-- demo programs, not library code -->
+            <exclude name='examples/**'/>
           </fileset>
         </classfiles>
         <sourcefiles encoding='utf-8'>
@@ -1599,6 +1601,8 @@
           <fileset dir='${build.dir}'>
             <include name='**/*.class'/>
             <exclude name='**/module-info.class'/>
+            <!-- demo programs, not library code -->
+            <exclude name='examples/**'/>
           </fileset>
         </classfiles>
         <sourcefiles encoding='utf-8'>
