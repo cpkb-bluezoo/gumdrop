@@ -28,6 +28,7 @@ import org.bluezoo.json.JSONWriter;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class LookupService {
 
     /** Picks one string field out of a JSON object as it is parsed. */

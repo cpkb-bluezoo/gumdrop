@@ -1,0 +1,25 @@
+locator
+startEntity: null
+contentType: multipart/mixed; boundary=b
+endHeaders: offset=45 line=2
+startEntity: b
+contentTransferEncoding: base64
+endHeaders: offset=87 line=5
+body: "Hello world, this is base64 text that is longer than one line of output ok."
+endEntity: b
+startEntity: b
+contentTransferEncoding: quoted-printable
+endHeaders: offset=245 line=11
+body: "caf\u00c3\u00a9 softbreak and = equals"
+endEntity: b
+startEntity: b
+contentTransferEncoding: 7bit
+endHeaders: offset=324 line=16
+body: "seven bit"
+endEntity: b
+startEntity: b
+contentTransferEncoding: x-weird
+endHeaders: offset=378 line=20
+body: "passthrough"
+endEntity: b
+endEntity: null

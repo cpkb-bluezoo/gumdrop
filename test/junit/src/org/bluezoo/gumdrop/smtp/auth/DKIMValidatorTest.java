@@ -58,6 +58,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
  * message's From domain.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // exercises the older events, which are deprecated for removal
 public class DKIMValidatorTest {
 
     /** No-op message handler — the test only needs the raw-header capture DkimMessageParser already does. */

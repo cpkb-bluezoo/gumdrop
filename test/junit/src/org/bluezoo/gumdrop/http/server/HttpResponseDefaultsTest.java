@@ -46,6 +46,7 @@ import static org.junit.Assert.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class HttpResponseDefaultsTest {
 
     /** An {@link HttpResponse} supplying only the abstract methods; subclasses override what they observe. */

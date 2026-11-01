@@ -1,0 +1,18 @@
+From: Alice Example <alice@example.com>
+To: bob@example.com, "Carol, C." <carol@example.org>, Group: d@example.net, e@example.net;
+Cc: undisclosed-recipients:;
+Subject: =?UTF-8?Q?caf=C3=A9?= is open
+ and folded
+Date: Fri, 21 Nov 1997 09:55:06 -0600
+Message-ID: <1234@local.machine.example>
+In-Reply-To: <a@x> <b@y>
+References: <a@x> <b@y>
+X-Custom: some value
+Received: from a by b; Fri, 21 Nov 1997 09:55:06 -0600
+Comments: hello
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Hello world
+Second line

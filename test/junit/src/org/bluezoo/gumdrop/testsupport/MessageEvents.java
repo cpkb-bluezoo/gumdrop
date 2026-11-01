@@ -43,6 +43,7 @@ import org.bluezoo.gumdrop.http.HttpVersion;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class MessageEvents {
 
     private MessageEvents() {

@@ -1,6 +1,6 @@
 /*
  * PushPromiseHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -60,6 +60,7 @@ import org.bluezoo.gumdrop.mime.ContentType;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpResponseHandler#pushPromise()
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface PushPromiseHandler extends HttpMessageHandler {
 
     // The events default to doing nothing, so a handler overrides the ones it needs.

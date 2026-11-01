@@ -82,6 +82,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207 - STARTTLS</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class SmtpClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<SmtpClientLexer.Token>,
         WritableByteChannel, ClientHelloState, ClientSession,

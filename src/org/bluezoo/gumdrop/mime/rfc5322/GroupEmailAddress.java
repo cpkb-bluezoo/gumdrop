@@ -1,6 +1,6 @@
 /*
  * GroupEmailAddress.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -29,7 +29,10 @@ import java.util.List;
  * Group email addresses are rarely used, this is only included for completeness.
  * @see <a href='https://datatracker.ietf.org/doc/html/rfc5322#section-3.4'>RFC 5322</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: groups are delivered as the group events of {@link org.bluezoo.gumdrop.mime.rfc5322.MessageHandler}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public class GroupEmailAddress extends EmailAddress {
 
 	private final String groupName;

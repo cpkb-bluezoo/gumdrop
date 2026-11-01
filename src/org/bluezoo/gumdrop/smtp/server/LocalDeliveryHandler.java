@@ -1,6 +1,6 @@
 /*
  * LocalDeliveryHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -82,6 +82,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-2.3.10">RFC 5321 §2.3.10</a> (final delivery)
  * @see MailboxFactory
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class LocalDeliveryHandler
         implements ClientConnected, HelloHandler, MailFromHandler, 
                    RecipientHandler, MessageDataHandler {

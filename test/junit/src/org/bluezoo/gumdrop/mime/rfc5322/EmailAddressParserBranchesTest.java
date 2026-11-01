@@ -40,6 +40,7 @@ import static org.junit.Assert.assertTrue;
  * comments, envelope validation and the ByteBuffer list parser.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class EmailAddressParserBranchesTest {
 
     private static CharsetDecoder decoder() {

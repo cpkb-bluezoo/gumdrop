@@ -1,6 +1,6 @@
 /*
  * Parameter.java
- * Copyright (C) 2005, 2013 Chris Burdess
+ * Copyright (C) 2005, 2013, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -29,7 +29,10 @@ import java.nio.charset.StandardCharsets;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2045#section-5.1">RFC 2045 §5.1</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2231">RFC 2231</a>
+ * @deprecated to be removed in the next major version: parameters are delivered as {@link MimeHandler#startParameter(String, String)}, {@link MimeHandler#parameterContent(String)} and {@link MimeHandler#endParameter()}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public final class Parameter {
 
 	private static final char[] HEX_DIGITS = "0123456789ABCDEF".toCharArray();

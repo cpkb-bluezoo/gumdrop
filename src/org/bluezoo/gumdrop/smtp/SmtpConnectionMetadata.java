@@ -1,6 +1,6 @@
 /*
  * SmtpConnectionMetadata.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -53,6 +53,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689 - REQUIRETLS</a>
  * @see org.bluezoo.gumdrop.smtp.server.ClientConnected
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface SmtpConnectionMetadata {
 
     /**

@@ -1,6 +1,6 @@
 /*
  * HttpRequestHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -94,6 +94,7 @@ import java.nio.ByteBuffer;
  * @see HttpResponse
  * @see HttpStreamHandler
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface HttpRequestHandler extends HttpMessageHandler {
 
     // ---- HttpMessageHandler events ----

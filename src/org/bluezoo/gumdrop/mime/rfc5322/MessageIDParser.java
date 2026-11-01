@@ -1,6 +1,6 @@
 /*
  * MessageIDParser.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -33,7 +33,10 @@ import java.util.List;
 /**
  * Parser for RFC 5322 Message-ID lists.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: it holds the whole header; message-id headers are streamed by {@link MessageParser}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public class MessageIDParser {
 
     // Prevent instantiation
@@ -156,7 +159,7 @@ public class MessageIDParser {
 	}
 
 	/** Validate id-left (dot-atom): atext or '.'; no leading/trailing dot; at least one atext. */
-	private static boolean isValidIdLeft(String s, boolean smtputf8) {
+	static boolean isValidIdLeft(String s, boolean smtputf8) {
 		if (s == null || s.isEmpty()) {
 			return false;
 		}
@@ -178,7 +181,7 @@ public class MessageIDParser {
 	}
 
 	/** Validate id-right: empty, or dot-atom, or domain-literal [...]. */
-	private static boolean isValidIdRight(String s, boolean smtputf8) {
+	static boolean isValidIdRight(String s, boolean smtputf8) {
 		if (s == null) {
 			return false;
 		}

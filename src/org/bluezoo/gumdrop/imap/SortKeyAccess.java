@@ -33,6 +33,7 @@ import java.util.List;
  * Reads RFC 5256 sort key values from a {@link MessageContext}.
   * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class SortKeyAccess {
 
     private SortKeyAccess() {

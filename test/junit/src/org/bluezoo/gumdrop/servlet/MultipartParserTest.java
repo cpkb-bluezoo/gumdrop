@@ -1,6 +1,6 @@
 /*
  * MultipartParserTest.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -260,4 +260,51 @@ public class MultipartParserTest {
         o2.close();
         assertEquals(3L, q.getSize());
     }
+
+    /** An input stream that gives a few bytes at a time. */
+    private static InputStream trickle(final byte[] data, final int step) {
+        return new InputStream() {
+            private int at;
+
+            @Override
+            public int read() {
+                return at < data.length ? data[at++] & 0xff : -1;
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) {
+                if (at >= data.length) {
+                    return -1;
+                }
+                int n = Math.min(Math.min(step, len), data.length - at);
+                System.arraycopy(data, at, b, off, n);
+                at += n;
+                return n;
+            }
+        };
+    }
+
+    @Test
+    public void testHeaderLinesSplitAcrossReadsAreNotLost() throws Exception {
+        String body = part("Content-Disposition: form-data; name=\"field\"; filename=\"a.txt\"\r\n"
+                + "Content-Type: text/plain", "hello") + close();
+        for (int step = 1; step <= 7; step++) {
+            MultipartParser parser = new MultipartParser(config, BOUNDARY);
+            List<Part> parts = new ArrayList<Part>(parser.parse(
+                trickle(body.getBytes(StandardCharsets.UTF_8), step)));
+            assertEquals("step " + step, 1, parts.size());
+            assertEquals("step " + step, "field", parts.get(0).getName());
+            assertEquals("step " + step, "a.txt", parts.get(0).getSubmittedFileName());
+            assertEquals("step " + step, "hello", read(parts.get(0).getInputStream()));
+        }
+    }
+
+    @Test
+    public void testClosingBoundaryWithoutLineEndIsFound() throws Exception {
+        String body = part("Content-Disposition: form-data; name=\"f\"", "v") + "--" + BOUNDARY + "--";
+        List<Part> parts = new ArrayList<Part>(parse(body));
+        assertEquals(1, parts.size());
+        assertEquals("v", read(parts.get(0).getInputStream()));
+    }
+
 }

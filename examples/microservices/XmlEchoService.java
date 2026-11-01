@@ -22,6 +22,7 @@ import org.xml.sax.helpers.DefaultHandler;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class XmlEchoService {
 
     /** Remembers the root element and the text of the request. */

@@ -55,6 +55,7 @@ import static org.junit.Assert.*;
  * per-stream dispatcher in {@link GrpcRequestHandler}.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class GrpcServerBranchTest {
 
     private static final String PROTO =

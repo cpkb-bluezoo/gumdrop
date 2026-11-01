@@ -1,0 +1,10 @@
+locator
+startEntity: null
+contentType: multipart/mixed; boundary=one
+contentType: multipart/mixed; boundary=two
+endHeaders: offset=92 line=3
+startEntity: two
+endHeaders: offset=101 line=5
+body: "two part"
+endEntity: two
+endEntity: null

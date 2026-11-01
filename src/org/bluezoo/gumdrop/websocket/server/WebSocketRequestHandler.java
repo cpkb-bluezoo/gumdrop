@@ -81,6 +81,7 @@ import java.util.logging.Logger;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8441">RFC 8441: Bootstrapping WebSockets with HTTP/2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220: Bootstrapping WebSockets with HTTP/3</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class WebSocketRequestHandler implements HttpStreamHandler {
 
     private static final Logger LOGGER =

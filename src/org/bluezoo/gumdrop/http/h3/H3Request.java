@@ -64,6 +64,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Http3ClientHandler
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class H3Request implements HttpRequest {
 
     private static final ResourceBundle L10N =

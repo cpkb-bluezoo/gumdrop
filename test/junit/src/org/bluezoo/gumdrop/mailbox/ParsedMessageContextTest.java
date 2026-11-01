@@ -1,6 +1,6 @@
 /*
  * ParsedMessageContextTest.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -122,6 +122,25 @@ public class ParsedMessageContextTest {
         + "Received: from b\r\n"
         + "\r\n"
         + "Body line one.\r\nBody line two.\r\n";
+
+    @Test
+    public void headerLineSpanningTwoReadsIsParsedWhole() throws Exception {
+        // About 10 KB of headers, so that the 8 KB read ends inside a line
+        StringBuilder message = new StringBuilder();
+        StringBuilder pad = new StringBuilder();
+        for (int i = 0; i < 880; i++) {
+            pad.append('a');
+        }
+        for (int i = 0; i < 12; i++) {
+            message.append("X-Pad-").append(i).append(": ").append(pad).append("\r\n");
+        }
+        message.append("Subject: after the padding\r\n\r\nBody.\r\n");
+        ParsedMessageContext c = context(message.toString());
+        assertEquals("after the padding", c.getHeader("subject"));
+        for (int i = 0; i < 12; i++) {
+            assertEquals("X-Pad-" + i, pad.toString(), c.getHeader("x-pad-" + i));
+        }
+    }
 
     @Test
     public void simpleAccessors() {

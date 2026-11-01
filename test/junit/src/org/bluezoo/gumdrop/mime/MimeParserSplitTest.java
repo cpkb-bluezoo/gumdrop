@@ -141,7 +141,8 @@ public class MimeParserSplitTest {
         }
         MimeParser small = new MimeParser();
         small.setMaxHeaderValueSize(20);
-        String folded = "X-Folded: aaaaaaaaaa\r\n bbbbbbbbbb\r\n cccccccccc\r\n\r\n";
+        // Content-Description is collected whole; a streamed header is not held
+        String folded = "Content-Description: aaaaaaaaaa\r\n bbbbbbbbbb\r\n cccccccccc\r\n\r\n";
         try {
             run(small, folded, 3);
             fail("long value accepted");

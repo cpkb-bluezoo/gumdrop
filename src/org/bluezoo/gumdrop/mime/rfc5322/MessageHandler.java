@@ -1,6 +1,6 @@
 /*
  * MessageHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.mime.MimeParseException;
  * @see <a href='https://datatracker.ietf.org/doc/html/rfc5322'>RFC 5322</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface MessageHandler extends MimeHandler {
 
 	/**
@@ -62,8 +63,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param value the header value (field-body, may be null)
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #startHeader(String)}, {@link #headerContent(String)} and {@link #endHeader()}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void header(String name, String value) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void header(String name, String value) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of a structured header field for which the value
@@ -73,8 +78,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param value the header value (field-body, may be null)
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #malformedHeader(String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void unexpectedHeader(String name, String value) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void unexpectedHeader(String name, String value) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of a date header in the message.
@@ -96,8 +105,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param addresses a non-empty list of parsed email addresses
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #startAddressHeader(String)} and {@link #mailbox(String, String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of a message-id header in the message.
@@ -110,8 +123,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param contentIDs the parsed message-id values (same structure as Content-ID)
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #startMessageIDHeader(String)} and {@link #messageID(String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of an obsolete but recoverable message structure.
@@ -124,5 +141,86 @@ public interface MessageHandler extends MimeHandler {
 	 */
 	void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException;
 
-}
+	/**
+	 * An address header (From, To, Cc, Reply-To and so on) begins. A
+	 * {@link #mailbox(String, String, String)} follows for each address, with
+	 * {@link #startGroup(String)} and {@link #endGroup()} around the members
+	 * of a group, and then {@link #endAddressHeader()}. The header is never
+	 * held whole, so a To with a thousand addresses is a thousand
+	 * {@code mailbox} calls. If an address cannot be read,
+	 * {@link #malformedHeader(String, String)} is called instead of the rest
+	 * of these events, and the header from that address on follows as
+	 * {@link #headerContent(String)} text and {@link #endHeader()}.
+	 * @param name the header name, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startAddressHeader(String name) throws MimeParseException {
+	}
 
+	/**
+	 * A mailbox of an address header.
+	 * @param displayName the display name, decoded (quotes and comments
+	 * resolved, RFC 2047 words decoded), or null if there is none
+	 * @param localPart the local part, as written
+	 * @param domain the domain, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void mailbox(String displayName, String localPart, String domain)
+			throws MimeParseException {
+	}
+
+	/**
+	 * A group begins. Its members follow as
+	 * {@link #mailbox(String, String, String)} calls and then
+	 * {@link #endGroup()}. ({@code undisclosed-recipients:;} is a group
+	 * with no members.)
+	 * @param name the name of the group, decoded
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startGroup(String name) throws MimeParseException {
+	}
+
+	/**
+	 * The group started by {@link #startGroup(String)} ends.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endGroup() throws MimeParseException {
+	}
+
+	/**
+	 * The address header started by {@link #startAddressHeader(String)} is
+	 * complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endAddressHeader() throws MimeParseException {
+	}
+
+	/**
+	 * A message-id header (Message-ID, In-Reply-To, References and so on)
+	 * begins. A {@link #messageID(String, String)} follows for each id and
+	 * then {@link #endMessageIDHeader()}. An id that cannot be read is
+	 * reported as for {@link #startAddressHeader(String)}.
+	 * @param name the header name, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startMessageIDHeader(String name) throws MimeParseException {
+	}
+
+	/**
+	 * A message-id of a message-id header.
+	 * @param localPart the part before the at sign
+	 * @param domain the part after it
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void messageID(String localPart, String domain) throws MimeParseException {
+	}
+
+	/**
+	 * The message-id header started by {@link #startMessageIDHeader(String)}
+	 * is complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endMessageIDHeader() throws MimeParseException {
+	}
+
+}

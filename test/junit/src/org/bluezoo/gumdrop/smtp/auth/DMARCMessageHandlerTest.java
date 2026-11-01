@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * last; that domain must instead be invalidated so DMARC cannot pass on it.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class DMARCMessageHandlerTest {
 
     private static class RecordingCallback implements DmarcMessageHandler.FromDomainCallback {
@@ -92,6 +93,35 @@ public class DMARCMessageHandlerTest {
         handler.addressHeader("From", address("a", "one.example"));
         handler.addressHeader("From", address("b", "two.example"));
         handler.addressHeader("From", address("c", "three.example"));
+
+        assertNull(callback.domains.get(callback.domains.size() - 1));
+    }
+
+    @Test
+    public void testStreamedFromHeaderReportsDomainOnceEvenWithTheOlderEvent() throws Exception {
+        RecordingCallback callback = new RecordingCallback();
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
+
+        handler.startAddressHeader("From");
+        handler.mailbox("Alice", "alice", "example.com");
+        handler.mailbox(null, "bob", "other.example");
+        handler.endAddressHeader();
+        handler.addressHeader("From", address("alice", "example.com"));
+
+        assertEquals(Collections.singletonList("example.com"), callback.domains);
+    }
+
+    @Test
+    public void testStreamedDuplicateFromHeaderInvalidatesDomain() throws Exception {
+        RecordingCallback callback = new RecordingCallback();
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
+
+        handler.startAddressHeader("From");
+        handler.mailbox(null, "attacker", "evil.example");
+        handler.endAddressHeader();
+        handler.startAddressHeader("From");
+        handler.mailbox(null, "real", "example.com");
+        handler.endAddressHeader();
 
         assertNull(callback.domains.get(callback.domains.size() - 1));
     }

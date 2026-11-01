@@ -1,6 +1,6 @@
 /*
  * Rfc2047Decoder.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -462,6 +462,21 @@ public class Rfc2047Decoder {
 			throw new UnsupportedEncodingException(msg);
 		}
 		return bytesToString(decodedBytes, charset);
+	}
+
+	/**
+	 * Decodes the text of one encoded word.
+	 * @param charset the charset name from the word
+	 * @param encoding 'B' or 'Q'
+	 * @param text the encoded text from the word
+	 * @return the decoded text, or null if the word cannot be decoded
+	 */
+	static String decodeWord(String charset, char encoding, String text) {
+		try {
+			return decodeSingleEncodedWord(charset, String.valueOf(encoding), text);
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	private static byte[] decodeQEncoding(String encoded) {

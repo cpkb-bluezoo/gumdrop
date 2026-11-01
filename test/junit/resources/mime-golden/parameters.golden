@@ -1,0 +1,7 @@
+locator
+startEntity: null
+contentType: text/plain; charset=us-ascii; name*=UTF-8''caf%C3%A9.txt; format=flowed
+contentDisposition: attachment; filename="long name here.txt"; size=12
+endHeaders: offset=212 line=3
+body: "body\r\n"
+endEntity: null

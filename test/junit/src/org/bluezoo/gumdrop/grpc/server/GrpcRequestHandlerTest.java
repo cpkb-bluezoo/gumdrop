@@ -51,6 +51,7 @@ import static org.junit.Assert.*;
  * Tests for {@link GrpcRequestHandler} configuration (SEC-011).
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class GrpcRequestHandlerTest {
 
     private static ProtoFile echoProto;

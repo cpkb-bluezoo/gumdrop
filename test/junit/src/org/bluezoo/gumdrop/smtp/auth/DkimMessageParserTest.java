@@ -67,7 +67,8 @@ public class DkimMessageParserTest {
                 new Class<?>[] {MessageHandler.class}, new InvocationHandler() {
                     @Override
                     public Object invoke(Object proxy, Method method, Object[] args) {
-                        return null;
+                        // every event is ignored; a question gets the default answer
+                        return method.getReturnType() == boolean.class ? Boolean.TRUE : null;
                     }
                 }));
     }
@@ -91,18 +92,18 @@ public class DkimMessageParserTest {
 
     @Test
     public void rawHeadersKeepOrderFoldingAndCase() throws Exception {
-        feed("Received: one\r\nSubject: first\r\n part two\r\n\tpart three\r\n"
-                + "received: two\r\n\r\nbody\r\n");
+        feed("Cc: one\r\nSubject: first\r\n part two\r\n\tpart three\r\n"
+                + "cc: two\r\n\r\nbody\r\n");
         List<DkimMessageParser.RawHeader> all = parser.getRawHeaders();
         assertEquals(3, all.size());
-        assertEquals("Received", all.get(0).getName());
+        assertEquals("Cc", all.get(0).getName());
         assertEquals("Subject: first\r\n part two\r\n\tpart three\r\n", all.get(1).asString());
         assertTrue(parser.isHeadersComplete());
-        assertEquals(2, parser.getAllRawHeaders("RECEIVED").size());
-        assertEquals("Received: one\r\n", parser.getRawHeader("received").asString());
-        assertEquals(2, parser.getAllHeaderBytes("received").size());
-        assertEquals("received: two\r\n",
-                new String(parser.getAllHeaderBytes("received").get(1), StandardCharsets.ISO_8859_1));
+        assertEquals(2, parser.getAllRawHeaders("CC").size());
+        assertEquals("Cc: one\r\n", parser.getRawHeader("cc").asString());
+        assertEquals(2, parser.getAllHeaderBytes("cc").size());
+        assertEquals("cc: two\r\n",
+                new String(parser.getAllHeaderBytes("cc").get(1), StandardCharsets.ISO_8859_1));
         assertArrayEquals("Subject: first\r\n part two\r\n\tpart three\r\n"
                 .getBytes(StandardCharsets.ISO_8859_1), parser.getHeaderBytes("subject"));
     }
@@ -283,5 +284,27 @@ public class DkimMessageParserTest {
         feed("To: b@example.com\r\n\r\nz\r\n");
         assertEquals(1, parser.getRawHeaders().size());
         assertNull(parser.getBodyHash());
+    }
+
+    @Test
+    public void onlyAFewHeadersAreCaptured() throws Exception {
+        feed("Received: by relay\r\nX-Spam: no\r\n folded\r\nFrom: a@example.com\r\nList-Id: x\r\n\r\nbody\r\n");
+        assertEquals(1, parser.getRawHeaders().size());
+        assertNotNull(parser.getRawHeader("from"));
+        assertNull(parser.getRawHeader("received"));
+        assertNull(parser.getRawHeader("x-spam"));
+        assertFalse(parser.isCaptureTruncated());
+    }
+
+    @Test
+    public void whatIsCapturedIsCappedInNumberAndSize() throws Exception {
+        StringBuilder many = new StringBuilder();
+        for (int i = 0; i < DkimMessageParser.MAX_CAPTURED_HEADERS + 50; i++) {
+            many.append("Cc: a@example.com\r\n");
+        }
+        many.append("\r\nbody\r\n");
+        feed(many.toString());
+        assertEquals(DkimMessageParser.MAX_CAPTURED_HEADERS, parser.getRawHeaders().size());
+        assertTrue(parser.isCaptureTruncated());
     }
 }

@@ -78,6 +78,7 @@ import org.bluezoo.gumdrop.util.CidrNetwork;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208#section-4">RFC 7208 §4</a> — check_host()
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class SpfValidator {
 
     private static final Logger LOGGER = Logger.getLogger(SpfValidator.class.getName());

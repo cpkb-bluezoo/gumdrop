@@ -56,6 +56,7 @@ import org.bluezoo.gumdrop.mime.ContentTypeParser;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 final class MimeSectionParser {
 
     /** Receives the located section. */

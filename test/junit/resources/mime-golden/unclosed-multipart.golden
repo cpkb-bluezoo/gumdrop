@@ -1,0 +1,8 @@
+locator
+startEntity: null
+contentType: multipart/mixed; boundary=u
+endHeaders: offset=45 line=2
+startEntity: u
+endHeaders: offset=52 line=4
+body: "partial content\r\n"
+exception: MimeParseException

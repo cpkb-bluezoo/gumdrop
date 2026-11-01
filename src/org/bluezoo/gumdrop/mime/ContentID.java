@@ -1,6 +1,6 @@
 /*
  * ContentID.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -29,7 +29,10 @@ package org.bluezoo.gumdrop.mime;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc5322#section-3.6.4'>RFC 5322</a>
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2045#section-7'>RFC 2045</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: use {@link MimeHandler#contentID(String, String)} and the message-id events.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public final class ContentID {
 
 	private final String localPart;

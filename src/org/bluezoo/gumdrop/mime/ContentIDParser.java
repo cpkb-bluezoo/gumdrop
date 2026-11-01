@@ -1,6 +1,6 @@
 /*
  * ContentIDParser.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -36,7 +36,10 @@ import java.util.List;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc5322#section-3.6.4'>RFC 5322</a>
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2045#section-7'>RFC 2045</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: it holds the whole header; Content-ID is delivered by {@link MimeHandler#contentID(String, String)}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public final class ContentIDParser {
 
 	private ContentIDParser() {

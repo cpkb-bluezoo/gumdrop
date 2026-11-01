@@ -17,6 +17,7 @@ import org.bluezoo.json.JSONException;
 import org.bluezoo.json.JSONParser;
 import org.bluezoo.json.JSONWriter;
 
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class DownstreamService {
 
     private static final class ReverseHandler extends DefaultHttpRequestHandler {

@@ -68,6 +68,7 @@ import static org.junit.Assert.assertTrue;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class HttpClientProtocolHandlerH2EdgeTest {
 
     private static final int DATA = 0;

@@ -1,6 +1,6 @@
 /*
  * EmailAddress.java
- * Copyright (C) 2013, 2025 Chris Burdess
+ * Copyright (C) 2013, 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -30,7 +30,10 @@ import java.util.List;
  * "Personal Name &lt;user@host.domain&gt;".
  * @see <a href='https://datatracker.ietf.org/doc/html/rfc5322#section-3.4'>RFC 5322</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated to be removed in the next major version: addresses are delivered as the mailbox events of {@link org.bluezoo.gumdrop.mime.rfc5322.MessageHandler}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public class EmailAddress {
 
 	private final String displayName;

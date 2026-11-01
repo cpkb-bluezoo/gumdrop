@@ -1,6 +1,6 @@
 /*
  * MIMEParserTest.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -37,6 +37,7 @@ import static org.junit.Assert.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // exercises the older events, which are deprecated for removal
 public class MIMEParserTest {
 
     /**
@@ -359,13 +360,15 @@ public class MIMEParserTest {
 
     @Test(expected = HeaderValueTooLongException.class)
     public void testHeaderValueTooLong() throws MimeParseException {
-        // Folded header value exceeds maxHeaderValueSize (50 bytes)
+        // Folded header value exceeds maxHeaderValueSize (50 bytes). The
+        // headers that are streamed are not held, so they have no such limit;
+        // Content-Description is one whose value is collected whole.
         MimeParser parser = new MimeParser();
         parser.setMaxHeaderValueSize(50);
         parser.setHandler(new TestHandler());
-        // First line: "X: " + 49 chars = 49-byte value; continuation adds 6 more -> 55 > 50
+        // First line: 49 chars after the name; continuation adds 6 more -> 55 > 50
         StringBuilder sb = new StringBuilder();
-        sb.append("X: ");
+        sb.append("Content-Description: ");
         for (int i = 0; i < 49; i++) {
             sb.append('a');
         }

@@ -1,6 +1,6 @@
 /*
  * Base64Decoder.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -275,6 +275,11 @@ class Base64Decoder {
 		src.position(lastValidPos);
 
 		return lastValidPos - startPos;
+	}
+
+	/** True if b is one of the 64 characters of the base64 alphabet. */
+	static boolean isBase64Char(byte b) {
+		return DECODE_TABLE[b & 0xFF] >= 0;
 	}
 
 	/**

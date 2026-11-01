@@ -58,6 +58,7 @@ import org.junit.Test;
  * handler, so responses can be replayed without any transport.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class GrpcClientTest {
 
     private static final String PROTO = ""

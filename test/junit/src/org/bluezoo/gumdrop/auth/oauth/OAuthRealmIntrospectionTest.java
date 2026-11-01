@@ -1,6 +1,6 @@
 /*
  * OAuthRealmIntrospectionTest.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -64,6 +64,7 @@ import org.junit.Test;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class OAuthRealmIntrospectionTest {
 
     /** Mock request that records what the realm sent and then replies. */

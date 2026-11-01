@@ -1,6 +1,6 @@
 /*
  * MimeHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -50,7 +50,190 @@ import java.nio.ByteBuffer;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2046'>RFC 2046</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface MimeHandler {
+
+	/**
+	 * How the value of a header the parser does not itself understand is
+	 * delivered; see {@link #headerDelivery(String)}.
+	 */
+	enum HeaderDelivery {
+
+		/** As decoded text in {@link MimeHandler#headerContent(String)} pieces. */
+		UNSTRUCTURED,
+
+		/**
+		 * As the bytes that arrived, in
+		 * {@link MimeHandler#rawHeaderContent(ByteBuffer)} pieces, for a
+		 * layer that parses the value itself.
+		 */
+		RAW;
+
+	}
+
+	/**
+	 * Asked when an entity starts, before any of its headers, whether the
+	 * handler wants the events that carry a value built from the whole of a
+	 * header (those that predate the streaming events and are deprecated in
+	 * their favour). A handler that works from the streaming events answers
+	 * false, and then the parser holds no header whole on its behalf.
+	 * @return true (the default) if the older events are wanted
+	 */
+	default boolean wantsLegacyEvents() {
+		return true;
+	}
+
+	/**
+	 * Asked once for each header the parser does not itself understand
+	 * (every header but Content-Type, Content-Disposition,
+	 * Content-Transfer-Encoding, Content-ID and MIME-Version), just before
+	 * {@link #startHeader(String)}. The answer says how its value arrives.
+	 * A layer on top of MIME (RFC 5322 is one) that parses some headers
+	 * itself asks for them {@link HeaderDelivery#RAW}.
+	 * @param name the header name, as written
+	 * @return how the value is to be delivered
+	 */
+	default HeaderDelivery headerDelivery(String name) {
+		return HeaderDelivery.UNSTRUCTURED;
+	}
+
+	/**
+	 * Receive notification of the start of a header the parser does not
+	 * itself understand. Its value follows as {@link #headerContent(String)}
+	 * calls, or {@link #rawHeaderContent(ByteBuffer)} calls if
+	 * {@link #headerDelivery(String)} asked for it raw, and then
+	 * {@link #endHeader()}. The parser holds none of the value, so a header
+	 * of any size passes through.
+	 * @param name the header name, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startHeader(String name) throws MimeParseException {
+	}
+
+	/**
+	 * Receive a piece of the value of an unstructured header, in order:
+	 * unfolded, with leading and trailing white space removed, RFC 2047
+	 * encoded words decoded, and raw 8-bit text read as UTF-8 where it is
+	 * valid and as windows-1252 where it is not. A piece has no particular
+	 * size.
+	 * @param text the decoded text
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void headerContent(String text) throws MimeParseException {
+	}
+
+	/**
+	 * Receive a piece of the value of a header delivered raw: the bytes as
+	 * they arrived, unfolded (a folded line ending is removed and the white
+	 * space after it kept), with nothing decoded.
+	 * @param bytes the bytes, valid only for the duration of the call
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void rawHeaderContent(ByteBuffer bytes) throws MimeParseException {
+	}
+
+	/**
+	 * Receive notification of a Content-Type header: its type and subtype.
+	 * Its parameters follow as {@link #startParameter(String, String)},
+	 * {@link #parameterContent(String)} and {@link #endParameter()}, and then
+	 * {@link #endContentType()}. A value that is not {@code type/subtype} is
+	 * not reported here but through {@link #malformedHeader(String, String)}.
+	 * @param primary the primary type, as written
+	 * @param sub the subtype, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startContentType(String primary, String sub) throws MimeParseException {
+	}
+
+	/**
+	 * The Content-Type header started by {@link #startContentType(String, String)}
+	 * is complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endContentType() throws MimeParseException {
+	}
+
+	/**
+	 * Receive notification of a Content-Disposition header: its type
+	 * ({@code attachment}, {@code form-data}, ...). Its parameters follow as
+	 * for {@link #startContentType(String, String)}, and then
+	 * {@link #endContentDisposition()}.
+	 * @param kind the disposition type, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startContentDisposition(String kind) throws MimeParseException {
+	}
+
+	/**
+	 * The Content-Disposition header started by
+	 * {@link #startContentDisposition(String)} is complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endContentDisposition() throws MimeParseException {
+	}
+
+	/**
+	 * Receive notification of a parameter of the Content-Type or
+	 * Content-Disposition being read. Its value follows as
+	 * {@link #parameterContent(String)} pieces and then
+	 * {@link #endParameter()}.
+	 *
+	 * <p>The language is non-null for an RFC 2231 extended value
+	 * ({@code name*=...}), where it is the language tag, possibly empty. RFC
+	 * 2231 continuations ({@code name*0=...; name*1=...}) are joined: they are
+	 * one parameter, named without the {@code *0}. Segments have to arrive in
+	 * order from 0; one that does not is dropped.
+	 *
+	 * <p>The same name can appear more than once, and a plain
+	 * {@code filename} and an extended {@code filename*} often do: which to
+	 * prefer is up to the handler. (The usual rule is that the first wins,
+	 * except that an extended value replaces a plain one.)
+	 * @param name the parameter name, as written
+	 * @param language the language of an extended value, or null
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startParameter(String name, String language) throws MimeParseException {
+	}
+
+	/**
+	 * Receive a piece of a parameter's value, decoded: quoted-pairs
+	 * resolved, percent-encoding and RFC 2047 encoded words decoded, and
+	 * leading and trailing white space removed. A piece has no particular
+	 * size.
+	 * @param text the decoded text
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void parameterContent(String text) throws MimeParseException {
+	}
+
+	/**
+	 * The parameter started by {@link #startParameter(String, String)} is
+	 * complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endParameter() throws MimeParseException {
+	}
+
+	/**
+	 * The value of a header that the parser would have parsed
+	 * (Content-Type, Content-Disposition) is not valid. It stands in for
+	 * {@link #startHeader(String)}: the value follows as unstructured text,
+	 * through {@link #headerContent(String)} and then {@link #endHeader()},
+	 * as if it were any other header.
+	 * @param name the header name, as written
+	 * @param reason what is wrong with the value
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void malformedHeader(String name, String reason) throws MimeParseException {
+	}
+
+	/**
+	 * The value of the header started by {@link #startHeader(String)} is
+	 * complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endHeader() throws MimeParseException {
+	}
 
 	/**
 	 * Receive an object for the location of MIME parsing events.
@@ -78,16 +261,28 @@ public interface MimeHandler {
 	 * @param contentType the structured content type value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link ContentType}. It holds the whole header; use
+	 * {@link #startContentType(String, String)} and the parameter events.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void contentType(ContentType contentType) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void contentType(ContentType contentType) throws MimeParseException {
+	}
 
 	/**
 	 * RFC 2183 — receive notification of a Content-Disposition header.
 	 * @param contentDisposition the structured content disposition value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link ContentDisposition}. It holds the whole header; use
+	 * {@link #startContentDisposition(String)} and the parameter events.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
+	}
 
 	/**
 	 * RFC 2045 §6.1 — receive notification of a Content-Transfer-Encoding header.
@@ -107,8 +302,23 @@ public interface MimeHandler {
 	 * @param contentID the structured content-id value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link ContentID}; use {@link #contentID(String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void contentID(ContentID contentID) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void contentID(ContentID contentID) throws MimeParseException {
+	}
+
+	/**
+	 * RFC 2045 §7 — receive notification of a Content-ID header.
+	 * @param localPart the part before the at sign
+	 * @param domain the part after it
+	 * @exception MimeParseException if the processor encountered a fatal
+	 * condition during parsing and wishes to cancel the parse process
+	 */
+	default void contentID(String localPart, String domain) throws MimeParseException {
+	}
 
 	/**
 	 * RFC 2045 §8 — receive notification of a Content-Description header.
@@ -124,8 +334,23 @@ public interface MimeHandler {
 	 * @param version the MIME-Version value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link MimeVersion}; use {@link #mimeVersion(int, int)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void mimeVersion(MimeVersion version) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void mimeVersion(MimeVersion version) throws MimeParseException {
+	}
+
+	/**
+	 * RFC 2045 §4 — receive notification of a MIME-Version header.
+	 * @param major the major version
+	 * @param minor the minor version
+	 * @exception MimeParseException if the processor encountered a fatal
+	 * condition during parsing and wishes to cancel the parse process
+	 */
+	default void mimeVersion(int major, int minor) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification that all the headers in an entity have been

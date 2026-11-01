@@ -1,6 +1,6 @@
 /*
  * Request.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * Copyright (C) 2005, 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -64,6 +64,7 @@ import jakarta.servlet.http.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 class Request implements HttpServletRequest {
 
     private EventLogger events() {

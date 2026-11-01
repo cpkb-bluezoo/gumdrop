@@ -33,6 +33,7 @@ import java.nio.file.Path;
  *     --plaintext 8080
  * }</pre>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public final class EchoServer {
 
     public static void main(String[] args) throws Exception {

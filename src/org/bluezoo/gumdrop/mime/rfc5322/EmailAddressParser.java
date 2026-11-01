@@ -1,6 +1,6 @@
 /*
  * EmailAddressParser.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -53,7 +53,10 @@ import java.util.ResourceBundle;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-3.4">RFC 5322 §3.4</a>
+ * @deprecated to be removed in the next major version: it holds the whole header; address headers are streamed by {@link MessageParser}.
  */
+@Deprecated(since = "3.2", forRemoval = true)
+@SuppressWarnings("removal") // uses the other classes that go with it
 public final class EmailAddressParser {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.rfc5322.L10N");
@@ -344,7 +347,7 @@ public final class EmailAddressParser {
 
 	// -- Envelope address validation --
 
-	private static boolean isValidLocalPart(String localPart, boolean smtputf8) {
+	static boolean isValidLocalPart(String localPart, boolean smtputf8) {
 		int len = localPart.length();
 		if (len == 0 || len > 64) {
 			return false;
@@ -387,7 +390,7 @@ public final class EmailAddressParser {
 		return true;
 	}
 
-	private static boolean isValidDomain(String domain, boolean smtputf8) {
+	static boolean isValidDomain(String domain, boolean smtputf8) {
 		int len = domain.length();
 		if (len == 0 || len > 255) {
 			return false;
@@ -433,7 +436,7 @@ public final class EmailAddressParser {
 		return true;
 	}
 
-	private static boolean isAtomChar(char c, boolean smtputf8) {
+	static boolean isAtomChar(char c, boolean smtputf8) {
 		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 		    (c >= '0' && c <= '9')) {
 			return true;
@@ -505,7 +508,7 @@ public final class EmailAddressParser {
 		return new GroupEmailAddress(groupName, members, null);
 	}
 
-	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
+	static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		skipWhitespaceAndComments(input, length, pos);
 		if (pos[0] >= length) {
 			return null;
@@ -548,7 +551,7 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
+	static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		tokenBuffer.setLength(0);
 		skipWhitespaceAndComments(input, length, pos);
 		while (pos[0] < length) {
@@ -598,15 +601,77 @@ public final class EmailAddressParser {
 		if (pos[0] >= length) {
 			throw new IllegalArgumentException(L10N.getString("err.empty_local_part"));
 		}
-		if (input[pos[0]] == '"') {
+		// RFC 5322 section 4.4: obs-local-part = word *("." word), where a
+		// word is an atom or a quoted-string
+		parseLocalWord(input, length, pos, tokenBuffer, smtputf8);
+		while (pos[0] < length && input[pos[0]] == '.') {
+			tokenBuffer.append('.');
+			pos[0]++;
+			parseLocalWord(input, length, pos, tokenBuffer, smtputf8);
+		}
+	}
+
+	private static void parseLocalWord(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
+		if (pos[0] < length && input[pos[0]] == '"') {
 			parseQuotedString(input, length, pos, tokenBuffer);
 		} else {
 			parseAtom(input, length, pos, tokenBuffer, smtputf8);
-			while (pos[0] < length && input[pos[0]] == '.') {
-				tokenBuffer.append('.');
-				pos[0]++;
-				parseAtom(input, length, pos, tokenBuffer, smtputf8);
+		}
+	}
+
+	/**
+	 * Returns whether a local part is valid in the obsolete form of
+	 * RFC 5322 section 4.4: words (atoms or quoted-strings) separated by
+	 * dots, such as {@code "a"."b"} or {@code a."b".c}.
+	 */
+	static boolean isValidObsoleteLocalPart(String localPart, boolean smtputf8) {
+		int len = localPart.length();
+		if (len == 0 || len > 64) {
+			return false;
+		}
+		int i = 0;
+		while (true) {
+			if (i >= len) {
+				return false; // a word is needed
 			}
+			if (localPart.charAt(i) == '"') {
+				i++;
+				boolean closed = false;
+				while (i < len) {
+					char c = localPart.charAt(i);
+					if (c == '\\' && i + 1 < len) {
+						i += 2;
+						continue;
+					}
+					if (c == '"') {
+						closed = true;
+						i++;
+						break;
+					}
+					if (c < 32 || c == 127 || (c > 127 && !smtputf8)) {
+						return false;
+					}
+					i++;
+				}
+				if (!closed) {
+					return false;
+				}
+			} else {
+				int start = i;
+				while (i < len && isAtomChar(localPart.charAt(i), smtputf8)) {
+					i++;
+				}
+				if (i == start) {
+					return false;
+				}
+			}
+			if (i == len) {
+				return true;
+			}
+			if (localPart.charAt(i) != '.') {
+				return false;
+			}
+			i++;
 		}
 	}
 

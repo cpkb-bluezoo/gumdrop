@@ -45,6 +45,7 @@ import static org.junit.Assert.*;
  * RCPT TO DSN parameters, and VRFY/EXPN commands.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public class SMTPClientProtocolHandlerTest {
 
     private SmtpClientProtocolHandler handler;

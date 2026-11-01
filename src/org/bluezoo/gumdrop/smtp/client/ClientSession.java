@@ -1,6 +1,6 @@
 /*
  * ClientSession.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
  */
+@SuppressWarnings("removal") // uses value classes that are deprecated for removal
 public interface ClientSession {
 
     /**

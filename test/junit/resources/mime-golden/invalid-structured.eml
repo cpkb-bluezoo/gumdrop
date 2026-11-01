@@ -1,0 +1,11 @@
+Content-Type: not a content type
+Content-Disposition: ;;;
+To: <<<broken
+From: a@example.com, @@@
+Date: not a date
+Message-ID: nonsense
+MIME-Version: 9.9
+Content-Transfer-Encoding: 
+Subject: ok
+
+body

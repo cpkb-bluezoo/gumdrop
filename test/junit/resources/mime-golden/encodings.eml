@@ -1,0 +1,22 @@
+Content-Type: multipart/mixed; boundary=b
+
+--b
+Content-Transfer-Encoding: base64
+
+SGVsbG8gd29ybGQsIHRoaXMgaXMgYmFzZTY0IHRl
+eHQgdGhhdCBpcyBsb25nZXIgdGhhbiBvbmUgbGlu
+ZSBvZiBvdXRwdXQgb2su
+--b
+Content-Transfer-Encoding: quoted-printable
+
+caf=C3=A9 soft=
+break and =3D equals
+--b
+Content-Transfer-Encoding: 7bit
+
+seven bit
+--b
+Content-Transfer-Encoding: x-weird
+
+passthrough
+--b--
