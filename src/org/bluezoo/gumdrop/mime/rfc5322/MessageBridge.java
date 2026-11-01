@@ -102,6 +102,12 @@ final class MessageBridge implements MimeHandler {
 	}
 
 	@Override
+	public boolean wantsLegacyEvents() {
+		legacy = inner.wantsLegacyEvents();
+		return legacy;
+	}
+
+	@Override
 	public HeaderDelivery headerDelivery(String name) {
 		HeaderStream.Kind kind = classify(name);
 		// The older events make the date themselves, so while they are
@@ -156,7 +162,6 @@ final class MessageBridge implements MimeHandler {
 
 	@Override
 	public void startEntity(String boundary) throws MimeParseException {
-		legacy = inner.wantsLegacyEvents();
 		inner.startEntity(boundary);
 	}
 

@@ -250,6 +250,8 @@ public class MimeParser {
 	private final ParameterParser params = new ParameterParser(false); // reads Content-Type and Content-Disposition
 	private ParameterParser.Kind paramKind; // set while the current header is read by params
 	private final ParameterCollector collector = new ParameterCollector(); // rebuilds the parameters for contentType and contentDisposition
+	private final BoundaryCollector boundaryCollector = new BoundaryCollector(); // picks the boundary when the handler does not want objects
+	private boolean legacy = true; // whether the handler wants the events that carry a whole header
 	private String headType; // the type and subtype, or the disposition type, being collected
 	private String headSubType;
 	private final ParameterParser.Sink paramSink = new ParameterParser.Sink() {
@@ -258,6 +260,7 @@ public class MimeParser {
 			headType = first;
 			headSubType = second;
 			collector.clear();
+			boundaryCollector.clear();
 			if (paramKind == ParameterParser.Kind.CONTENT_TYPE) {
 				handler.startContentType(first, second);
 			} else {
@@ -267,13 +270,19 @@ public class MimeParser {
 
 		@Override
 		public void startParameter(String name, String language) throws MimeParseException {
-			collector.startParameter(name, language);
+			if (legacy) {
+				collector.startParameter(name, language);
+			} else {
+				boundaryCollector.startParameter(name, language);
+			}
 			handler.startParameter(name, language);
 		}
 
 		@Override
 		public void content(String text) throws MimeParseException {
-			if (!collector.content(text, maxHeaderValueSize)) {
+			if (!legacy) {
+				boundaryCollector.content(text);
+			} else if (!collector.content(text, maxHeaderValueSize)) {
 				String msg = MessageFormat.format(
 					L10N.getString("err.header_value_too_long"), Integer.toString(maxHeaderValueSize));
 				throw new HeaderValueTooLongException(msg, locator);
@@ -283,7 +292,11 @@ public class MimeParser {
 
 		@Override
 		public void endParameter() throws MimeParseException {
-			collector.endParameter();
+			if (legacy) {
+				collector.endParameter();
+			} else {
+				boundaryCollector.endParameter();
+			}
 			handler.endParameter();
 		}
 	};
@@ -436,6 +449,7 @@ public class MimeParser {
 
 		if (state == State.INIT) {
 			locator.reset();
+			legacy = handler.wantsLegacyEvents();
 			handler.setLocator(locator);
 			handler.startEntity(null);
 			startHeaders();
@@ -754,10 +768,18 @@ public class MimeParser {
 				paramKind = null;
 				if (kind == ParameterParser.Kind.CONTENT_TYPE) {
 					handler.endContentType();
-					contentTypeComplete(new ContentType(headType, headSubType, collector.take()));
+					if (legacy) {
+						ContentType contentType = new ContentType(headType, headSubType, collector.take());
+						boundaryFound(contentType.getPrimaryType(), contentType.getParameter("boundary"));
+						handler.contentType(contentType);
+					} else {
+						boundaryFound(headType, boundaryCollector.boundary());
+					}
 				} else {
 					handler.endContentDisposition();
-					handler.contentDisposition(new ContentDisposition(headType, collector.take()));
+					if (legacy) {
+						handler.contentDisposition(new ContentDisposition(headType, collector.take()));
+					}
 				}
 			} else {
 				malformedStructured(ByteBuffer.allocate(0));
@@ -1024,9 +1046,8 @@ public class MimeParser {
 	 * RFC 2045 §5 / RFC 2046 §5.1.1 — a Content-Type header has been read:
 	 * a multipart type with a valid boundary starts a multipart body.
 	 */
-	private void contentTypeComplete(ContentType contentType) throws MimeParseException {
-		if ("multipart".equalsIgnoreCase(contentType.getPrimaryType())) {
-			String boundary = contentType.getParameter("boundary");
+	private void boundaryFound(String primaryType, String boundary) {
+		if ("multipart".equalsIgnoreCase(primaryType)) {
 			// check boundary matches RFC 2046 spec
 			if (boundary != null && MimeUtils.isValidBoundary(boundary)) {
 				if (boundarySet) {
@@ -1036,7 +1057,6 @@ public class MimeParser {
 				boundarySet = true;
 			}
 		}
-		handler.contentType(contentType);
 	}
 
 	/** RFC 2045 §6.1 — Content-Transfer-Encoding header. */
