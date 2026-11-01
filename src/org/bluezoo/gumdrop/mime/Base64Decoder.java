@@ -277,6 +277,11 @@ class Base64Decoder {
 		return lastValidPos - startPos;
 	}
 
+	/** True if b is one of the 64 characters of the base64 alphabet. */
+	static boolean isBase64Char(byte b) {
+		return DECODE_TABLE[b & 0xFF] >= 0;
+	}
+
 	/**
 	 * Estimates the maximum decoded size for a given input size.
 	 * Used for buffer allocation sizing.

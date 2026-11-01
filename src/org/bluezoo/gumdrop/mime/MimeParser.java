@@ -219,13 +219,6 @@ public class MimeParser {
 	 */
 	private static final int MAX_CANDIDATE_LINE = 70 + 6 + MAX_BOUNDARY_PADDING;
 
-	/**
-	 * The longest quoted-printable or base64 line that is held whole to be
-	 * decoded. A longer one is decoded as if it ended there. The RFCs limit
-	 * these lines to 76 characters.
-	 */
-	private static final int MAX_ENCODED_LINE = 8192;
-
 	private static final int INITIAL_HEADER_VALUE_CAPACITY = 1024;
 
 	/** Default max unfolded header value size (32 KB), per Gmail/Exchange practice. */
@@ -255,8 +248,11 @@ public class MimeParser {
 	private int candLen;
 	private final ByteBuffer candView = ByteBuffer.wrap(cand);
 	private int bodyLocated; // body bytes of the current receive already counted by the locator
-	private byte[] lineCarry = new byte[256]; // partial encoded line awaiting its end
-	private int lineCarryLen;
+	private final byte[] b64Carry = new byte[3]; // base64 characters of an incomplete quantum
+	private int b64CarryLen;
+	private int b64LineLen; // length of the base64 line being read
+	private final byte[] qpCarry = new byte[2]; // an escape in quoted-printable that is not complete
+	private int qpCarryLen;
 	private TransferEncoding transferEncoding = TransferEncoding.BINARY;
 	private boolean allowCRLineEnd = false;
 	private boolean underflow = false; // true if last receive() had unconsumed data
@@ -1006,7 +1002,9 @@ public class MimeParser {
 		lineState = LineState.START;
 		heldLen = 0;
 		candLen = 0;
-		lineCarryLen = 0;
+		b64CarryLen = 0;
+		b64LineLen = 0;
+		qpCarryLen = 0;
 	}
 
 	/** The longest line that could be a boundary delimiter line. */
@@ -1290,8 +1288,10 @@ public class MimeParser {
 		}
 		switch (transferEncoding) {
 			case BASE64:
+				decodeBase64Stream(data, from, to);
+				break;
 			case QUOTED_PRINTABLE:
-				decodeLineStream(data, from, to);
+				decodeQuotedPrintableStream(data, from, to);
 				break;
 			default:
 				// Pass through as-is for binary, 7bit, 8bit, x-token encodings
@@ -1311,113 +1311,210 @@ public class MimeParser {
 		}
 	}
 
-	/**
-	 * Base64 and quoted-printable content is decoded a line at a time:
-	 * complete lines are decoded straight from the buffer, and a partial
-	 * line waits in lineCarry.
-	 */
-	private void decodeLineStream(ByteBuffer data, int from, int to) throws MimeParseException {
-		int p = from;
-		if (lineCarryLen > 0) {
-			int nl = indexOf(data, p, to, (byte) '\n');
-			if (nl < 0) {
-				appendCarry(data, p, to);
-				limitCarry();
-				return;
-			}
-			appendCarry(data, p, nl + 1);
-			p = nl + 1;
-			decodeCarry(false);
-		}
-		while (p < to) {
-			int nl = indexOf(data, p, to, (byte) '\n');
-			if (nl < 0) {
-				appendCarry(data, p, to);
-				limitCarry();
-				return;
-			}
-			decodeLine(window(data, p, nl + 1), false);
-			p = nl + 1;
+	private void ensureDecodeBuffer() {
+		int size = Math.max(maxBufferSize, 8);
+		if (decodeBuffer == null || decodeBuffer.capacity() < size) {
+			ByteBufferPool.release(decodeBuffer);
+			decodeBuffer = ByteBufferPool.acquire(size);
 		}
 	}
 
-	private static int indexOf(ByteBuffer data, int from, int to, byte target) {
-		for (int p = from; p < to; p++) {
-			if (data.get(p) == target) {
-				return p;
+	/** Hands what has been decoded to the handler, and empties the buffer. */
+	private void deliverDecoded() throws MimeParseException {
+		if (decodeBuffer.position() > 0) {
+			decodeBuffer.flip(); // ready for reading
+			route(decodeBuffer);
+		}
+		decodeBuffer.clear();
+	}
+
+	/**
+	 * Decodes base64 as it arrives. The decoder takes every complete
+	 * quantum of four characters; the characters of an incomplete one
+	 * (at most three) wait in b64Carry to be completed by the next input.
+	 */
+	private void decodeBase64Stream(ByteBuffer data, int from, int to) throws MimeParseException {
+		ensureDecodeBuffer();
+		decodeBuffer.clear();
+		if (!allowMalformed) {
+			checkBase64LineLength(data, from, to);
+		}
+		ByteBuffer src = window(data, from, to);
+		if (b64CarryLen > 0) {
+			completeBase64Quantum(src);
+			deliverDecoded();
+		}
+		int max = Math.max(maxBufferSize, 3);
+		while (src.hasRemaining()) {
+			int significant = skipToBase64(src);
+			if (significant < 0) {
+				break; // nothing but white space and junk is left
 			}
+			if (src.get(significant) == '=') {
+				// Padding with no characters before it: the rest of the
+				// line is ignored
+				dropRestOfLine(src);
+				continue;
+			}
+			int consumed = Base64Decoder.decode(src, decodeBuffer, max, false, false);
+			deliverDecoded();
+			if (consumed == 0) {
+				break; // an incomplete quantum
+			}
+		}
+		if (src.hasRemaining()) {
+			saveBase64Carry(src); // the carry was decoded, if there was one
+		}
+	}
+
+	/** RFC 2045 section 6.8: base64 lines are at most 76 characters. */
+	private void checkBase64LineLength(ByteBuffer data, int from, int to) {
+		for (int p = from; p < to; p++) {
+			byte b = data.get(p);
+			if (b == '\r' || b == '\n') {
+				b64LineLen = 0;
+			} else if (++b64LineLen > Base64Decoder.MAX_LINE_LENGTH) {
+				throw new IllegalArgumentException(
+						"RFC 2045 \u00a76.8: Base64 line exceeds "
+						+ Base64Decoder.MAX_LINE_LENGTH + " characters");
+			}
+		}
+	}
+
+	/**
+	 * Returns the position of the next base64 character or padding in src,
+	 * or -1 if there is none; src's position is moved to it, the white space
+	 * and junk before it having no effect on the decoding.
+	 */
+	private static int skipToBase64(ByteBuffer src) {
+		while (src.hasRemaining()) {
+			byte b = src.get(src.position());
+			if (b == '=' || Base64Decoder.isBase64Char(b)) {
+				return src.position();
+			}
+			src.position(src.position() + 1);
 		}
 		return -1;
 	}
 
-	private void appendCarry(ByteBuffer data, int from, int to) {
-		int n = to - from;
-		if (lineCarryLen + n > lineCarry.length) {
-			byte[] bigger = new byte[Math.max(lineCarry.length * 2, lineCarryLen + n)];
-			System.arraycopy(lineCarry, 0, bigger, 0, lineCarryLen);
-			lineCarry = bigger;
-		}
-		data.get(from, lineCarry, lineCarryLen, n);
-		lineCarryLen += n;
-	}
-
-	/** An endless line cannot wait for ever: decode what is held. */
-	private void limitCarry() throws MimeParseException {
-		if (lineCarryLen > MAX_ENCODED_LINE) {
-			decodeCarry(true);
-		}
-	}
-
-	private void decodeCarry(boolean endOfStream) throws MimeParseException {
-		int n = lineCarryLen;
-		lineCarryLen = 0;
-		decodeLine(ByteBuffer.wrap(lineCarry, 0, n), endOfStream);
-	}
-
-	/**
-	 * The end of an entity's body: decodes what is held of the last line,
-	 * which has no line ending since that belonged to the delimiter.
-	 */
-	private void endContent() throws MimeParseException {
-		if (lineCarryLen > 0) {
-			decodeCarry(true);
+	/** Skips past the next line feed in src, or to its end if there is none. */
+	private static void dropRestOfLine(ByteBuffer src) {
+		while (src.hasRemaining()) {
+			if (src.get() == '\n') {
+				return;
+			}
 		}
 	}
 
 	/**
-	 * Decodes one line of encoded content, handing the result to the
-	 * handler in pieces of at most maxBufferSize bytes.
-	 * @param source the encoded line, with its line ending if it has one
-	 * @param endOfStream true if no more of the content follows, so that
-	 * the residue (an unpadded base64 tail, a dangling '=' in
-	 * quoted-printable) is to be decoded as well
+	 * Completes the carried characters of a quantum with those at the front
+	 * of src, and decodes them into decodeBuffer. If src runs out first the
+	 * characters join the carry.
 	 */
-	private void decodeLine(ByteBuffer source, boolean endOfStream) throws MimeParseException {
-		// Lazy allocation of decodeBuffer - only allocate when actually needed for decoding
-		if (decodeBuffer == null || decodeBuffer.capacity() < maxBufferSize) {
-			ByteBufferPool.release(decodeBuffer);
-			decodeBuffer = ByteBufferPool.acquire(maxBufferSize);
-		}
-		while (source.hasRemaining()) {
-			decodeBuffer.clear();
-			int consumed = decodeChunk(source, decodeBuffer, transferEncoding,
-					maxBufferSize, false);
-			if (endOfStream && source.hasRemaining()
-					&& decodeBuffer.position() + 3 <= maxBufferSize) {
-				// The decoder has taken every complete unit it can and the
-				// content is complete: flush the residue
-				int room = maxBufferSize - decodeBuffer.position();
-				consumed += decodeChunk(source, decodeBuffer, transferEncoding,
-						room, true);
-			}
-			if (decodeBuffer.position() > 0) {
-				decodeBuffer.flip(); // ready for reading
-				route(decodeBuffer);
-			}
-			if (consumed <= 0) {
-				// If no progress made, stop to avoid infinite loop
+	private void completeBase64Quantum(ByteBuffer src) {
+		byte[] group = new byte[4];
+		int n = b64CarryLen;
+		System.arraycopy(b64Carry, 0, group, 0, n);
+		boolean padded = false;
+		while (n < 4 && src.hasRemaining()) {
+			byte b = src.get();
+			if (Base64Decoder.isBase64Char(b)) {
+				group[n++] = b;
+			} else if (b == '=') {
+				group[n++] = b;
+				padded = true;
 				break;
 			}
+		}
+		if (n == 4 || padded) {
+			b64CarryLen = 0;
+			Base64Decoder.decode(ByteBuffer.wrap(group, 0, n), decodeBuffer, 4, padded, false);
+		} else {
+			System.arraycopy(group, 0, b64Carry, 0, n);
+			b64CarryLen = n;
+		}
+	}
+
+	/** Keeps the base64 characters of an incomplete quantum left in src. */
+	private void saveBase64Carry(ByteBuffer src) {
+		int n = 0;
+		while (src.hasRemaining()) {
+			byte b = src.get();
+			if (Base64Decoder.isBase64Char(b) && n < b64Carry.length) {
+				b64Carry[n++] = b;
+			}
+		}
+		b64CarryLen = n;
+	}
+
+	/**
+	 * Decodes quoted-printable as it arrives. It is not line oriented: the
+	 * decoder takes every escape that is complete, and an escape that is not
+	 * (an '=' and at most one more byte) waits in qpCarry for the next input.
+	 */
+	private void decodeQuotedPrintableStream(ByteBuffer data, int from, int to) throws MimeParseException {
+		ensureDecodeBuffer();
+		decodeBuffer.clear();
+		ByteBuffer src = window(data, from, to);
+		int max = Math.max(maxBufferSize, 3);
+		if (qpCarryLen > 0) {
+			// Resolve the carried escape with the next few bytes
+			byte[] tmp = new byte[qpCarry.length + 4];
+			int tl = qpCarryLen;
+			System.arraycopy(qpCarry, 0, tmp, 0, tl);
+			int k = Math.min(4, src.remaining());
+			src.get(src.position(), tmp, tl, k);
+			tl += k;
+			ByteBuffer tb = ByteBuffer.wrap(tmp, 0, tl);
+			int consumed = QuotedPrintableDecoder.decode(tb, decodeBuffer, tl, false);
+			deliverDecoded();
+			if (k == src.remaining()) {
+				// All the input is in tmp: what it leaves is the new carry
+				src.position(src.limit());
+				qpCarryLen = tl - consumed;
+				System.arraycopy(tmp, consumed, qpCarry, 0, qpCarryLen);
+				return;
+			}
+			src.position(src.position() + consumed - qpCarryLen);
+			qpCarryLen = 0;
+		}
+		while (src.remaining() > 2 || (src.hasRemaining() && !endsInEscape(src))) {
+			int consumed = QuotedPrintableDecoder.decode(src, decodeBuffer, max, false);
+			deliverDecoded();
+			if (consumed == 0) {
+				break;
+			}
+		}
+		// What is left is an incomplete escape of at most two bytes
+		qpCarryLen = src.remaining();
+		src.get(qpCarry, 0, qpCarryLen);
+	}
+
+	/** True if what remains of src (at most two bytes) starts an escape. */
+	private static boolean endsInEscape(ByteBuffer src) {
+		return src.get(src.position()) == '=';
+	}
+
+	/**
+	 * The end of an entity's body: decodes what the decoders still hold,
+	 * which is all there is of it since no more of the body follows.
+	 */
+	private void endContent() throws MimeParseException {
+		if (b64CarryLen > 0) {
+			ensureDecodeBuffer();
+			decodeBuffer.clear();
+			int n = b64CarryLen;
+			b64CarryLen = 0;
+			Base64Decoder.decode(ByteBuffer.wrap(b64Carry, 0, n), decodeBuffer, 4, true, false);
+			deliverDecoded();
+		}
+		if (qpCarryLen > 0) {
+			ensureDecodeBuffer();
+			decodeBuffer.clear();
+			int n = qpCarryLen;
+			qpCarryLen = 0;
+			QuotedPrintableDecoder.decode(ByteBuffer.wrap(qpCarry, 0, n), decodeBuffer, 4, true);
+			deliverDecoded();
 		}
 	}
 
