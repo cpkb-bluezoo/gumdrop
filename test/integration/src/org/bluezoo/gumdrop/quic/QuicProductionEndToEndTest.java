@@ -4066,6 +4066,8 @@ public class QuicProductionEndToEndTest {
      * it spans several -- but packed: packets of both levels share a
      * datagram wherever there is room, so every datagram but the last is
      * full, rather than each packet going out in a datagram of its own.
+     * (The server's separate ACK-only Initial ahead of the flight, sent
+     * because it supports more than one QUIC version, is not part of it.)
      */
     @Test
     public void testServerFirstFlightIsPackedIntoFullDatagrams() throws Exception {
@@ -4107,7 +4109,13 @@ public class QuicProductionEndToEndTest {
                 int size = sizes.get(i).intValue();
                 assertTrue("Datagram " + i + " of " + sizes + " exceeds 1200 bytes (RFC 9000 section 14)",
                         size <= 1200);
-                if (i < sizes.size() - 1) {
+                // A server that may select another QUIC version first sends
+                // an ACK-only Initial in the client's version (RFC 9368
+                // section 2.3), alone in its datagram and unpadded since it
+                // is not ack-eliciting (RFC 9000 section 14.1); the flight
+                // proper follows it.
+                boolean versionAck = i == 0 && sizes.size() > 1 && size < 100;
+                if (i < sizes.size() - 1 && !versionAck) {
                     assertTrue("Datagram " + i + " of " + sizes + " should be full: the flight's packets "
                             + "are coalesced (RFC 9000 section 12.2), not sent one per datagram",
                             size >= 1150);
