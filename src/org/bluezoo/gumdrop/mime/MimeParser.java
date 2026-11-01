@@ -247,6 +247,46 @@ public class MimeParser {
 			handler.headerContent(text);
 		}
 	};
+	private final ParameterParser params = new ParameterParser(false); // reads Content-Type and Content-Disposition
+	private ParameterParser.Kind paramKind; // set while the current header is read by params
+	private final ParameterCollector collector = new ParameterCollector(); // rebuilds the parameters for contentType and contentDisposition
+	private String headType; // the type and subtype, or the disposition type, being collected
+	private String headSubType;
+	private final ParameterParser.Sink paramSink = new ParameterParser.Sink() {
+		@Override
+		public void head(String first, String second) throws MimeParseException {
+			headType = first;
+			headSubType = second;
+			collector.clear();
+			if (paramKind == ParameterParser.Kind.CONTENT_TYPE) {
+				handler.startContentType(first, second);
+			} else {
+				handler.startContentDisposition(first);
+			}
+		}
+
+		@Override
+		public void startParameter(String name, String language) throws MimeParseException {
+			collector.startParameter(name, language);
+			handler.startParameter(name, language);
+		}
+
+		@Override
+		public void content(String text) throws MimeParseException {
+			if (!collector.content(text, maxHeaderValueSize)) {
+				String msg = MessageFormat.format(
+					L10N.getString("err.header_value_too_long"), Integer.toString(maxHeaderValueSize));
+				throw new HeaderValueTooLongException(msg, locator);
+			}
+			handler.parameterContent(text);
+		}
+
+		@Override
+		public void endParameter() throws MimeParseException {
+			collector.endParameter();
+			handler.endParameter();
+		}
+	};
 	private boolean collecting; // the value of the current header is being collected whole
 	private MimeHandler.HeaderDelivery streaming; // how the current header is streamed, or null if it is not
 	// Body scanner state, all of it of fixed size. See scanMultipart.
@@ -622,8 +662,6 @@ public class MimeParser {
 	 */
 	protected boolean collectsHeader(String name) {
 		switch (name.toLowerCase()) {
-			case "content-type":
-			case "content-disposition":
 			case "content-transfer-encoding":
 			case "content-id":
 			case "content-description":
@@ -651,6 +689,15 @@ public class MimeParser {
 	/** A header name has been read: decide what is done with its value. */
 	private void startHeaderValue() throws MimeParseException {
 		collecting = collectsHeader(headerName);
+		paramKind = null;
+		if (headerName.equalsIgnoreCase("content-type")) {
+			paramKind = ParameterParser.Kind.CONTENT_TYPE;
+		} else if (headerName.equalsIgnoreCase("content-disposition")) {
+			paramKind = ParameterParser.Kind.CONTENT_DISPOSITION;
+		}
+		if (paramKind != null) {
+			params.start(paramKind, limits.getMaxTokenLength());
+		}
 		if (isUnderstoodHeader(headerName)) {
 			streaming = null;
 			return;
@@ -668,11 +715,31 @@ public class MimeParser {
 			ensureHeaderValueSinkCapacity(to - from);
 			headerValueSink.put(window(buffer, from, to));
 		}
-		if (streaming == MimeHandler.HeaderDelivery.UNSTRUCTURED) {
+		if (paramKind != null) {
+			int rest = params.feed(window(buffer, from, to), paramSink);
+			if (rest >= 0) {
+				malformedStructured(window(buffer, from + rest, to));
+			}
+		} else if (streaming == MimeHandler.HeaderDelivery.UNSTRUCTURED) {
 			textDecoder.feed(window(buffer, from, to), headerTextSink);
 		} else if (streaming == MimeHandler.HeaderDelivery.RAW) {
 			handler.rawHeaderContent(window(buffer, from, to));
 		}
+	}
+
+	/**
+	 * The head of the Content-Type or Content-Disposition being read is not
+	 * valid: the handler is told, and the value so far and the rest are
+	 * delivered as unstructured text.
+	 * @param rest the bytes of the value that were not read
+	 */
+	private void malformedStructured(ByteBuffer rest) throws MimeParseException {
+		handler.malformedHeader(headerName, params.getMalformedReason());
+		paramKind = null;
+		streaming = MimeHandler.HeaderDelivery.UNSTRUCTURED;
+		textDecoder.reset();
+		textDecoder.feed(ByteBuffer.wrap(params.headBytes()), headerTextSink);
+		textDecoder.feed(rest, headerTextSink);
 	}
 
 	/** The current header, if any, is complete. */
@@ -681,6 +748,21 @@ public class MimeParser {
 			return;
 		}
 		String name = headerName;
+		if (paramKind != null) {
+			ParameterParser.Kind kind = paramKind;
+			if (params.finish(paramSink)) {
+				paramKind = null;
+				if (kind == ParameterParser.Kind.CONTENT_TYPE) {
+					handler.endContentType();
+					contentTypeComplete(new ContentType(headType, headSubType, collector.take()));
+				} else {
+					handler.endContentDisposition();
+					handler.contentDisposition(new ContentDisposition(headType, collector.take()));
+				}
+			} else {
+				malformedStructured(ByteBuffer.allocate(0));
+			}
+		}
 		headerName = null;
 		if (streaming != null) {
 			if (streaming == MimeHandler.HeaderDelivery.UNSTRUCTURED) {
@@ -919,12 +1001,6 @@ public class MimeParser {
 	 */
 	protected void header(String name, ByteBuffer value) throws MimeParseException {
 		switch (name.toLowerCase().intern()) {
-			case "content-type":
-				handleContentTypeHeader(name, value);
-				break;
-			case "content-disposition":
-				handleContentDispositionHeader(name, value);
-				break;
 			case "content-transfer-encoding":
 				handleContentTransferEncodingHeader(name, value);
 				break;
@@ -944,31 +1020,23 @@ public class MimeParser {
 		}
 	}
 
-	/** RFC 2045 §5 / RFC 2046 §5.1.1 — Content-Type header with boundary. */
-	protected void handleContentTypeHeader(String name, ByteBuffer value) throws MimeParseException {
-		ContentType contentType = ContentTypeParser.parse(value.duplicate(), getIso8859Decoder());
-		if (contentType != null) {
-			if ("multipart".equalsIgnoreCase(contentType.getPrimaryType())) {
-				String boundary = contentType.getParameter("boundary");
-				// check boundary matches RFC 2046 spec
-				if (boundary != null && MimeUtils.isValidBoundary(boundary)) {
-					if (boundarySet) {
-						boundaries.removeLast(); // duplicate Content-Type
-					}
-					boundaries.addLast(boundary);
-					boundarySet = true;
+	/**
+	 * RFC 2045 §5 / RFC 2046 §5.1.1 — a Content-Type header has been read:
+	 * a multipart type with a valid boundary starts a multipart body.
+	 */
+	private void contentTypeComplete(ContentType contentType) throws MimeParseException {
+		if ("multipart".equalsIgnoreCase(contentType.getPrimaryType())) {
+			String boundary = contentType.getParameter("boundary");
+			// check boundary matches RFC 2046 spec
+			if (boundary != null && MimeUtils.isValidBoundary(boundary)) {
+				if (boundarySet) {
+					boundaries.removeLast(); // duplicate Content-Type
 				}
+				boundaries.addLast(boundary);
+				boundarySet = true;
 			}
-			handler.contentType(contentType);
 		}
-	}
-
-	/** RFC 2183 — Content-Disposition header. */
-	protected void handleContentDispositionHeader(String name, ByteBuffer value) throws MimeParseException {
-		ContentDisposition contentDisposition = ContentDispositionParser.parse(value.duplicate(), getIso8859Decoder());
-		if (contentDisposition != null) {
-			handler.contentDisposition(contentDisposition);
-		}
+		handler.contentType(contentType);
 	}
 
 	/** RFC 2045 §6.1 — Content-Transfer-Encoding header. */
@@ -1679,6 +1747,7 @@ public class MimeParser {
 		headerName = null;
 		collecting = false;
 		streaming = null;
+		paramKind = null;
 		textDecoder.reset();
 		ByteBufferPool.release(headerValueSink);
 		headerValueSink = ByteBufferPool.acquire(INITIAL_HEADER_VALUE_CAPACITY);

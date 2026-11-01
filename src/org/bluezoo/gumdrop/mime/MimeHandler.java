@@ -120,6 +120,101 @@ public interface MimeHandler {
 	}
 
 	/**
+	 * Receive notification of a Content-Type header: its type and subtype.
+	 * Its parameters follow as {@link #startParameter(String, String)},
+	 * {@link #parameterContent(String)} and {@link #endParameter()}, and then
+	 * {@link #endContentType()}. A value that is not {@code type/subtype} is
+	 * not reported here but through {@link #malformedHeader(String, String)}.
+	 * @param primary the primary type, as written
+	 * @param sub the subtype, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startContentType(String primary, String sub) throws MimeParseException {
+	}
+
+	/**
+	 * The Content-Type header started by {@link #startContentType(String, String)}
+	 * is complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endContentType() throws MimeParseException {
+	}
+
+	/**
+	 * Receive notification of a Content-Disposition header: its type
+	 * ({@code attachment}, {@code form-data}, ...). Its parameters follow as
+	 * for {@link #startContentType(String, String)}, and then
+	 * {@link #endContentDisposition()}.
+	 * @param kind the disposition type, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startContentDisposition(String kind) throws MimeParseException {
+	}
+
+	/**
+	 * The Content-Disposition header started by
+	 * {@link #startContentDisposition(String)} is complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endContentDisposition() throws MimeParseException {
+	}
+
+	/**
+	 * Receive notification of a parameter of the Content-Type or
+	 * Content-Disposition being read. Its value follows as
+	 * {@link #parameterContent(String)} pieces and then
+	 * {@link #endParameter()}.
+	 *
+	 * <p>The language is non-null for an RFC 2231 extended value
+	 * ({@code name*=...}), where it is the language tag, possibly empty. RFC
+	 * 2231 continuations ({@code name*0=...; name*1=...}) are joined: they are
+	 * one parameter, named without the {@code *0}. Segments have to arrive in
+	 * order from 0; one that does not is dropped.
+	 *
+	 * <p>The same name can appear more than once, and a plain
+	 * {@code filename} and an extended {@code filename*} often do: which to
+	 * prefer is up to the handler. (The usual rule is that the first wins,
+	 * except that an extended value replaces a plain one.)
+	 * @param name the parameter name, as written
+	 * @param language the language of an extended value, or null
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startParameter(String name, String language) throws MimeParseException {
+	}
+
+	/**
+	 * Receive a piece of a parameter's value, decoded: quoted-pairs
+	 * resolved, percent-encoding and RFC 2047 encoded words decoded, and
+	 * leading and trailing white space removed. A piece has no particular
+	 * size.
+	 * @param text the decoded text
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void parameterContent(String text) throws MimeParseException {
+	}
+
+	/**
+	 * The parameter started by {@link #startParameter(String, String)} is
+	 * complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endParameter() throws MimeParseException {
+	}
+
+	/**
+	 * The value of a header that the parser would have parsed
+	 * (Content-Type, Content-Disposition) is not valid. It stands in for
+	 * {@link #startHeader(String)}: the value follows as unstructured text,
+	 * through {@link #headerContent(String)} and then {@link #endHeader()},
+	 * as if it were any other header.
+	 * @param name the header name, as written
+	 * @param reason what is wrong with the value
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void malformedHeader(String name, String reason) throws MimeParseException {
+	}
+
+	/**
 	 * The value of the header started by {@link #startHeader(String)} is
 	 * complete.
 	 * @exception MimeParseException if the processor wishes to cancel the parse

@@ -38,8 +38,12 @@ public final class ParserLimits {
 	/** The default longest header name. */
 	public static final int DEFAULT_MAX_HEADER_NAME_LENGTH = 1024;
 
+	/** The default longest token held to judge a structured header. */
+	public static final int DEFAULT_MAX_TOKEN_LENGTH = 256;
+
 	private int maxHeaderLineLength = DEFAULT_MAX_HEADER_LINE_LENGTH;
 	private int maxHeaderNameLength = DEFAULT_MAX_HEADER_NAME_LENGTH;
+	private int maxTokenLength = DEFAULT_MAX_TOKEN_LENGTH;
 
 	/**
 	 * Returns limits with no limit set at all.
@@ -49,6 +53,7 @@ public final class ParserLimits {
 		ParserLimits limits = new ParserLimits();
 		limits.maxHeaderLineLength = 0;
 		limits.maxHeaderNameLength = 0;
+		limits.maxTokenLength = 0;
 		return limits;
 	}
 
@@ -86,6 +91,25 @@ public final class ParserLimits {
 	 */
 	public void setMaxHeaderNameLength(int maxHeaderNameLength) {
 		this.maxHeaderNameLength = maxHeaderNameLength;
+	}
+
+	/**
+	 * Returns the longest token the grammar of Content-Type and
+	 * Content-Disposition holds to judge: the type, subtype and disposition
+	 * type, parameter names, and the charset and language of an extended
+	 * value. (Parameter values are not held.)
+	 * @return the limit, or zero or less for none (default 256)
+	 */
+	public int getMaxTokenLength() {
+		return maxTokenLength;
+	}
+
+	/**
+	 * Sets the longest token held to judge a structured header.
+	 * @param maxTokenLength the limit, or zero or less for none
+	 */
+	public void setMaxTokenLength(int maxTokenLength) {
+		this.maxTokenLength = maxTokenLength;
 	}
 
 }
