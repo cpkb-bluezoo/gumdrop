@@ -173,6 +173,7 @@ public class MimeParser {
 	private boolean allowMalformed = false; // allow malformed structures (line endings, boundaries, etc.)
 	private int maxBufferSize = 4096;
 	private int maxHeaderValueSize = DEFAULT_MAX_HEADER_VALUE_SIZE;
+	private ParserLimits limits = new ParserLimits();
 	private ByteBuffer decodeBuffer;  // Lazy allocated when needed for decoding
 	private boolean contentFlushed; // manage state for content flushing
 	private ByteBuffer pendingBodyContent; // Buffer for deferred body content flushing (null until first use)
@@ -197,6 +198,26 @@ public class MimeParser {
 	 */
 	public void setHandler(MimeHandler handler) {
 		this.handler = handler;
+	}
+
+	/**
+	 * Returns the limits in force. The object is live: changing it changes
+	 * the parser's limits.
+	 * @return the limits
+	 */
+	public ParserLimits getLimits() {
+		return limits;
+	}
+
+	/**
+	 * Replaces the limits.
+	 * @param limits the limits (must not be null)
+	 */
+	public void setLimits(ParserLimits limits) {
+		if (limits == null) {
+			throw new NullPointerException("limits");
+		}
+		this.limits = limits;
 	}
 
 	/**
@@ -363,10 +384,35 @@ public class MimeParser {
 		// Position buffer at start of unconsumed data (partial line)
 		data.position(start);
 		data.limit(end);
+
+		if (state == State.HEADER && data.hasRemaining()) {
+			checkIncompleteHeaderLine(data);
+		}
 		
 		// Set underflow flag if there's unconsumed data
 		underflow = data.hasRemaining();
 		rescanLength = data.remaining();
+	}
+
+	/**
+	 * Checks the incomplete header line left at the front of the buffer, so
+	 * that a line which can never be completed is rejected now and not
+	 * waited for. The line is held by the caller's buffer, so the line limit
+	 * is what bounds it.
+	 */
+	private void checkIncompleteHeaderLine(ByteBuffer data) throws MimeParseException {
+		int maxLine = limits.getMaxHeaderLineLength();
+		// The line may already hold its CR: the limit does not count the
+		// line ending, so allow one byte for it
+		if (maxLine > 0 && data.remaining() > maxLine + 1) {
+			throw headerLineTooLong(maxLine);
+		}
+	}
+
+	private HeaderLineTooLongException headerLineTooLong(int maxLine) {
+		String msg = MessageFormat.format(
+			L10N.getString("err.header_line_too_long"), Integer.toString(maxLine));
+		return new HeaderLineTooLongException(msg, locator);
 	}
 
 	/**
@@ -415,9 +461,9 @@ public class MimeParser {
 		}
 
 		int length = end - start;
-		if (length > 998) {
-			throw new HeaderLineTooLongException(
-				L10N.getString("err.header_line_too_long"), locator);
+		int maxLine = limits.getMaxHeaderLineLength();
+		if (maxLine > 0 && length > maxLine) {
+			throw headerLineTooLong(maxLine);
 		}
 
 		byte c = buffer.get(start);
@@ -458,6 +504,12 @@ public class MimeParser {
 				}
 				if (nameEnd <= start) {
 					throw new MimeParseException(L10N.getString("err.field_name_empty"), locator);
+				}
+				int maxName = limits.getMaxHeaderNameLength();
+				if (maxName > 0 && nameEnd - start > maxName) {
+					String msg = MessageFormat.format(
+						L10N.getString("err.header_name_too_long"), Integer.toString(maxName));
+					throw new MimeParseException(msg, locator);
 				}
 				for (int i = start; i < nameEnd; i++) {
 					c = buffer.get(i);

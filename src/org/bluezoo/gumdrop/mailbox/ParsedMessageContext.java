@@ -178,7 +178,7 @@ public class ParsedMessageContext implements MessageContext {
             while (channel.read(buffer) > 0) {
                 buffer.flip();
                 parser.receive(buffer);
-                buffer.clear();
+                buffer.compact(); // keep a partial line for the next read
             }
             parser.close();
         } catch (MimeParseException e) {
