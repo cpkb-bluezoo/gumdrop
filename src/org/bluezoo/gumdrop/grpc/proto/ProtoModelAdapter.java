@@ -183,6 +183,48 @@ public class ProtoModelAdapter implements ProtobufHandler {
     }
 
     @Override
+    public boolean isStreaming(int fieldNumber) {
+        FieldDescriptor fd = currentField(fieldNumber);
+        if (fd == null) {
+            return false;
+        }
+        FieldType type = fd.getType();
+        return (type == FieldType.BYTES || type == FieldType.STRING)
+                && handler.isStreaming(fd.getName());
+    }
+
+    @Override
+    public void startBytes(int fieldNumber, int length) {
+        FieldDescriptor fd = currentField(fieldNumber);
+        if (fd == null) {
+            return;
+        }
+        try {
+            handler.startBytes(fd.getName(), length);
+        } catch (ProtoParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public void bytesContent(ByteBuffer data) {
+        try {
+            handler.bytesContent(data);
+        } catch (ProtoParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public void endBytes() {
+        try {
+            handler.endBytes();
+        } catch (ProtoParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
     public boolean isMessage(int fieldNumber) {
         FieldDescriptor fd = currentField(fieldNumber);
         return fd != null && fd.getType() == FieldType.MESSAGE;

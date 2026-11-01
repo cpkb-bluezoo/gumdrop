@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.grpc.proto;
 
+import java.nio.ByteBuffer;
+
 /**
  * High-level semantic handler for protobuf message parsing events.
  *
@@ -34,6 +36,12 @@ package org.bluezoo.gumdrop.grpc.proto;
  * it is received, so a handler can treat {@code endMessage()} as "this message
  * is complete" without tracking depth. A nested message is not bracketed by
  * them: it is the content between {@link #startField} and {@link #endField}.
+ *
+ * <p>A handler can ask for a bytes or string field to be streamed rather than
+ * delivered whole by {@link #field}, by returning true from
+ * {@link #isStreaming}. The field is then reported as {@link #startBytes},
+ * any number of {@link #bytesContent} pieces and {@link #endBytes}, and is
+ * never held in full. Use this for large fields.
  *
  * <h3>Example event sequence</h3>
  * <pre>
@@ -98,4 +106,50 @@ public interface ProtoMessageHandler {
      * @throws ProtoParseException if processing fails
      */
     void endField() throws ProtoParseException;
+
+    /**
+     * Returns true if the named bytes or string field should be streamed
+     * rather than delivered whole by {@link #field}. Asked for each such
+     * field as it is met; other field types are never streamed. The default
+     * is false.
+     *
+     * @param name the field name
+     * @return true if the field is to be streamed
+     */
+    default boolean isStreaming(String name) {
+        return false;
+    }
+
+    /**
+     * Start of a streamed field. Followed by zero or more
+     * {@link #bytesContent} calls and then {@link #endBytes}. A streamed
+     * string field is delivered as its UTF-8 bytes.
+     *
+     * @param name the field name
+     * @param length the whole length of the payload, in bytes
+     * @throws ProtoParseException if processing fails
+     */
+    default void startBytes(String name, int length) throws ProtoParseException {
+    }
+
+    /**
+     * A piece of the payload of the streamed field. The buffer is valid only
+     * for the duration of the call. Bytes the handler reads, by advancing the
+     * buffer's position, are consumed; those it leaves are offered again at
+     * the front of the next piece. The default consumes the whole piece.
+     *
+     * @param data the piece of the payload
+     * @throws ProtoParseException if processing fails
+     */
+    default void bytesContent(ByteBuffer data) throws ProtoParseException {
+        data.position(data.limit());
+    }
+
+    /**
+     * End of the streamed field: its payload is complete.
+     *
+     * @throws ProtoParseException if processing fails
+     */
+    default void endBytes() throws ProtoParseException {
+    }
 }
