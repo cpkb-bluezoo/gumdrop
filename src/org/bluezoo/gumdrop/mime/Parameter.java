@@ -1,6 +1,6 @@
 /*
  * Parameter.java
- * Copyright (C) 2005, 2013 Chris Burdess
+ * Copyright (C) 2005, 2013, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
