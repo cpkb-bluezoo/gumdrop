@@ -260,16 +260,28 @@ public interface MimeHandler {
 	 * @param contentType the structured content type value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link ContentType}. It holds the whole header; use
+	 * {@link #startContentType(String, String)} and the parameter events.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void contentType(ContentType contentType) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void contentType(ContentType contentType) throws MimeParseException {
+	}
 
 	/**
 	 * RFC 2183 — receive notification of a Content-Disposition header.
 	 * @param contentDisposition the structured content disposition value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link ContentDisposition}. It holds the whole header; use
+	 * {@link #startContentDisposition(String)} and the parameter events.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
+	}
 
 	/**
 	 * RFC 2045 §6.1 — receive notification of a Content-Transfer-Encoding header.
@@ -289,8 +301,23 @@ public interface MimeHandler {
 	 * @param contentID the structured content-id value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link ContentID}; use {@link #contentID(String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void contentID(ContentID contentID) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void contentID(ContentID contentID) throws MimeParseException {
+	}
+
+	/**
+	 * RFC 2045 §7 — receive notification of a Content-ID header.
+	 * @param localPart the part before the at sign
+	 * @param domain the part after it
+	 * @exception MimeParseException if the processor encountered a fatal
+	 * condition during parsing and wishes to cancel the parse process
+	 */
+	default void contentID(String localPart, String domain) throws MimeParseException {
+	}
 
 	/**
 	 * RFC 2045 §8 — receive notification of a Content-Description header.
@@ -306,8 +333,23 @@ public interface MimeHandler {
 	 * @param version the MIME-Version value
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version with
+	 * {@link MimeVersion}; use {@link #mimeVersion(int, int)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void mimeVersion(MimeVersion version) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void mimeVersion(MimeVersion version) throws MimeParseException {
+	}
+
+	/**
+	 * RFC 2045 §4 — receive notification of a MIME-Version header.
+	 * @param major the major version
+	 * @param minor the minor version
+	 * @exception MimeParseException if the processor encountered a fatal
+	 * condition during parsing and wishes to cancel the parse process
+	 */
+	default void mimeVersion(int major, int minor) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification that all the headers in an entity have been

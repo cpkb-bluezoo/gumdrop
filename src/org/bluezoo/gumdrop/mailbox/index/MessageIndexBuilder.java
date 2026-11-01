@@ -22,13 +22,8 @@
 package org.bluezoo.gumdrop.mailbox.index;
 
 import org.bluezoo.gumdrop.mailbox.Flag;
-import org.bluezoo.gumdrop.mime.ContentDisposition;
-import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.mime.MimeLocator;
 import org.bluezoo.gumdrop.mime.MimeParseException;
-import org.bluezoo.gumdrop.mime.MimeVersion;
-import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
 import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
@@ -237,7 +232,21 @@ public class MessageIndexBuilder {
         private OffsetDateTime sentDate;
         private boolean headersComplete = false;
 
+        /** The most of a subject that is kept. */
+        private static final int MAX_SUBJECT = 32768;
+
+        private final StringBuilder subjectText = new StringBuilder();
+        private boolean inSubject; // the subject header is being read
+        private List<String> addressTarget; // where the addresses of the current header go, or null
+        private String messageIdHeader; // the current message-id header, or null
+        private int messageIdsRead;
+
         // MimeHandler methods
+
+        @Override
+        public boolean wantsLegacyEvents() {
+            return false;
+        }
 
         @Override
         public void setLocator(MimeLocator locator) {
@@ -250,32 +259,12 @@ public class MessageIndexBuilder {
         }
 
         @Override
-        public void contentType(ContentType contentType) throws MimeParseException {
-            // Not needed for indexing
-        }
-
-        @Override
-        public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
-            // Not needed for indexing
-        }
-
-        @Override
         public void contentTransferEncoding(String encoding) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void contentID(ContentID contentID) throws MimeParseException {
-            // Not needed for indexing
-        }
-
-        @Override
         public void contentDescription(String description) throws MimeParseException {
-            // Not needed for indexing
-        }
-
-        @Override
-        public void mimeVersion(MimeVersion version) throws MimeParseException {
             // Not needed for indexing
         }
 
@@ -302,17 +291,25 @@ public class MessageIndexBuilder {
         // MessageHandler methods
 
         @Override
-        public void header(String name, String value) throws MimeParseException {
-            String lowerName = name.toLowerCase(Locale.ROOT);
-            if ("subject".equals(lowerName) && subject == null) {
-                subject = value;
-            }
-            // Message-ID is handled via messageIDHeader()
+        public void startHeader(String name) throws MimeParseException {
+            inSubject = "subject".equalsIgnoreCase(name) && subject == null;
+            subjectText.setLength(0);
         }
 
         @Override
-        public void unexpectedHeader(String name, String value) throws MimeParseException {
-            // Ignore malformed headers for indexing
+        public void headerContent(String text) throws MimeParseException {
+            if (inSubject && subjectText.length() < MAX_SUBJECT) {
+                subjectText.append(text);
+            }
+        }
+
+        @Override
+        public void endHeader() throws MimeParseException {
+            // Malformed headers are ignored for indexing
+            if (inSubject) {
+                subject = subjectText.toString().trim();
+                inSubject = false;
+            }
         }
 
         @Override
@@ -323,58 +320,65 @@ public class MessageIndexBuilder {
         }
 
         @Override
-        public void addressHeader(String name, List<EmailAddress> addresses) 
-                throws MimeParseException {
-            String lowerName = name.toLowerCase(Locale.ROOT);
-            List<String> target;
-            
-            switch (lowerName) {
+        public void startAddressHeader(String name) throws MimeParseException {
+            switch (name.toLowerCase(Locale.ROOT)) {
                 case "from":
                 case "sender":
-                    target = fromAddresses;
+                    addressTarget = fromAddresses;
                     break;
                 case "to":
-                    target = toAddresses;
+                    addressTarget = toAddresses;
                     break;
                 case "cc":
-                    target = ccAddresses;
+                    addressTarget = ccAddresses;
                     break;
                 case "bcc":
-                    target = bccAddresses;
+                    addressTarget = bccAddresses;
                     break;
                 default:
-                    return;
-            }
-
-            for (EmailAddress addr : addresses) {
-                // Use the structured address, not the formatted toString()
-                String addrStr = addr.getAddress();
-                if (addrStr != null && !addrStr.isEmpty()) {
-                    target.add(addrStr);
-                }
+                    addressTarget = null;
             }
         }
 
         @Override
-        public void messageIDHeader(String name, List<ContentID> messageIDs)
+        public void mailbox(String displayName, String localPart, String domain)
                 throws MimeParseException {
-            if (messageIDs == null || messageIDs.isEmpty()) {
-                return;
-            }
-            if ("Message-ID".equalsIgnoreCase(name) && messageId == null) {
-                messageId = formatMessageId(messageIDs.get(0));
-            } else if ("References".equalsIgnoreCase(name)) {
-                for (ContentID id : messageIDs) {
-                    referenceIds.add(formatMessageId(id));
-                }
-            } else if ("In-Reply-To".equalsIgnoreCase(name)
-                    && inReplyToId == null) {
-                inReplyToId = formatMessageId(messageIDs.get(0));
+            if (addressTarget != null && !(localPart.isEmpty() && domain.isEmpty())) {
+                // Use the structured address, not a formatted display form
+                addressTarget.add(localPart + "@" + domain);
             }
         }
 
-        private static String formatMessageId(ContentID id) {
-            return "<" + id.getLocalPart() + "@" + id.getDomain() + ">";
+        @Override
+        public void endAddressHeader() throws MimeParseException {
+            addressTarget = null;
+        }
+
+        @Override
+        public void startMessageIDHeader(String name) throws MimeParseException {
+            messageIdHeader = name;
+            messageIdsRead = 0;
+        }
+
+        @Override
+        public void messageID(String localPart, String domain) throws MimeParseException {
+            String id = "<" + localPart + "@" + domain + ">";
+            if ("Message-ID".equalsIgnoreCase(messageIdHeader)) {
+                if (messageId == null) {
+                    messageId = id;
+                }
+            } else if ("References".equalsIgnoreCase(messageIdHeader)) {
+                referenceIds.add(id);
+            } else if ("In-Reply-To".equalsIgnoreCase(messageIdHeader)
+                    && inReplyToId == null && messageIdsRead == 0) {
+                inReplyToId = id;
+            }
+            messageIdsRead++;
+        }
+
+        @Override
+        public void endMessageIDHeader() throws MimeParseException {
+            messageIdHeader = null;
         }
 
         @Override

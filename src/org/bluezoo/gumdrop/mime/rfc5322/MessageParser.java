@@ -47,6 +47,8 @@ import java.nio.ByteBuffer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5322">RFC 5322: Internet Message Format</a>
  */
+// The older events are deprecated for removal but still delivered here
+@SuppressWarnings("removal")
 public class MessageParser extends MimeParser {
 
 	private MessageHandler messageHandler;

@@ -35,6 +35,7 @@ import static org.junit.Assert.assertTrue;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // exercises the older events, which are deprecated for removal
 public class MimeParserBodyStreamingTest {
 
     /** Counts content and remembers the largest piece. */

@@ -21,14 +21,11 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.mime.ContentDisposition;
-import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.ContentType;
+import org.bluezoo.gumdrop.mime.HeaderValueBuilder;
 import org.bluezoo.gumdrop.mime.MimeHandler;
 import org.bluezoo.gumdrop.mime.MimeLocator;
 import org.bluezoo.gumdrop.mime.MimeParseException;
 import org.bluezoo.gumdrop.mime.MimeParser;
-import org.bluezoo.gumdrop.mime.MimeVersion;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -108,6 +105,13 @@ class MultipartParser {
 		// Current part being built
 		private MimePart currentPart;
 		private OutputStream currentOutput;
+		private final HeaderValueBuilder headerValue = new HeaderValueBuilder();
+		private String headerName; // the structured header being built, or null
+
+		@Override
+		public boolean wantsLegacyEvents() {
+			return false;
+		}
 
 		@Override
 		public void setLocator(MimeLocator locator) {
@@ -131,17 +135,47 @@ class MultipartParser {
 		}
 
 		@Override
-		public void contentType(ContentType contentType) throws MimeParseException {
-			if (depth > 1 && currentPart != null) {
-				currentPart.addHeader("Content-Type", contentType.toHeaderValue());
-			}
+		public void startContentType(String primary, String sub) throws MimeParseException {
+			headerName = "Content-Type";
+			headerValue.start(primary + "/" + sub);
 		}
 
 		@Override
-		public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
+		public void endContentType() throws MimeParseException {
+			endStructured();
+		}
+
+		@Override
+		public void startContentDisposition(String kind) throws MimeParseException {
+			headerName = "Content-Disposition";
+			headerValue.start(kind);
+		}
+
+		@Override
+		public void endContentDisposition() throws MimeParseException {
+			endStructured();
+		}
+
+		@Override
+		public void startParameter(String name, String language) throws MimeParseException {
+			headerValue.startParameter(name);
+		}
+
+		@Override
+		public void parameterContent(String text) throws MimeParseException {
+			headerValue.parameterContent(text);
+		}
+
+		@Override
+		public void endParameter() throws MimeParseException {
+			headerValue.endParameter();
+		}
+
+		private void endStructured() {
 			if (depth > 1 && currentPart != null) {
-				currentPart.addHeader("Content-Disposition", contentDisposition.toHeaderValue());
+				currentPart.addHeader(headerName, headerValue.value());
 			}
+			headerName = null;
 		}
 
 		@Override
@@ -152,9 +186,9 @@ class MultipartParser {
 		}
 
 		@Override
-		public void contentID(ContentID contentID) throws MimeParseException {
+		public void contentID(String localPart, String domain) throws MimeParseException {
 			if (depth > 1 && currentPart != null) {
-				currentPart.addHeader("Content-ID", "<" + contentID.getLocalPart() + "@" + contentID.getDomain() + ">");
+				currentPart.addHeader("Content-ID", "<" + localPart + "@" + domain + ">");
 			}
 		}
 
@@ -163,11 +197,6 @@ class MultipartParser {
 			if (depth > 1 && currentPart != null) {
 				currentPart.addHeader("Content-Description", description);
 			}
-		}
-
-		@Override
-		public void mimeVersion(MimeVersion version) throws MimeParseException {
-			// Ignore for form-data parts
 		}
 
 		@Override

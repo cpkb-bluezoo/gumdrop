@@ -41,6 +41,7 @@ import static org.junit.Assert.assertTrue;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // exercises the older events, which are deprecated for removal
 public class MessageParserHeaderRoutingTest {
 
     private static MessageParserTest.TestMessageHandler run(String headers, boolean smtputf8)

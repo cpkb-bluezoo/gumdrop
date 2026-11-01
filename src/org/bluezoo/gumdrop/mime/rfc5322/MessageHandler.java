@@ -62,8 +62,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param value the header value (field-body, may be null)
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #startHeader(String)}, {@link #headerContent(String)} and {@link #endHeader()}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void header(String name, String value) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void header(String name, String value) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of a structured header field for which the value
@@ -73,8 +77,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param value the header value (field-body, may be null)
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #malformedHeader(String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void unexpectedHeader(String name, String value) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void unexpectedHeader(String name, String value) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of a date header in the message.
@@ -96,8 +104,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param addresses a non-empty list of parsed email addresses
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #startAddressHeader(String)} and {@link #mailbox(String, String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of a message-id header in the message.
@@ -110,8 +122,12 @@ public interface MessageHandler extends MimeHandler {
 	 * @param contentIDs the parsed message-id values (same structure as Content-ID)
 	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
+	 * @deprecated to be removed in the next major version; use {@link #startMessageIDHeader(String)} and {@link #messageID(String, String)}.
+	 * It is delivered only if {@link #wantsLegacyEvents()} is true.
 	 */
-	void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException;
+	@Deprecated(since = "3.2", forRemoval = true)
+	default void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException {
+	}
 
 	/**
 	 * Receive notification of an obsolete but recoverable message structure.

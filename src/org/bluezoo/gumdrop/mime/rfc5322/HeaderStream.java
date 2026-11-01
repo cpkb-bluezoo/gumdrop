@@ -51,6 +51,8 @@ import org.bluezoo.gumdrop.mime.rfc2047.HeaderTextDecoder;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+// The older events are deprecated for removal but still delivered here
+@SuppressWarnings("removal")
 final class HeaderStream {
 
 	/** Which sort of header is being read. */

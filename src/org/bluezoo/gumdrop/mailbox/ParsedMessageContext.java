@@ -21,13 +21,9 @@
 
 package org.bluezoo.gumdrop.mailbox;
 
-import org.bluezoo.gumdrop.mime.ContentDisposition;
-import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.ContentType;
+import org.bluezoo.gumdrop.mime.HeaderValueBuilder;
 import org.bluezoo.gumdrop.mime.MimeLocator;
 import org.bluezoo.gumdrop.mime.MimeParseException;
-import org.bluezoo.gumdrop.mime.MimeVersion;
-import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
 import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
@@ -203,10 +199,28 @@ public class ParsedMessageContext implements MessageContext {
         private final StringBuilder headersText = new StringBuilder();
         private final StringBuilder bodyText = new StringBuilder();
         private OffsetDateTime sentDate;
-        private ContentType currentContentType;
+        private String currentPrimaryType; // of the current entity, or null
+        private String currentCharset; // of the current entity, or null
         private boolean inHeaders = true;
 
+        private final HeaderValueBuilder structured = new HeaderValueBuilder();
+        private String structuredName; // Content-Type or Content-Disposition, while it is read
+        private String parameterName;
+        private final StringBuilder parameterValue = new StringBuilder();
+        private String charsetParameter;
+        private String primaryType;
+
+        private String headerName; // the header being read, or null
+        private final StringBuilder headerText = new StringBuilder();
+        private final StringBuilder list = new StringBuilder(); // the addresses or ids read so far
+        private boolean inGroup;
+
         // MimeHandler methods
+
+        @Override
+        public boolean wantsLegacyEvents() {
+            return false;
+        }
 
         @Override
         public void setLocator(MimeLocator locator) {
@@ -219,14 +233,51 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void contentType(ContentType contentType) throws MimeParseException {
-            currentContentType = contentType;
-            addHeader("Content-Type", contentType.toHeaderValue());
+        public void startContentType(String primary, String sub) throws MimeParseException {
+            structuredName = "Content-Type";
+            primaryType = primary;
+            charsetParameter = null;
+            structured.start(primary + "/" + sub);
         }
 
         @Override
-        public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
-            addHeader("Content-Disposition", contentDisposition.toHeaderValue());
+        public void endContentType() throws MimeParseException {
+            currentPrimaryType = primaryType;
+            currentCharset = charsetParameter;
+            addHeader(structuredName, structured.value());
+        }
+
+        @Override
+        public void startContentDisposition(String kind) throws MimeParseException {
+            structuredName = "Content-Disposition";
+            structured.start(kind);
+        }
+
+        @Override
+        public void endContentDisposition() throws MimeParseException {
+            addHeader(structuredName, structured.value());
+        }
+
+        @Override
+        public void startParameter(String name, String language) throws MimeParseException {
+            parameterName = name;
+            parameterValue.setLength(0);
+            structured.startParameter(name);
+        }
+
+        @Override
+        public void parameterContent(String text) throws MimeParseException {
+            parameterValue.append(text);
+            structured.parameterContent(text);
+        }
+
+        @Override
+        public void endParameter() throws MimeParseException {
+            structured.endParameter();
+            if (charsetParameter == null && "Content-Type".equals(structuredName)
+                    && "charset".equalsIgnoreCase(parameterName)) {
+                charsetParameter = parameterValue.toString();
+            }
         }
 
         @Override
@@ -235,8 +286,8 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void contentID(ContentID contentID) throws MimeParseException {
-            addHeader("Content-ID", "<" + contentID.getLocalPart() + "@" + contentID.getDomain() + ">");
+        public void contentID(String localPart, String domain) throws MimeParseException {
+            addHeader("Content-ID", "<" + localPart + "@" + domain + ">");
         }
 
         @Override
@@ -245,8 +296,8 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void mimeVersion(MimeVersion version) throws MimeParseException {
-            addHeader("MIME-Version", version.toString());
+        public void mimeVersion(int major, int minor) throws MimeParseException {
+            addHeader("MIME-Version", major + "." + minor);
         }
 
         @Override
@@ -273,20 +324,40 @@ public class ParsedMessageContext implements MessageContext {
 
         @Override
         public void endEntity(String boundary) throws MimeParseException {
-            currentContentType = null;
+            currentPrimaryType = null;
+            currentCharset = null;
         }
 
         // MessageHandler methods
 
         @Override
-        public void header(String name, String value) throws MimeParseException {
-            addHeader(name, value);
+        public void startHeader(String name) throws MimeParseException {
+            headerName = name;
+            headerText.setLength(0);
         }
 
         @Override
-        public void unexpectedHeader(String name, String value) throws MimeParseException {
-            // Still store malformed headers
-            addHeader(name, value);
+        public void headerContent(String text) throws MimeParseException {
+            headerText.append(text);
+        }
+
+        @Override
+        public void endHeader() throws MimeParseException {
+            // an unstructured header, or the text of one that could not be read
+            addHeader(headerName, headerText.toString());
+            headerName = null;
+        }
+
+        @Override
+        public void malformedHeader(String name, String reason) throws MimeParseException {
+            // Still store malformed headers: what was read, then the text from there on
+            headerName = name;
+            headerText.setLength(0);
+            if (list.length() > 0) {
+                headerText.append(list).append(inGroup ? " " : ", ");
+            }
+            list.setLength(0);
+            inGroup = false;
         }
 
         @Override
@@ -301,35 +372,70 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
-            // Convert addresses to string and store
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < addresses.size(); i++) {
-                if (i > 0) {
-                    sb.append(", ");
-                }
-                sb.append(addresses.get(i).toString());
-            }
-            addHeader(name, sb.toString());
+        public void startAddressHeader(String name) throws MimeParseException {
+            headerName = name;
+            list.setLength(0);
+            inGroup = false;
         }
 
         @Override
-        public void messageIDHeader(String name, List<ContentID> messageIDs) throws MimeParseException {
-            // Convert message IDs to string and store
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < messageIDs.size(); i++) {
-                if (i > 0) {
-                    sb.append(" ");
-                }
-                ContentID mid = messageIDs.get(i);
-                sb.append("<").append(mid.getLocalPart()).append("@").append(mid.getDomain()).append(">");
+        public void mailbox(String displayName, String localPart, String domain) throws MimeParseException {
+            separate();
+            if (displayName != null && !displayName.isEmpty()) {
+                list.append(displayName).append(' ');
             }
-            addHeader(name, sb.toString());
+            list.append('<').append(localPart).append('@').append(domain).append('>');
+        }
+
+        @Override
+        public void startGroup(String name) throws MimeParseException {
+            separate();
+            list.append(name).append(':');
+            inGroup = true;
+        }
+
+        @Override
+        public void endGroup() throws MimeParseException {
+            list.append(';');
+            inGroup = false;
+        }
+
+        @Override
+        public void endAddressHeader() throws MimeParseException {
+            addHeader(headerName, list.toString());
+            headerName = null;
+        }
+
+        @Override
+        public void startMessageIDHeader(String name) throws MimeParseException {
+            headerName = name;
+            list.setLength(0);
+        }
+
+        @Override
+        public void messageID(String localPart, String domain) throws MimeParseException {
+            if (list.length() > 0) {
+                list.append(' ');
+            }
+            list.append('<').append(localPart).append('@').append(domain).append('>');
+        }
+
+        @Override
+        public void endMessageIDHeader() throws MimeParseException {
+            addHeader(headerName, list.toString());
+            headerName = null;
         }
 
         @Override
         public void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException {
             // Ignore for search purposes
+        }
+
+        /** Separates an address from the one before it in the list, if any. */
+        private void separate() {
+            if (list.length() > 0) {
+                list.append(list.charAt(list.length() - 1) == ':' ? " " : ", ");
+            }
         }
 
         // Helper methods
@@ -348,22 +454,18 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         private boolean isTextContent() {
-            if (currentContentType == null) {
+            if (currentPrimaryType == null) {
                 return true; // Default to text/plain
             }
-            String type = currentContentType.getPrimaryType();
-            return type == null || type.equalsIgnoreCase("text");
+            return currentPrimaryType.equalsIgnoreCase("text");
         }
 
         private Charset getCharset() {
-            if (currentContentType != null) {
-                String charsetParam = currentContentType.getParameter("charset");
-                if (charsetParam != null) {
-                    try {
-                        return Charset.forName(charsetParam);
-                    } catch (Exception e) {
-                        // Fall through to default
-                    }
+            if (currentCharset != null) {
+                try {
+                    return Charset.forName(currentCharset);
+                } catch (Exception e) {
+                    // Fall through to default
                 }
             }
             return StandardCharsets.ISO_8859_1;

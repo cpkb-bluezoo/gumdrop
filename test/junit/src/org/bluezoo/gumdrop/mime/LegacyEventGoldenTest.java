@@ -59,6 +59,7 @@ import static org.junit.Assert.assertNotNull;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // exercises the older events, which are deprecated for removal
 public class LegacyEventGoldenTest {
 
     private static final String[] CORPUS = {

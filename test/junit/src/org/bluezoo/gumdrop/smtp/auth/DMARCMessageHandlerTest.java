@@ -95,4 +95,33 @@ public class DMARCMessageHandlerTest {
 
         assertNull(callback.domains.get(callback.domains.size() - 1));
     }
+
+    @Test
+    public void testStreamedFromHeaderReportsDomainOnceEvenWithTheOlderEvent() throws Exception {
+        RecordingCallback callback = new RecordingCallback();
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
+
+        handler.startAddressHeader("From");
+        handler.mailbox("Alice", "alice", "example.com");
+        handler.mailbox(null, "bob", "other.example");
+        handler.endAddressHeader();
+        handler.addressHeader("From", address("alice", "example.com"));
+
+        assertEquals(Collections.singletonList("example.com"), callback.domains);
+    }
+
+    @Test
+    public void testStreamedDuplicateFromHeaderInvalidatesDomain() throws Exception {
+        RecordingCallback callback = new RecordingCallback();
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
+
+        handler.startAddressHeader("From");
+        handler.mailbox(null, "attacker", "evil.example");
+        handler.endAddressHeader();
+        handler.startAddressHeader("From");
+        handler.mailbox(null, "real", "example.com");
+        handler.endAddressHeader();
+
+        assertNull(callback.domains.get(callback.domains.size() - 1));
+    }
 }

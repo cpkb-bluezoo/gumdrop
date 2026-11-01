@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
  *
  * <p>This handler:
  * <ul>
- *   <li>Intercepts {@code addressHeader("From", ...)} to extract the From domain</li>
+ *   <li>Intercepts the address events of the From header to extract the From domain</li>
  *   <li>Delivers the domain to a registered consumer (typically DmarcValidator)</li>
  *   <li>Proxies all events to an optional delegate MessageHandler</li>
  * </ul>
@@ -62,6 +62,8 @@ import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
  * @see AuthPipeline
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
+// The tee also passes on the older events, which are deprecated for removal
+@SuppressWarnings("removal")
 public class DmarcMessageHandler implements MessageHandler {
 
     /**
@@ -85,6 +87,12 @@ public class DmarcMessageHandler implements MessageHandler {
     /** RFC 5322 §3.6.2 permits exactly one From field; tracks whether one has already been seen. */
     private boolean fromSeen;
 
+    /** The first mailbox of the From header being read has not been seen yet. */
+    private boolean awaitingFromMailbox;
+
+    /** An address header has been given by its events; its older event is to follow. */
+    private boolean streamed;
+
     /**
      * Creates a DMARC message handler.
      *
@@ -97,32 +105,73 @@ public class DmarcMessageHandler implements MessageHandler {
     }
 
     @Override
-    public void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
-        // Intercept From header
-        if ("From".equalsIgnoreCase(name)) {
-            if (fromSeen) {
-                // RFC 7489 §7.6 — a second From field is suspect: real MUAs
-                // disagree on which occurrence they display, so the domain
-                // already reported (if any) can no longer be trusted for
-                // DMARC alignment. Invalidate it rather than silently
-                // resolving to whichever occurrence happens to be last.
-                if (fromDomainCallback != null) {
-                    fromDomainCallback.onFromDomain(null);
-                }
-            } else {
-                fromSeen = true;
-                if (addresses != null && !addresses.isEmpty()) {
-                    String domain = addresses.get(0).getDomain();
-                    if (domain != null && !domain.isEmpty() && fromDomainCallback != null) {
-                        fromDomainCallback.onFromDomain(domain);
-                    }
-                }
-            }
-        }
+    public boolean wantsLegacyEvents() {
+        return delegate != null && delegate.wantsLegacyEvents();
+    }
 
-        // Delegate
+    @Override
+    public HeaderDelivery headerDelivery(String name) {
+        return delegate != null ? delegate.headerDelivery(name) : HeaderDelivery.UNSTRUCTURED;
+    }
+
+    @Override
+    public void startAddressHeader(String name) throws MimeParseException {
+        // The older addressHeader that follows is for the same header
+        streamed = true;
+        awaitingFromMailbox = "From".equalsIgnoreCase(name) && fromHeader();
+        if (delegate != null) {
+            delegate.startAddressHeader(name);
+        }
+    }
+
+    @Override
+    public void mailbox(String displayName, String localPart, String domain) throws MimeParseException {
+        if (awaitingFromMailbox) {
+            awaitingFromMailbox = false;
+            reportDomain(domain);
+        }
+        if (delegate != null) {
+            delegate.mailbox(displayName, localPart, domain);
+        }
+    }
+
+    @Override
+    public void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
+        if (streamed) {
+            // already dealt with from the mailbox events
+            streamed = false;
+        } else if ("From".equalsIgnoreCase(name) && fromHeader()
+                && addresses != null && !addresses.isEmpty()) {
+            reportDomain(addresses.get(0).getDomain());
+        }
         if (delegate != null) {
             delegate.addressHeader(name, addresses);
+        }
+    }
+
+    /**
+     * A From header begins.
+     * @return true if it is the first, whose domain is to be reported
+     */
+    private boolean fromHeader() {
+        if (fromSeen) {
+            // RFC 7489 §7.6 — a second From field is suspect: real MUAs
+            // disagree on which occurrence they display, so the domain
+            // already reported (if any) can no longer be trusted for
+            // DMARC alignment. Invalidate it rather than silently
+            // resolving to whichever occurrence happens to be last.
+            if (fromDomainCallback != null) {
+                fromDomainCallback.onFromDomain(null);
+            }
+            return false;
+        }
+        fromSeen = true;
+        return true;
+    }
+
+    private void reportDomain(String domain) {
+        if (domain != null && !domain.isEmpty() && fromDomainCallback != null) {
+            fromDomainCallback.onFromDomain(domain);
         }
     }
 
@@ -139,6 +188,90 @@ public class DmarcMessageHandler implements MessageHandler {
     public void startEntity(String boundary) throws MimeParseException {
         if (delegate != null) {
             delegate.startEntity(boundary);
+        }
+    }
+
+    @Override
+    public void startHeader(String name) throws MimeParseException {
+        if (delegate != null) {
+            delegate.startHeader(name);
+        }
+    }
+
+    @Override
+    public void headerContent(String text) throws MimeParseException {
+        if (delegate != null) {
+            delegate.headerContent(text);
+        }
+    }
+
+    @Override
+    public void rawHeaderContent(ByteBuffer bytes) throws MimeParseException {
+        if (delegate != null) {
+            delegate.rawHeaderContent(bytes);
+        }
+    }
+
+    @Override
+    public void endHeader() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endHeader();
+        }
+    }
+
+    @Override
+    public void startContentType(String primary, String sub) throws MimeParseException {
+        if (delegate != null) {
+            delegate.startContentType(primary, sub);
+        }
+    }
+
+    @Override
+    public void endContentType() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endContentType();
+        }
+    }
+
+    @Override
+    public void startContentDisposition(String kind) throws MimeParseException {
+        if (delegate != null) {
+            delegate.startContentDisposition(kind);
+        }
+    }
+
+    @Override
+    public void endContentDisposition() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endContentDisposition();
+        }
+    }
+
+    @Override
+    public void startParameter(String name, String language) throws MimeParseException {
+        if (delegate != null) {
+            delegate.startParameter(name, language);
+        }
+    }
+
+    @Override
+    public void parameterContent(String text) throws MimeParseException {
+        if (delegate != null) {
+            delegate.parameterContent(text);
+        }
+    }
+
+    @Override
+    public void endParameter() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endParameter();
+        }
+    }
+
+    @Override
+    public void malformedHeader(String name, String reason) throws MimeParseException {
+        if (delegate != null) {
+            delegate.malformedHeader(name, reason);
         }
     }
 
@@ -171,6 +304,13 @@ public class DmarcMessageHandler implements MessageHandler {
     }
 
     @Override
+    public void contentID(String localPart, String domain) throws MimeParseException {
+        if (delegate != null) {
+            delegate.contentID(localPart, domain);
+        }
+    }
+
+    @Override
     public void contentDescription(String description) throws MimeParseException {
         if (delegate != null) {
             delegate.contentDescription(description);
@@ -181,6 +321,13 @@ public class DmarcMessageHandler implements MessageHandler {
     public void mimeVersion(MimeVersion version) throws MimeParseException {
         if (delegate != null) {
             delegate.mimeVersion(version);
+        }
+    }
+
+    @Override
+    public void mimeVersion(int major, int minor) throws MimeParseException {
+        if (delegate != null) {
+            delegate.mimeVersion(major, minor);
         }
     }
 
@@ -234,6 +381,48 @@ public class DmarcMessageHandler implements MessageHandler {
     }
 
     @Override
+    public void startGroup(String name) throws MimeParseException {
+        if (delegate != null) {
+            delegate.startGroup(name);
+        }
+    }
+
+    @Override
+    public void endGroup() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endGroup();
+        }
+    }
+
+    @Override
+    public void endAddressHeader() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endAddressHeader();
+        }
+    }
+
+    @Override
+    public void startMessageIDHeader(String name) throws MimeParseException {
+        if (delegate != null) {
+            delegate.startMessageIDHeader(name);
+        }
+    }
+
+    @Override
+    public void messageID(String localPart, String domain) throws MimeParseException {
+        if (delegate != null) {
+            delegate.messageID(localPart, domain);
+        }
+    }
+
+    @Override
+    public void endMessageIDHeader() throws MimeParseException {
+        if (delegate != null) {
+            delegate.endMessageIDHeader();
+        }
+    }
+
+    @Override
     public void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException {
         if (delegate != null) {
             delegate.messageIDHeader(name, contentIDs);
@@ -248,4 +437,3 @@ public class DmarcMessageHandler implements MessageHandler {
     }
 
 }
-

@@ -41,6 +41,8 @@ import org.bluezoo.gumdrop.mime.MimeVersion;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+// The older events are deprecated for removal but still delivered here
+@SuppressWarnings("removal")
 final class MessageBridge implements MimeHandler {
 
 	private final MessageParser parser;
@@ -223,6 +225,16 @@ final class MessageBridge implements MimeHandler {
 	@Override
 	public void contentID(ContentID contentID) throws MimeParseException {
 		mime.contentID(contentID);
+	}
+
+	@Override
+	public void contentID(String localPart, String domain) throws MimeParseException {
+		mime.contentID(localPart, domain);
+	}
+
+	@Override
+	public void mimeVersion(int major, int minor) throws MimeParseException {
+		mime.mimeVersion(major, minor);
 	}
 
 	@Override

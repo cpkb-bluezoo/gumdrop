@@ -42,6 +42,7 @@ import static org.junit.Assert.assertEquals;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // exercises the older events, which are deprecated for removal
 public class HeaderStreamGoldenTest {
 
     /** name, value (one char per byte), expected events */

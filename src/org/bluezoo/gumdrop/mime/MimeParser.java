@@ -94,6 +94,8 @@ import java.util.ResourceBundle;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2046">RFC 2046: MIME Part Two — Media Types</a>
  */
+// The older events are deprecated for removal but still delivered here
+@SuppressWarnings("removal")
 public class MimeParser {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N");
@@ -1087,7 +1089,10 @@ public class MimeParser {
 	protected void handleContentIDHeader(String name, ByteBuffer value) throws MimeParseException {
 		ContentID id = ContentIDParser.parse(value.duplicate(), getIso8859Decoder());
 		if (id != null) {
-			handler.contentID(id);
+			handler.contentID(id.getLocalPart(), id.getDomain());
+			if (legacy) {
+				handler.contentID(id);
+			}
 		}
 	}
 
@@ -1102,7 +1107,10 @@ public class MimeParser {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
 		MimeVersion mimeVersion = MimeVersion.parse(valueStr);
 		if (mimeVersion != null) {
-			handler.mimeVersion(mimeVersion);
+			handler.mimeVersion(1, 0); // the only version there is
+			if (legacy) {
+				handler.mimeVersion(mimeVersion);
+			}
 		}
 	}
 
