@@ -27,9 +27,11 @@ import org.bluezoo.gumdrop.mime.MimeLocator;
 import org.bluezoo.gumdrop.mime.MimeParseException;
 import org.bluezoo.gumdrop.mime.MimeParser;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.SequenceInputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -73,25 +75,8 @@ class MultipartParser {
 		try {
 			// Inject a synthetic Content-Type header to tell the parser about the boundary
 			String header = "Content-Type: multipart/form-data; boundary=" + boundary + "\r\n\r\n";
-			parser.receive(ByteBuffer.wrap(header.getBytes(StandardCharsets.US_ASCII)));
-
-			// Feed the request body
-			// A header line of a part may be split between reads: the parser
-			// leaves it unconsumed, and it is kept with what comes after it
-			byte[] bytes = new byte[8192];
-			ByteBuffer buf = ByteBuffer.wrap(bytes);
-			int len;
-			while ((len = inputStream.read(bytes, buf.position(), buf.remaining())) != -1) {
-				buf.position(buf.position() + len);
-				buf.flip();
-				parser.receive(buf);
-				if (buf.limit() == buf.capacity() && buf.position() == 0) {
-					throw new IOException("Header line too long in multipart");
-				}
-				buf.compact();
-			}
-			buf.flip();
-			parser.close(buf);
+			parser.parse(new SequenceInputStream(
+				new ByteArrayInputStream(header.getBytes(StandardCharsets.US_ASCII)), inputStream));
 		} catch (MimeParseException e) {
 			throw new IOException("Failed to parse multipart: " + e.getMessage(), e);
 		}

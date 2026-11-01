@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mime;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
@@ -1825,6 +1827,44 @@ public class MimeParser {
 		line.put((byte) '\r').put((byte) '\n');
 		line.flip();
 		receive(line);
+	}
+
+	/**
+	 * Parses a whole entity from a blocking stream, and closes the parser's
+	 * input at its end. It is an adapter over {@link #receive(ByteBuffer)}
+	 * and {@link #close(ByteBuffer)}: it reads the stream into a buffer,
+	 * gives it to the parser, and keeps what the parser leaves unconsumed
+	 * (an incomplete header line) for the next read. The stream is not
+	 * closed.
+	 *
+	 * <p>Memory use does not depend on the size of the entity. The buffer
+	 * holds a header line of the longest length the limits allow.
+	 *
+	 * @param in the stream to read
+	 * @throws IOException if the stream cannot be read, or a header line is
+	 *         longer than the buffer can hold
+	 * @throws MimeParseException if the entity is not valid or the handler
+	 *         cancels the parse
+	 */
+	public void parse(InputStream in) throws IOException, MimeParseException {
+		int line = limits.getMaxHeaderLineLength();
+		ByteBuffer buf = ByteBuffer.allocate(Math.max(8192, line > 0 ? line + 4096 : 8192));
+		byte[] array = buf.array();
+		while (true) {
+			int n = in.read(array, buf.position(), buf.remaining());
+			if (n < 0) {
+				break;
+			}
+			buf.position(buf.position() + n);
+			buf.flip();
+			receive(buf);
+			if (buf.position() == 0 && buf.limit() == buf.capacity()) {
+				throw new IOException(L10N.getString("err.no_progress"));
+			}
+			buf.compact();
+		}
+		buf.flip();
+		close(buf);
 	}
 
 	/**
