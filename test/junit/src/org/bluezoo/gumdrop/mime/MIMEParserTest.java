@@ -359,13 +359,15 @@ public class MIMEParserTest {
 
     @Test(expected = HeaderValueTooLongException.class)
     public void testHeaderValueTooLong() throws MimeParseException {
-        // Folded header value exceeds maxHeaderValueSize (50 bytes)
+        // Folded header value exceeds maxHeaderValueSize (50 bytes). The
+        // headers that are streamed are not held, so they have no such limit;
+        // Content-Description is one whose value is collected whole.
         MimeParser parser = new MimeParser();
         parser.setMaxHeaderValueSize(50);
         parser.setHandler(new TestHandler());
-        // First line: "X: " + 49 chars = 49-byte value; continuation adds 6 more -> 55 > 50
+        // First line: 49 chars after the name; continuation adds 6 more -> 55 > 50
         StringBuilder sb = new StringBuilder();
-        sb.append("X: ");
+        sb.append("Content-Description: ");
         for (int i = 0; i < 49; i++) {
             sb.append('a');
         }

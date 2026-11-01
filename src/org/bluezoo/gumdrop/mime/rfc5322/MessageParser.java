@@ -83,6 +83,7 @@ public class MessageParser extends MimeParser {
 	 */
 	public void setSmtputf8(boolean smtputf8) {
 		this.smtputf8 = smtputf8;
+		setUtf8Headers(smtputf8);
 	}
 
 	/**
@@ -168,6 +169,49 @@ public class MessageParser extends MimeParser {
 						messageHandler.header(name, valueStr);
 					}
 				}
+		}
+	}
+
+	/**
+	 * The headers this parser gives to {@link #header(String, ByteBuffer)}
+	 * with their whole value: those it turns into events of its own, as well
+	 * as the ones the MIME layer collects.
+	 */
+	@Override
+	protected boolean collectsHeader(String name) {
+		if (super.collectsHeader(name)) {
+			return true;
+		}
+		String lower = name.toLowerCase();
+		switch (lower) {
+			case "date":
+			case "resent-date":
+			case "from":
+			case "sender":
+			case "to":
+			case "cc":
+			case "bcc":
+			case "reply-to":
+			case "resent-from":
+			case "return-path":
+			case "resent-sender":
+			case "resent-to":
+			case "resent-cc":
+			case "resent-bcc":
+			case "resent-reply-to":
+			case "envelope-to":
+			case "delivered-to":
+			case "x-original-to":
+			case "errors-to":
+			case "apparently-to":
+			case "message-id":
+			case "in-reply-to":
+			case "references":
+			case "resent-message-id":
+			case "received":
+				return true;
+			default:
+				return isUnstructuredHeader(lower);
 		}
 	}
 

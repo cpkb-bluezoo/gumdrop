@@ -25,6 +25,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import org.bluezoo.gumdrop.mime.rfc2047.HeaderTextDecoder;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 import java.nio.ByteBuffer;
@@ -239,6 +240,15 @@ public class MimeParser {
 	private int maxHeaderValueSize = DEFAULT_MAX_HEADER_VALUE_SIZE;
 	private ParserLimits limits = new ParserLimits();
 	private ByteBuffer decodeBuffer;  // Lazy allocated when needed for decoding
+	private HeaderTextDecoder textDecoder = new HeaderTextDecoder(false); // reads streamed unstructured headers
+	private final HeaderTextDecoder.Sink headerTextSink = new HeaderTextDecoder.Sink() {
+		@Override
+		public void text(String text) throws MimeParseException {
+			handler.headerContent(text);
+		}
+	};
+	private boolean collecting; // the value of the current header is being collected whole
+	private MimeHandler.HeaderDelivery streaming; // how the current header is streamed, or null if it is not
 	// Body scanner state, all of it of fixed size. See scanMultipart.
 	private LineState lineState = LineState.START;
 	private final byte[] held = new byte[2]; // line ending withheld until the next line is known not to be a boundary
@@ -556,22 +566,11 @@ public class MimeParser {
 			// is equivalent to a LWSP. So we will append the LWSP to the
 			// value here.
 			if (length > 0) {
-				ensureHeaderValueSinkCapacity(length);
-				int savedLimit = buffer.limit();
-				buffer.limit(start + length);
-				buffer.position(start);
-				headerValueSink.put(buffer);
-				buffer.limit(savedLimit);
+				feedValue(buffer, start, start + length);
 			}
 		} else {
 			// flush existing header
-			if (headerName != null) {
-				ByteBuffer valueView = headerValueSink.duplicate();
-				valueView.flip();
-				header(headerName, valueView);
-				headerName = null;
-				headerValueSink.clear();
-			}
+			flushHeader();
 			// field-name [FWS] ":"
 			int colonPos = indexOf(buffer, (byte) ':');
 			if (colonPos >= 0) {
@@ -599,18 +598,115 @@ public class MimeParser {
 				ByteBuffer nameView = buffer.duplicate();
 				nameView.position(start).limit(nameEnd);
 				headerName = decodeHeaderBytes(nameView, StandardCharsets.ISO_8859_1, true);
+				startHeaderValue();
 				// header value
 				int valueLength = end - colonPos - 1;
 				if (valueLength > 0) {
-					ensureHeaderValueSinkCapacity(valueLength);
-					buffer.position(colonPos + 1).limit(end);
-					headerValueSink.put(buffer);
+					feedValue(buffer, colonPos + 1, end);
 				}
 				// Note: if colonPos + 1 >= length, the header has no value (colon at end)
 			} else {
 				throw new MimeParseException(L10N.getString("err.no_colon_in_header"), locator);
 			}
 		}
+	}
+
+	/**
+	 * Returns whether the whole value of a header is to be collected and
+	 * given to {@link #header(String, ByteBuffer)} when it is complete. It
+	 * is for the headers whose events carry a value built from the whole of
+	 * it. A subclass that parses more headers than this class does extends
+	 * this.
+	 * @param name the header name, as written
+	 * @return true if the value is collected
+	 */
+	protected boolean collectsHeader(String name) {
+		switch (name.toLowerCase()) {
+			case "content-type":
+			case "content-disposition":
+			case "content-transfer-encoding":
+			case "content-id":
+			case "content-description":
+			case "mime-version":
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	/** True for the headers this class understands, which are not streamed. */
+	private static boolean isUnderstoodHeader(String name) {
+		switch (name.toLowerCase()) {
+			case "content-type":
+			case "content-disposition":
+			case "content-transfer-encoding":
+			case "content-id":
+			case "mime-version":
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	/** A header name has been read: decide what is done with its value. */
+	private void startHeaderValue() throws MimeParseException {
+		collecting = collectsHeader(headerName);
+		if (isUnderstoodHeader(headerName)) {
+			streaming = null;
+			return;
+		}
+		streaming = handler.headerDelivery(headerName);
+		if (streaming == MimeHandler.HeaderDelivery.UNSTRUCTURED) {
+			textDecoder.reset();
+		}
+		handler.startHeader(headerName);
+	}
+
+	/** Some of the current header's value, unfolded, in [from, to) of the buffer. */
+	private void feedValue(ByteBuffer buffer, int from, int to) throws MimeParseException {
+		if (collecting) {
+			ensureHeaderValueSinkCapacity(to - from);
+			headerValueSink.put(window(buffer, from, to));
+		}
+		if (streaming == MimeHandler.HeaderDelivery.UNSTRUCTURED) {
+			textDecoder.feed(window(buffer, from, to), headerTextSink);
+		} else if (streaming == MimeHandler.HeaderDelivery.RAW) {
+			handler.rawHeaderContent(window(buffer, from, to));
+		}
+	}
+
+	/** The current header, if any, is complete. */
+	private void flushHeader() throws MimeParseException {
+		if (headerName == null) {
+			return;
+		}
+		String name = headerName;
+		headerName = null;
+		if (streaming != null) {
+			if (streaming == MimeHandler.HeaderDelivery.UNSTRUCTURED) {
+				textDecoder.finish(headerTextSink);
+			}
+			streaming = null;
+			handler.endHeader();
+		}
+		if (collecting) {
+			collecting = false;
+			ByteBuffer valueView = headerValueSink.duplicate();
+			valueView.flip();
+			headerValueSink.clear();
+			header(name, valueView);
+		}
+	}
+
+	/**
+	 * Sets whether raw 8-bit text in an unstructured header that is not valid
+	 * UTF-8 is read as ISO-8859-1, as it is in an SMTPUTF8 message, and not as
+	 * windows-1252. (Valid UTF-8 is read as UTF-8 either way.) Call before
+	 * parsing.
+	 * @param utf8Headers true for ISO-8859-1
+	 */
+	public void setUtf8Headers(boolean utf8Headers) {
+		textDecoder = new HeaderTextDecoder(utf8Headers);
 	}
 
 	private static boolean isHeaderWhitespace(byte b) {
@@ -930,13 +1026,7 @@ public class MimeParser {
 	}
 
 	private void endHeaders() throws MimeParseException {
-		if (headerName != null) {
-			ByteBuffer valueView = headerValueSink.duplicate();
-			valueView.flip();
-			header(headerName, valueView);
-			headerName = null;
-			headerValueSink.clear();
-		}
+		flushHeader();
 		handler.endHeaders();
 		if (boundarySet) {  // Set in header() method
 			state = State.FIRST_BOUNDARY;
@@ -1587,6 +1677,9 @@ public class MimeParser {
 		locator.reset();
 		state = State.INIT;
 		headerName = null;
+		collecting = false;
+		streaming = null;
+		textDecoder.reset();
 		ByteBufferPool.release(headerValueSink);
 		headerValueSink = ByteBufferPool.acquire(INITIAL_HEADER_VALUE_CAPACITY);
 		ByteBufferPool.release(decodeBuffer);

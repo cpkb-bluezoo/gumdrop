@@ -53,6 +53,81 @@ import java.nio.ByteBuffer;
 public interface MimeHandler {
 
 	/**
+	 * How the value of a header the parser does not itself understand is
+	 * delivered; see {@link #headerDelivery(String)}.
+	 */
+	enum HeaderDelivery {
+
+		/** As decoded text in {@link MimeHandler#headerContent(String)} pieces. */
+		UNSTRUCTURED,
+
+		/**
+		 * As the bytes that arrived, in
+		 * {@link MimeHandler#rawHeaderContent(ByteBuffer)} pieces, for a
+		 * layer that parses the value itself.
+		 */
+		RAW;
+
+	}
+
+	/**
+	 * Asked once for each header the parser does not itself understand
+	 * (every header but Content-Type, Content-Disposition,
+	 * Content-Transfer-Encoding, Content-ID and MIME-Version), just before
+	 * {@link #startHeader(String)}. The answer says how its value arrives.
+	 * A layer on top of MIME (RFC 5322 is one) that parses some headers
+	 * itself asks for them {@link HeaderDelivery#RAW}.
+	 * @param name the header name, as written
+	 * @return how the value is to be delivered
+	 */
+	default HeaderDelivery headerDelivery(String name) {
+		return HeaderDelivery.UNSTRUCTURED;
+	}
+
+	/**
+	 * Receive notification of the start of a header the parser does not
+	 * itself understand. Its value follows as {@link #headerContent(String)}
+	 * calls, or {@link #rawHeaderContent(ByteBuffer)} calls if
+	 * {@link #headerDelivery(String)} asked for it raw, and then
+	 * {@link #endHeader()}. The parser holds none of the value, so a header
+	 * of any size passes through.
+	 * @param name the header name, as written
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void startHeader(String name) throws MimeParseException {
+	}
+
+	/**
+	 * Receive a piece of the value of an unstructured header, in order:
+	 * unfolded, with leading and trailing white space removed, RFC 2047
+	 * encoded words decoded, and raw 8-bit text read as UTF-8 where it is
+	 * valid and as windows-1252 where it is not. A piece has no particular
+	 * size.
+	 * @param text the decoded text
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void headerContent(String text) throws MimeParseException {
+	}
+
+	/**
+	 * Receive a piece of the value of a header delivered raw: the bytes as
+	 * they arrived, unfolded (a folded line ending is removed and the white
+	 * space after it kept), with nothing decoded.
+	 * @param bytes the bytes, valid only for the duration of the call
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void rawHeaderContent(ByteBuffer bytes) throws MimeParseException {
+	}
+
+	/**
+	 * The value of the header started by {@link #startHeader(String)} is
+	 * complete.
+	 * @exception MimeParseException if the processor wishes to cancel the parse
+	 */
+	default void endHeader() throws MimeParseException {
+	}
+
+	/**
 	 * Receive an object for the location of MIME parsing events.
 	 * This method will be called once prior to any other events.
 	 * The handler can examine the locator when it receives any event and be

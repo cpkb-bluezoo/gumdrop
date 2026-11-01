@@ -238,7 +238,8 @@ public class MimeParserBranchesTest {
     public void testHeaderValueTooLongViaFolding() throws MimeParseException {
         MimeParser p = new MimeParser();
         p.setMaxHeaderValueSize(50);
-        StringBuilder sb = new StringBuilder("X: a\r\n");
+        // Content-Description is collected whole; a streamed header is not held
+        StringBuilder sb = new StringBuilder("Content-Description: a\r\n");
         for (int i = 0; i < 10; i++) {
             sb.append(" bbbbbbbbbb\r\n");
         }

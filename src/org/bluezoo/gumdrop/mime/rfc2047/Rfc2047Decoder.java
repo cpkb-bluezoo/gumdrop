@@ -464,6 +464,21 @@ public class Rfc2047Decoder {
 		return bytesToString(decodedBytes, charset);
 	}
 
+	/**
+	 * Decodes the text of one encoded word.
+	 * @param charset the charset name from the word
+	 * @param encoding 'B' or 'Q'
+	 * @param text the encoded text from the word
+	 * @return the decoded text, or null if the word cannot be decoded
+	 */
+	static String decodeWord(String charset, char encoding, String text) {
+		try {
+			return decodeSingleEncodedWord(charset, String.valueOf(encoding), text);
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
 	private static byte[] decodeQEncoding(String encoded) {
 		if (encoded == null || encoded.isEmpty()) {
 			return new byte[0];
