@@ -3,7 +3,7 @@ name: QUIC interop
 # Runs gumdrop's QUIC stack through the quic-interop-runner
 # (https://github.com/quic-interop/quic-interop-runner) against other
 # implementations, as server and as client. The endpoint image is built
-# from test/quic-interop-runner/. Manual, plus a weekly run; results go to
+# from test/quic-interop-runner/. Manual only; results go to
 # the job summary and the logs are kept as artifacts. Nothing here is part
 # of the normal CI workflow.
 
@@ -26,8 +26,6 @@ on:
         description: 'Gumdrop commit, branch or tag to build the endpoint from (empty builds this workflow''s own commit)'
         default: ''
         type: string
-  schedule:
-    - cron: '0 4 * * 1'
 
 permissions:
   contents: read
@@ -67,11 +65,10 @@ jobs:
           PEERS: ${{ inputs.peers }}
         run: |
           # GitHub substitutes the default for a blanked input, so "all" is
-          # the way to ask for every implementation. The weekly run has no
-          # inputs and keeps to the usual peers. Each matrix entry carries
+          # the way to ask for every implementation. Each matrix entry carries
           # the peer's role so server-only (nginx, haproxy) and client-only
           # (chrome) implementations only run the direction they support.
-          if [ "$GITHUB_EVENT_NAME" = schedule ] || [ -z "$PEERS" ]; then
+          if [ -z "$PEERS" ]; then
             PEERS="$DEFAULT_PEERS"
           fi
           curl -fsSL https://raw.githubusercontent.com/quic-interop/quic-interop-runner/master/implementations_quic.json > known.json
