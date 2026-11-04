@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **uuencode in the MIME layer.** `MimeParser` decodes bodies sent with
+  `Content-Transfer-Encoding: x-uuencode` (also `uuencode`, `x-uue`) as they
+  arrive, in any chunking, in constant memory. New `UuDecoder`, `UuEncoder`
+  and `UuScanner` (which finds `begin`/`end` blocks inline in text, as in
+  Usenet articles) are push codecs that hold only the position in the
+  current line between calls.
 - **PROXY protocol (v1 and v2) on TCP listeners.** `TcpListener.proxyProtocol(true)`
   (config `proxy-protocol`) requires every connection to begin with a
   HAProxy PROXY header, as sent by an AWS Network Load Balancer or haproxy
