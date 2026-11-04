@@ -904,6 +904,9 @@ public class AcceptSelectorLoop implements Runnable {
                 }
                 endpoint.setSelectorLoop(workerLoop);
                 endpoint.setListener(listener, remoteAddress);
+                if (listener.isProxyProtocol()) {
+                    endpoint.requireProxyHeader(listener.getProxyHeaderTimeoutMs());
+                }
                 endpoint.connected();
                 workerLoop.register(sc, endpoint);
 

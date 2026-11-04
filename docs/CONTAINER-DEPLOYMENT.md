@@ -214,10 +214,25 @@ Listener limits apply to **any** Gumdrop server (custom or servlet-backed HTTP):
 | Handshake timeout         | `connection-timeout`       | `60s`      | Bounds TLS/DTLS handshake completion.                          |
 | First-byte / read timeout | `read-timeout`             | `30s`      | Bounds time to first byte on plaintext connections.            |
 | Idle timeout              | `idle-timeout`             | `5m`       | Idle connection timeout (HTTP, IMAP, etc.).                    |
+| PROXY protocol            | `proxy-protocol`           | off        | Require a PROXY v1/v2 header (see below).                      |
+| PROXY header timeout      | `proxy-header-timeout`     | `5s`       | Bounds the wait for the PROXY header, counted from accept.     |
 | Inbound buffer cap        | `max-net-in-size`          | `1 MiB`    | Maximum buffered unprocessed inbound bytes.                    |
 | Outbound buffer cap       | `max-net-out-size`         | `4 MiB`    | Caps outbound buffering; closes on slow readers.               |
 
 Timeout strings accept forms like `60s`, `5m`.
+
+### PROXY protocol behind an L4 load balancer
+
+An AWS Network Load Balancer (or haproxy or nginx in TCP mode) hides the real
+client and the address it connected to. Set `proxy-protocol` on the listener
+and enable proxy protocol v2 on the load balancer's target group. The header
+is read before TLS and before the protocol handler is connected; a
+connection without a valid header is closed. Only the first header is read.
+
+A client that can reach a PROXY listener directly can assert any address, so
+restrict the listener to the load balancer's address ranges. Access control,
+rate limits and SMTP XCLIENT authorisation always judge the real TCP peer
+(the load balancer), never the address in the header.
 
 Related: WebSocket reassembly cap (64 MiB), rate-limiter TTL eviction, accept
 backoff on `EMFILE`.

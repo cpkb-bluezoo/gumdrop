@@ -70,7 +70,79 @@ public abstract class TcpListener extends Listener {
     private List<ServerSocketChannel> serverChannels =
             new ArrayList<ServerSocketChannel>();
 
+    // ── PROXY protocol ──
+
+    /** Default bound on waiting for a PROXY header, in milliseconds. */
+    static final long DEFAULT_PROXY_HEADER_TIMEOUT_MS = 5000;
+
+    private boolean proxyProtocol;
+    private long proxyHeaderTimeoutMs = DEFAULT_PROXY_HEADER_TIMEOUT_MS;
+
     protected TcpListener() {
+    }
+
+    /**
+     * Returns whether every connection must begin with a PROXY protocol
+     * header.
+     *
+     * @return true if PROXY protocol is required
+     */
+    public boolean isProxyProtocol() {
+        return proxyProtocol;
+    }
+
+    /**
+     * Requires every connection to begin with a HAProxy PROXY protocol
+     * header (version 1 or 2), as sent by an L4 relay such as an AWS Network
+     * Load Balancer, or haproxy or nginx in TCP mode. The header is consumed
+     * before TLS (for an implicit TLS listener) and before the protocol
+     * handler is connected, so a protocol that speaks first sends nothing
+     * until it has been read. The source and destination it carries become
+     * the endpoint's {@link Endpoint#getRemoteAddress() remote} and
+     * {@link Endpoint#getLocalAddress() local} addresses, and any v2 TLVs are
+     * available from {@link Endpoint#getProxyTlvs()}.
+     *
+     * <p>The listener fails closed: a connection whose first bytes are not a
+     * valid header, or that does not complete one within
+     * {@link #proxyHeaderTimeoutMs(long)}, is closed. Only the first header
+     * is consumed; a second one is application data.
+     *
+     * <p>Access control, rate limiting and the connection limits keep
+     * judging the real TCP peer (the relay), never the address the header
+     * asserts, and so does {@link Endpoint#getTransportPeerAddress()}. Because
+     * any client able to reach a PROXY listener directly could assert
+     * whatever address it likes, restrict such a listener to the relay's
+     * address ranges.
+     *
+     * @param proxyProtocol true to require PROXY protocol
+     * @return this listener
+     */
+    public TcpListener proxyProtocol(boolean proxyProtocol) {
+        this.proxyProtocol = proxyProtocol;
+        return this;
+    }
+
+    /**
+     * Returns how long a PROXY listener waits for the complete header.
+     *
+     * @return the timeout in milliseconds
+     */
+    public long getProxyHeaderTimeoutMs() {
+        return proxyHeaderTimeoutMs;
+    }
+
+    /**
+     * Sets how long a {@link #proxyProtocol(boolean) PROXY listener} waits
+     * for the complete header, counted from accept. This is separate from,
+     * and normally much shorter than, the read and connection timeouts,
+     * which only start once the header has been read.
+     *
+     * @param proxyHeaderTimeoutMs the timeout in milliseconds; 0 for none
+     * @return this listener
+     */
+    public TcpListener proxyHeaderTimeoutMs(long proxyHeaderTimeoutMs) {
+        this.proxyHeaderTimeoutMs = proxyHeaderTimeoutMs;
+        return this;
     }
 
     // ═══════════════════════════════════════════════════════════════════

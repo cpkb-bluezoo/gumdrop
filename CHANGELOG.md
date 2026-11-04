@@ -6,6 +6,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **PROXY protocol (v1 and v2) on TCP listeners.** `TcpListener.proxyProtocol(true)`
+  (config `proxy-protocol`) requires every connection to begin with a
+  HAProxy PROXY header, as sent by an AWS Network Load Balancer or haproxy
+  or nginx in TCP mode, so the real client and destination are no longer
+  lost behind an L4 relay.
+  - The header is consumed before TLS on an implicit TLS listener and before
+    the protocol handler is connected, so SMTP's 220 greeting is not sent
+    until it has been read. A missing or malformed header, or one not
+    completed within `proxyHeaderTimeoutMs` (default 5 seconds, config
+    `proxy-header-timeout`), closes the connection.
+  - The header's source and destination become the endpoint's
+    `getRemoteAddress()` and `getLocalAddress()`, so SMTP's
+    `getClientAddress()` and `getServerAddress()` report them; XCLIENT, when
+    authorised, still overrides. v1 `UNKNOWN` and v2 `LOCAL` (NLB health
+    checks) keep the socket addresses.
+  - v2 TLVs are parsed strictly and exposed by `Endpoint.getProxyTlvs()`
+    (`ProxyTlvs`: ALPN, authority, unique ID, SSL, AWS VPC endpoint ID).
+  - `Endpoint.getTransportPeerAddress()` is the real TCP peer. Access
+    control, rate limits and `SmtpListener.isXclientAuthorized` keep judging
+    it, not the address the header asserts, so restrict a PROXY listener to
+    the relay's address ranges.
+
+### Changed
+
 ### Changed
 
 - **jsonparser 2.0.0.** Gumdrop now builds against jsonparser 2.0.0 (was

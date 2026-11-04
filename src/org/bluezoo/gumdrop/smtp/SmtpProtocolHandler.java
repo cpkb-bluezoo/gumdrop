@@ -1328,8 +1328,10 @@ public final class SmtpProtocolHandler
             return false;
         }
         try {
+            // The real transport peer, not a PROXY header's asserted client:
+            // only the relay itself may be trusted to override.
             InetSocketAddress clientAddr =
-                    (InetSocketAddress) endpoint.getRemoteAddress();
+                    (InetSocketAddress) endpoint.getTransportPeerAddress();
             if (clientAddr != null && server != null) {
                 return server.isXclientAuthorized(clientAddr.getAddress());
             }
