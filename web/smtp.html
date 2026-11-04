@@ -1052,6 +1052,54 @@ SmtpListener listener = new SmtpListener() {
 }.port(25);
 </pre>
 
+<h4>PROXY protocol (behind a load balancer)</h4>
+
+<p>
+XCLIENT needs an SMTP-aware proxy. An L4 relay such as an AWS Network Load
+Balancer, or haproxy or nginx in TCP mode, cannot speak it, so every session
+would appear to come from the relay and the address the client actually
+connected to would be lost. Such a relay can instead prepend a HAProxy PROXY
+protocol header (version 1 or 2) to each connection. Turn on
+<code>proxyProtocol(true)</code> (declarative name <code>proxy-protocol</code>)
+and enable proxy protocol v2 on the load balancer's target group:
+</p>
+
+<pre>
+SmtpListener listener = new SmtpListener()
+    .port(25);
+listener.proxyProtocol(true);
+</pre>
+
+<p>
+The header is read before TLS (on an implicit TLS listener) and before the
+session starts, so the <code>220</code> greeting is not sent until it has
+arrived. The listener fails closed: a connection that does not begin with a
+valid header, or does not complete one within
+<code>proxyHeaderTimeoutMs</code> (default 5 seconds, declarative name
+<code>proxy-header-timeout</code>), is closed. Only the first header is
+consumed; anything after it is ordinary session data.
+</p>
+
+<p>
+The header's source and destination become
+<code>getClientAddress()</code> and <code>getServerAddress()</code> in the
+connection information your handler sees, and the address literal in the
+greeting uses the destination. An authorised XCLIENT still overrides them.
+A v1 <code>UNKNOWN</code> or v2 <code>LOCAL</code> header, which load balancer
+health checks send, is accepted and leaves the socket's own addresses. Any v2
+TLVs (ALPN, authority, unique ID, TLS information, and the AWS VPC endpoint
+ID) are available from <code>Endpoint.getProxyTlvs()</code>.
+</p>
+
+<p>
+Access control, rate limits, connection limits and
+<code>isXclientAuthorized</code> always judge the real TCP peer, which is the
+relay, never the address the header asserts
+(<code>Endpoint.getTransportPeerAddress()</code>). A client that can reach a
+PROXY listener directly can assert any address, so restrict the listener to
+the relay's address ranges with <code>allowedNetworks</code>.
+</p>
+
 <h4>DSN - Delivery Status Notifications (RFC 3461)</h4>
 
 <p>
@@ -1287,6 +1335,8 @@ factory; required here or on a sole listener</li>
 <li><code>allowedNetworks(List&lt;CidrNetwork&gt;)</code> and
 <code>blockedNetworks(List&lt;CidrNetwork&gt;)</code> - CIDR allow and block lists</li>
 <li><code>idleTimeoutMs</code>, <code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - timeouts</li>
+<li><code>proxyProtocol(boolean)</code> and <code>proxyHeaderTimeoutMs(long)</code> - require a
+PROXY protocol header, and how long to wait for it (see above)</li>
 <li><code>maxNetInSize(int)</code> and <code>maxNetOutSize(int)</code> - network buffer sizes</li>
 <li><code>realm</code>, <code>mailboxFactory</code>, <code>authRequired</code>,
 <code>maxMessageSize</code>, <code>maxRecipients</code>,
