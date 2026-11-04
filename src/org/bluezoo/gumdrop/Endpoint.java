@@ -141,6 +141,30 @@ public interface Endpoint {
      */
     SocketAddress getRemoteAddress();
 
+    /**
+     * Returns the address of the peer the transport is actually connected
+     * to. This differs from {@link #getRemoteAddress()} only when a PROXY
+     * protocol header has replaced the remote address with the one a relay
+     * asserts; trust decisions (access control, rate limiting, whether a
+     * relay may override client details) must use this address, never the
+     * asserted one.
+     *
+     * @return the transport peer address
+     */
+    default SocketAddress getTransportPeerAddress() {
+        return getRemoteAddress();
+    }
+
+    /**
+     * Returns the TLVs from a PROXY protocol v2 header that preceded this
+     * connection, or null if there were none.
+     *
+     * @return the TLVs, or null
+     */
+    default ProxyTlvs getProxyTlvs() {
+        return null;
+    }
+
     // -- Security (transparent to protocol handlers) --
 
     /**

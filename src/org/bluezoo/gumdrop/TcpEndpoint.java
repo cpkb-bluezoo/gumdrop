@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.IOException;
 import java.net.Socket;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
@@ -166,6 +167,25 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
     };
 
+    // -- PROXY protocol (server endpoints on a PROXY listener only) --
+    // While proxyParser is non-null the connection is waiting for its PROXY
+    // header: the protocol handler has not been connected, no establishment
+    // timeouts are armed and the handler hears nothing, including of the
+    // connection closing. Once the header is consumed the asserted addresses
+    // replace the socket's in getRemoteAddress()/getLocalAddress().
+    private ProxyProtocolParser proxyParser;
+    private long proxyHeaderTimeoutMs;
+    private TimerHandle proxyHeaderTimeoutHandle;
+    private InetSocketAddress proxySource;
+    private InetSocketAddress proxyDestination;
+    private ProxyTlvs proxyTlvs;
+    private final Runnable proxyHeaderTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            onProxyHeaderTimeout();
+        }
+    };
+
     // -- Lifecycle --
 
     private volatile boolean initialized;
@@ -289,6 +309,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
         cancelHandshakeTimeout();
         cancelFirstByteTimeout();
+        cancelProxyHeaderTimeout();
         releaseBuffers();
         if (clientMode && selectorLoop != null) {
             Gumdrop gumdrop = selectorLoop.getGumdrop();
@@ -354,6 +375,20 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     void setListener(Listener listener, SocketAddress remoteAddress) {
         this.listener = listener;
         this.admissionAddress = remoteAddress;
+    }
+
+    /**
+     * Makes this server endpoint wait for a PROXY protocol header before
+     * anything else happens: the following {@link #connected()} only arms
+     * the header deadline, and the protocol handler is connected (and TLS
+     * begins) once the header has been consumed. Called by the accept loop
+     * before {@link #connected()} for a listener with PROXY protocol on.
+     *
+     * @param timeoutMs how long to wait for the complete header
+     */
+    void requireProxyHeader(long timeoutMs) {
+        proxyParser = new ProxyProtocolParser();
+        proxyHeaderTimeoutMs = timeoutMs;
     }
 
     /**
@@ -533,6 +568,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public SocketAddress getLocalAddress() {
+        if (proxyDestination != null) {
+            return proxyDestination;
+        }
         if (channel == null) {
             return new java.net.InetSocketAddress("localhost", 0);
         }
@@ -541,10 +579,23 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public SocketAddress getRemoteAddress() {
+        if (proxySource != null) {
+            return proxySource;
+        }
+        return getTransportPeerAddress();
+    }
+
+    @Override
+    public SocketAddress getTransportPeerAddress() {
         if (channel == null) {
             return new java.net.InetSocketAddress("unknown", 0);
         }
         return channel.socket().getRemoteSocketAddress();
+    }
+
+    @Override
+    public ProxyTlvs getProxyTlvs() {
+        return proxyTlvs;
     }
 
     @Override
@@ -780,6 +831,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      */
     final void processInbound() {
         updateLastActivity();
+        if (proxyParser != null && !consumeProxyHeader()) {
+            return;
+        }
         if (negotiatingTlsState != null) {
             negotiatingTlsState.unwrap();
         } else if (tlsState != null) {
@@ -800,6 +854,62 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             handler.receive(netIn);
             netIn.compact();
         }
+    }
+
+    /**
+     * Feeds the start of {@link #netIn} to the PROXY header parser. Returns
+     * true when the header is complete and the connection has been
+     * released to its protocol handler (or TLS) with whatever followed the
+     * header still in {@link #netIn}; false when more input is needed or the
+     * connection was closed.
+     */
+    private boolean consumeProxyHeader() {
+        boolean complete;
+        try {
+            complete = proxyParser.receive(netIn);
+        } catch (IOException e) {
+            events().warn("log.proxy_header_rejected")
+                    .attr("peer", String.valueOf(getTransportPeerAddress()))
+                    .attr("reason", e.getMessage()).emit();
+            close();
+            return false;
+        }
+        if (!complete) {
+            netIn.compact();
+            return false;
+        }
+        cancelProxyHeaderTimeout();
+        proxySource = proxyParser.getSource();
+        proxyDestination = proxyParser.getDestination();
+        proxyTlvs = proxyParser.getTlvs();
+        proxyParser = null;
+        connected();
+        if (closing || netIn == null) {
+            return false;
+        }
+        if (!netIn.hasRemaining()) {
+            netIn.compact();
+            return false;
+        }
+        return true;
+    }
+
+    private void cancelProxyHeaderTimeout() {
+        TimerHandle h = proxyHeaderTimeoutHandle;
+        if (h != null) {
+            proxyHeaderTimeoutHandle = null;
+            h.cancel();
+        }
+    }
+
+    private void onProxyHeaderTimeout() {
+        if (closing || proxyParser == null) {
+            return;
+        }
+        events().warn("log.proxy_header_timeout")
+                .attr("peer", String.valueOf(getTransportPeerAddress()))
+                .attr("timeout_ms", proxyHeaderTimeoutMs).emit();
+        close();
     }
 
     /**
@@ -981,7 +1091,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e, category);
             }
-            handler.error(e);
+            deliverError(e);
         } finally {
             try {
                 endTrace();
@@ -1010,7 +1120,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e, category);
             }
-            handler.error(e);
+            deliverError(e);
         } finally {
             try {
                 endTrace();
@@ -1030,7 +1140,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                 }
                 trace.getRootSpan().recordException(e, category);
             }
-            handler.error(e);
+            deliverError(e);
         } finally {
             try {
                 endTrace();
@@ -1056,7 +1166,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                 trace.getRootSpan().recordException(e,
                         ErrorCategory.INTERNAL_ERROR);
             }
-            handler.error(e);
+            deliverError(e);
         } finally {
             try {
                 endTrace();
@@ -1070,6 +1180,15 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      * Called by SelectorLoop when OP_CONNECT completes.
      */
     void connected() {
+        if (proxyParser != null) {
+            // Waiting for the PROXY header: nothing is connected, and no
+            // other timeout runs, until it has been read.
+            if (proxyHeaderTimeoutMs > 0 && proxyHeaderTimeoutHandle == null) {
+                proxyHeaderTimeoutHandle = scheduleTimer(
+                        proxyHeaderTimeoutMs, proxyHeaderTimeoutRunnable);
+            }
+            return;
+        }
         // Arm establishment timeouts for server endpoints. Secure endpoints
         // first bound the handshake; plaintext endpoints bound the wait for
         // the first inbound bytes. Client endpoints (listener == null) manage
@@ -1154,11 +1273,22 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
     }
 
+    private void deliverError(Exception e) {
+        if (proxyParser != null) {
+            return;
+        }
+        handler.error(e);
+    }
+
     void deliverDisconnected() {
         if (disconnectDelivered) {
             return;
         }
         disconnectDelivered = true;
+        if (proxyParser != null) {
+            // never connected to the handler, so it has nothing to be told
+            return;
+        }
         try {
             handler.disconnected();
         } catch (Exception e) {
