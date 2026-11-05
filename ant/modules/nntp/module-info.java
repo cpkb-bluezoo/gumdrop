@@ -8,4 +8,5 @@ module org.bluezoo.gumdrop.nntp {
 
     exports org.bluezoo.gumdrop.nntp;
     exports org.bluezoo.gumdrop.nntp.server;
+    exports org.bluezoo.gumdrop.nntp.client;
 }

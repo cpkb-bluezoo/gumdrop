@@ -60,7 +60,7 @@
  *   <li>{@link org.bluezoo.gumdrop.quic} - the QUIC transport HTTP/3 and DNS-over-QUIC run on</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp}, {@link org.bluezoo.gumdrop.pop3},
  *       {@link org.bluezoo.gumdrop.imap} - mail transfer and access protocols</li>
- *   <li>{@link org.bluezoo.gumdrop.nntp} - news (NNTP)</li>
+ *   <li>{@link org.bluezoo.gumdrop.nntp} - news (NNTP), server and client</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp} - file transfer</li>
  *   <li>{@link org.bluezoo.gumdrop.ldap.client} - directory access</li>
  *   <li>{@link org.bluezoo.gumdrop.dns} - DNS resolution and proxying</li>

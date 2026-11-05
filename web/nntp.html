@@ -41,7 +41,8 @@ kept in a <a href="mailbox.html">mailbox store</a>, so the same Maildir or mbox
 storage used by the <a href="imap.html">IMAP</a> and <a href="pop3.html">POP3</a>
 servers can be read as news. Like all Gumdrop protocol implementations, the
 NNTP server uses the event-driven, non-blocking architecture, and articles are
-streamed to the client in constant memory however large they are.
+streamed to the client in constant memory however large they are. An NNTP
+<a href="#client">client</a> is also provided.
 </p>
 
 <h3>Contents</h3>
@@ -51,6 +52,7 @@ streamed to the client in constant memory however large they are.
 <li><a href="#handlers">Handlers</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#security">Security</a></li>
+<li><a href="#client">Client</a></li>
 <li><a href="#limits">Limitations</a></li>
 </ul>
 
@@ -328,11 +330,97 @@ not accepted in the clear when TLS is available</li>
 without being buffered</li>
 </ul>
 
+<h3 id="client">Client</h3>
+
+<p>
+<code>org.bluezoo.gumdrop.nntp.client.NntpClient</code> connects to a news
+server. It reads the greeting and CAPABILITIES, upgrades with STARTTLS and logs
+in with AUTHINFO USER/PASS as configured, and then gives your
+<code>NntpClientHandler</code> an <code>NntpSession</code> to issue commands on.
+</p>
+
+<h4>NntpClient settings</h4>
+
+<ul>
+<li><code>new NntpClient(host, port)</code> - the server (119, or 563 for NNTPS)</li>
+<li><code>secure(boolean)</code> and <code>tls(TlsConfig)</code> - implicit TLS
+(NNTPS) and the TLS settings, such as trust</li>
+<li><code>startTls(NntpClient.StartTls)</code> - <code>NEVER</code> (default),
+<code>IF_OFFERED</code> (upgrade when the server offers it, otherwise carry on in
+the clear) or <code>REQUIRED</code> (fail if it is not offered)</li>
+<li><code>credentials(user, password)</code> - log in with AUTHINFO USER/PASS once
+TLS is set up as configured. With <code>IF_OFFERED</code> and a server that does
+not offer STARTTLS, the password is sent in the clear</li>
+<li><code>commandTimeoutMs(long)</code> - how long to wait for an answer
+(default 60 seconds; 0 waits for ever)</li>
+<li><code>selectorLoop</code> and <code>dnsResolver</code> - where to run and how to
+resolve the host</li>
+</ul>
+
+<h4>Session commands</h4>
+
+<p>
+Commands may be issued from any thread. They are sent one at a time, in the
+order issued, and each reports to a callback on the connection's event loop.
+</p>
+
+<ul>
+<li><code>group(name, callback)</code> - the group's count and article range</li>
+<li><code>stat(number, callback)</code> and <code>stat(messageId, callback)</code></li>
+<li><code>listActive(wildmat, entries, callback)</code> - one
+<code>NewsgroupEntry</code> per newsgroup as its line is read</li>
+<li><code>over(first, last, entries, callback)</code> - one
+<code>OverviewEntry</code> per article as its line is read</li>
+<li><code>article</code>, <code>head</code> and <code>body</code> - the text is
+passed to your <code>NntpConsumer&lt;ByteBuffer&gt;</code> dot-unstuffed, with line
+endings kept, in pieces of whatever size the connection delivers; the buffer is
+valid only during the call</li>
+<li><code>post(article, callback)</code> - the article with any line endings;
+dot-stuffing and the terminator are added</li>
+<li><code>command(line, multiline, content, callback)</code> - any other command;
+the callback gets the status whatever its code</li>
+<li><code>quit()</code> - the session takes no more commands and the connection
+is closed when the server has answered</li>
+</ul>
+
+<p>
+A command that the server refuses fails with an <code>NntpException</code>
+carrying the response code (0 if the connection itself failed).
+</p>
+
+<pre>
+new NntpClient("news.example.com", 119)
+        .startTls(NntpClient.StartTls.REQUIRED)
+        .credentials("alice", "secret")
+        .connect(gumdrop, new NntpClientHandler() {
+            public void connected(final NntpSession session, NntpGreeting greeting) {
+                session.listActive("comp.*", new NntpConsumer&lt;NewsgroupEntry&gt;() {
+                    public void accept(NewsgroupEntry group) {
+                        System.out.println(group.getName() + " " + group.getLow()
+                                + "-" + group.getHigh());
+                    }
+                }, new NntpCallback&lt;Void&gt;() {
+                    public void completed(Void result) {
+                        session.quit();
+                    }
+                    public void failed(NntpException error) {
+                        session.quit();
+                    }
+                });
+            }
+            public void error(Exception cause) { cause.printStackTrace(); }
+            public void disconnected() { }
+        });
+</pre>
+
 <h3 id="limits">Limitations</h3>
 
 <ul>
 <li>The server is a reader server. It does not accept articles from other
 servers (IHAVE) and has no NEWNEWS. AUTHINFO supports USER and PASS but not SASL</li>
+<li>The client does not do AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
+LIST ACTIVE or OVER entry is delivered once the line after it has begun to
+arrive (or the list ends), and an entry line over 64 KiB is skipped</li>
 <li>The stock handler's POST keeps the whole article in memory while it is
 received, so it limits articles to 1 MiB; a handler of your own can write the
 article out as it arrives (<code>PostSink</code>)</li>

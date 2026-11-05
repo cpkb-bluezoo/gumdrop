@@ -25,6 +25,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `PostSink` dot-unstuffed, in chunks; the stock handler appends it to the
     mailbox of each newsgroup it names.
   - Reader mode: no IHAVE, NEWNEWS or AUTHINFO SASL.
+  - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
+    STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,
+    STAT, ARTICLE, HEAD, BODY, LIST ACTIVE, OVER, POST and any other
+    command. Commands are queued from any thread and sent one at a time;
+    article text is delivered dot-unstuffed as it arrives, and LIST ACTIVE
+    and OVER results as parsed entries, so nothing is held whole.
   - Documented in `web/nntp.html`.
 - **uuencode in the MIME layer.** `MimeParser` decodes bodies sent with
   `Content-Transfer-Encoding: x-uuencode` (also `uuencode`, `x-uue`) as they

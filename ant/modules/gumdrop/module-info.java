@@ -58,6 +58,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.pop3.client;
     exports org.bluezoo.gumdrop.nntp;
     exports org.bluezoo.gumdrop.nntp.server;
+    exports org.bluezoo.gumdrop.nntp.client;
     exports org.bluezoo.gumdrop.imap;
     exports org.bluezoo.gumdrop.imap.server;
     exports org.bluezoo.gumdrop.imap.client;

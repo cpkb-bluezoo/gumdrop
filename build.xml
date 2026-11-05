@@ -1178,6 +1178,12 @@
     <integration-junit includes='**/pop3/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run NNTP integration tests -->
+  <target name='integration-test-nntp' depends='integration-build'
+          description='Run NNTP client and server integration tests'>
+    <integration-junit includes='**/nntp/**/*EndToEndTest.java'/>
+  </target>
+
   <!-- Run IMAP integration tests -->
   <target name='integration-test-imap' depends='integration-build'
           description='Run IMAP server integration tests'>
