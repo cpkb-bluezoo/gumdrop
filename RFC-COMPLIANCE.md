@@ -1496,7 +1496,7 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 | Overview fields unfolded, tab and line breaks replaced | 3977 §8.3.2 | Compliant | |
 | STARTTLS | 4642 | Compliant | 382, then `startTLS()`; state is reset; 502 if already secure, 580 if unavailable |
 | AUTHINFO USER/PASS | 4643 §2.3 | Compliant | 381, 281, 481, 482, 483 (encryption required), 480 when authentication is required |
-| AUTHINFO SASL | 4643 §2.4 | Not implemented | |
+| AUTHINFO SASL | 4643 §2.4 | Partial | PLAIN, LOGIN and EXTERNAL (secure connections only) and SCRAM-SHA-256; 383 challenges, `=` and `*`, 283 with final data, 504, 483 |
 | Implicit TLS (NNTPS, port 563) | 8143 | Compliant | `NntpListener` secure mode |
 
 ## NNTP Client — RFC 3977
@@ -1509,7 +1509,7 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 | CAPABILITIES | 3977 §5.2 | Compliant | Read before and after STARTTLS; a server without it is tolerated |
 | STARTTLS | 4642 | Compliant | `NEVER`, `IF_OFFERED` or `REQUIRED`; capabilities re-read afterwards |
 | AUTHINFO USER/PASS | 4643 §2.3 | Compliant | 381 then 281, or 281 at once |
-| AUTHINFO SASL | 4643 §2.4 | Not implemented | |
+| AUTHINFO SASL | 4643 §2.4 | Partial | SCRAM-SHA-256, PLAIN, EXTERNAL, OAUTHBEARER and XOAUTH2 through `saslMechanism()`; no GSSAPI |
 | GROUP, STAT | 3977 §6.1.1, §6.2.4 | Compliant | Typed results |
 | ARTICLE, HEAD, BODY | 3977 §6.2 | Compliant | Dot-unstuffed, streamed in chunks |
 | LIST ACTIVE | 3977 §7.6.3 | Compliant | One callback per newsgroup |

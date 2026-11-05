@@ -23,18 +23,32 @@ package org.bluezoo.gumdrop.nntp;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.security.MessageDigest;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.EnumSet;
 import java.util.Set;
+
+import javax.crypto.Mac;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.Before;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.nntp.NntpProtocolHandlerTest.StubEndpoint;
 import org.bluezoo.gumdrop.nntp.NntpProtocolHandlerTest.StubFactory;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -52,6 +66,10 @@ public class NntpPostAuthTest {
             "From: a@example.com\r\nSubject: Hi\r\nNewsgroups: test.group,no.such\r\n"
             + "\r\nHello\r\n.dot\r\nlast\r\n";
 
+    private static final byte[] SALT = "saltsaltsalt".getBytes(StandardCharsets.UTF_8);
+    private static final Realm.ScramCredentials CREDENTIALS =
+            Realm.ScramCredentials.derive("secret", SALT, 4096, "SHA-256");
+
     private static final class TestRealm implements Realm {
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -60,7 +78,19 @@ public class NntpPostAuthTest {
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
-            return Collections.emptySet();
+            return EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN, SaslMechanism.SCRAM_SHA_256,
+                    SaslMechanism.EXTERNAL);
+        }
+
+        @Override
+        public void getScramCredentials(String user, RealmCallback<Realm.ScramCredentials> callback) {
+            callback.completed(user.equals("alice") ? CREDENTIALS : null);
+        }
+
+        @Override
+        public void authenticateCertificate(X509Certificate certificate,
+                RealmCallback<Realm.CertificateAuthenticationResult> callback) {
+            callback.completed(Realm.CertificateAuthenticationResult.success("alice"));
         }
 
         @Override
@@ -237,7 +267,7 @@ public class NntpPostAuthTest {
     public void testAuthinfoUserPass() {
         listener.realm(new TestRealm());
         connect();
-        assertTrue(exchange("CAPABILITIES").contains("\r\nAUTHINFO USER\r\n"));
+        assertTrue(exchange("CAPABILITIES").contains("\r\nAUTHINFO USER SASL\r\n"));
         assertEquals("482 AUTHINFO USER required first\r\n", exchange("AUTHINFO PASS secret"));
         assertEquals("381 Password required\r\n", exchange("AUTHINFO USER alice"));
         assertEquals("281 Authentication accepted\r\n", exchange("AUTHINFO PASS secret"));
@@ -291,5 +321,241 @@ public class NntpPostAuthTest {
         exchange("AUTHINFO USER alice");
         exchange("AUTHINFO PASS secret");
         assertEquals("211 1 1 1 test.group\r\n", exchange("GROUP test.group"));
+    }
+
+    // ── AUTHINFO SASL ──
+
+    private static String b64(String text) {
+        return Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String plain(String user, String password) {
+        return b64("\0" + user + "\0" + password);
+    }
+
+    @Test
+    public void testSaslMechanismsAreAdvertisedAccordingToTls() {
+        listener.realm(new TestRealm());
+        connect();
+        String clear = exchange("CAPABILITIES");
+        assertTrue(clear, clear.contains("\r\nAUTHINFO USER SASL\r\n"));
+        assertTrue(clear, clear.contains("\r\nSASL SCRAM-SHA-256\r\n"));
+        assertFalse(clear, clear.contains("EXTERNAL"));
+        endpoint.secure = true;
+        assertTrue(exchange("CAPABILITIES").contains("\r\nSASL PLAIN LOGIN SCRAM-SHA-256 EXTERNAL\r\n"));
+    }
+
+    @Test
+    public void testSaslPlainWithInitialResponse() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("281 Authentication accepted\r\n",
+                exchange("AUTHINFO SASL PLAIN " + plain("alice", "secret")));
+        assertEquals("502 Already authenticated\r\n", exchange("AUTHINFO SASL PLAIN " + plain("alice", "secret")));
+    }
+
+    @Test
+    public void testSaslPlainWithChallenge() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("383 =\r\n", exchange("AUTHINFO SASL PLAIN"));
+        assertEquals("281 Authentication accepted\r\n", exchange(plain("alice", "secret")));
+    }
+
+    @Test
+    public void testSaslPlainWrongPassword() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("481 Authentication failed\r\n",
+                exchange("AUTHINFO SASL PLAIN " + plain("alice", "wrong")));
+    }
+
+    @Test
+    public void testSaslPlainRefusedInTheClear() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("483 Encryption required\r\n", exchange("AUTHINFO SASL PLAIN " + plain("alice", "secret")));
+    }
+
+    @Test
+    public void testSaslUnknownMechanism() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("504 Mechanism not supported\r\n", exchange("AUTHINFO SASL FROBNICATE"));
+        assertEquals("501 SASL mechanism required\r\n", exchange("AUTHINFO SASL"));
+    }
+
+    @Test
+    public void testSaslCancelAndDataIsNotACommand() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        exchange("AUTHINFO SASL PLAIN");
+        assertEquals("481 Authentication exchange cancelled\r\n", exchange("*"));
+        // commands are commands again
+        assertTrue(exchange("DATE").startsWith("111 "));
+        // while an exchange is open a line that looks like a command is data
+        exchange("AUTHINFO SASL PLAIN");
+        String r = exchange("QUIT");
+        assertTrue(r, r.startsWith("481 "));
+        assertTrue(endpoint.open);
+    }
+
+    @Test
+    public void testSaslScram() throws Exception {
+        listener.realm(new TestRealm());
+        connect();
+        String clientNonce = "rOprNGfwEbeRWgbNEkqO";
+        String bare = "n=alice,r=" + clientNonce;
+        String r = exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,," + bare));
+        assertTrue(r, r.startsWith("383 "));
+        String serverFirst = new String(Base64.getDecoder().decode(r.substring(4).trim()), StandardCharsets.UTF_8);
+        String nonce = null;
+        int iterations = 0;
+        String[] attrs = serverFirst.split(",");
+        for (int i = 0; i < attrs.length; i++) {
+            if (attrs[i].startsWith("r=")) {
+                nonce = attrs[i].substring(2);
+            } else if (attrs[i].startsWith("i=")) {
+                iterations = Integer.parseInt(attrs[i].substring(2));
+            }
+        }
+        assertTrue(nonce.startsWith(clientNonce));
+        byte[] salted = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(new PBEKeySpec("secret".toCharArray(), SALT, iterations, 256)).getEncoded();
+        byte[] clientKey = hmac(salted, "Client Key");
+        byte[] storedKey = MessageDigest.getInstance("SHA-256").digest(clientKey);
+        String finalNoProof = "c=biws,r=" + nonce;
+        String authMessage = bare + "," + serverFirst + "," + finalNoProof;
+        byte[] signature = hmac(storedKey, authMessage);
+        byte[] proof = new byte[signature.length];
+        for (int i = 0; i < proof.length; i++) {
+            proof[i] = (byte) (clientKey[i] ^ signature[i]);
+        }
+        String clientFinal = finalNoProof + ",p=" + Base64.getEncoder().encodeToString(proof);
+        r = exchange(b64(clientFinal));
+        assertTrue(r, r.startsWith("283 "));
+        byte[] serverSignature = hmac(hmac(salted, "Server Key"), authMessage);
+        assertEquals("v=" + Base64.getEncoder().encodeToString(serverSignature),
+                new String(Base64.getDecoder().decode(r.substring(4).trim()), StandardCharsets.UTF_8));
+        assertFalse(exchange("CAPABILITIES").contains("AUTHINFO"));
+    }
+
+    @Test
+    public void testSaslScramUnknownUserAndBadProof() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("481 Authentication failed\r\n",
+                exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,,n=nobody,r=abc")));
+        exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,,n=alice,r=abc"));
+        assertEquals("481 Authentication failed\r\n", exchange(b64("c=biws,r=abcX,p=AAAA")));
+        assertEquals("501 Invalid SCRAM message\r\n",
+                exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("y,,n=alice,r=abc")));
+    }
+
+    @Test
+    public void testSaslFailureThenSuccess() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("481 Authentication failed\r\n",
+                exchange("AUTHINFO SASL PLAIN " + plain("alice", "wrong")));
+        assertEquals("281 Authentication accepted\r\n",
+                exchange("AUTHINFO SASL PLAIN " + plain("alice", "secret")));
+    }
+
+    @Test
+    public void testSaslLoginAsksForUserThenPassword() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("383 " + b64("Username:") + "\r\n", exchange("AUTHINFO SASL LOGIN"));
+        assertEquals("383 " + b64("Password:") + "\r\n", exchange(b64("alice")));
+        assertEquals("281 Authentication accepted\r\n", exchange(b64("secret")));
+    }
+
+    @Test
+    public void testSaslLoginWithInitialResponseAndWrongPassword() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("383 " + b64("Password:") + "\r\n", exchange("AUTHINFO SASL LOGIN " + b64("alice")));
+        assertEquals("481 Authentication failed\r\n", exchange(b64("wrong")));
+    }
+
+    @Test
+    public void testSaslLoginRefusedInTheClear() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("483 Encryption required\r\n", exchange("AUTHINFO SASL LOGIN"));
+    }
+
+    /** A secure endpoint that presents a client certificate. */
+    private void secureWithCertificate() throws Exception {
+        final Certificate[] certs = {TestCertificates.ec256().getCertificate()};
+        final SecurityInfo info = (SecurityInfo) Proxy.newProxyInstance(
+                SecurityInfo.class.getClassLoader(), new Class<?>[] {SecurityInfo.class},
+                new InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) {
+                        return method.getName().equals("getPeerCertificates") ? certs : null;
+                    }
+                });
+        endpoint = new StubEndpoint() {
+            @Override
+            public SecurityInfo getSecurityInfo() {
+                return info;
+            }
+        };
+        endpoint.secure = true;
+        handler = new NntpProtocolHandler(listener);
+        handler.connected(endpoint);
+        handler.securityEstablished(info); // implicit TLS: the greeting follows the handshake
+        take();
+    }
+
+    @Test
+    public void testSaslExternalUsesTheClientCertificate() throws Exception {
+        listener.realm(new TestRealm());
+        secureWithCertificate();
+        assertEquals("383 =\r\n", exchange("AUTHINFO SASL EXTERNAL"));
+        assertEquals("281 Authentication accepted\r\n", exchange("="));
+        assertEquals("211 1 1 1 test.group\r\n", exchange("GROUP test.group"));
+        assertEquals("alice", factory.lastStore.user);
+    }
+
+    @Test
+    public void testSaslExternalWithInitialResponse() throws Exception {
+        listener.realm(new TestRealm());
+        secureWithCertificate();
+        assertEquals("281 Authentication accepted\r\n", exchange("AUTHINFO SASL EXTERNAL ="));
+    }
+
+    @Test
+    public void testSaslExternalWithoutACertificateFails() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true; // secure, but the stub presents no certificate
+        assertEquals("481 Authentication failed\r\n", exchange("AUTHINFO SASL EXTERNAL ="));
+    }
+
+    @Test
+    public void testSaslExternalNeedsTls() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("483 Encryption required\r\n", exchange("AUTHINFO SASL EXTERNAL"));
+    }
+
+    private static byte[] hmac(byte[] key, String data) throws RuntimeException {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(key, "HmacSHA256"));
+            return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
+        } catch (java.security.GeneralSecurityException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

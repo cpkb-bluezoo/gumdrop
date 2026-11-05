@@ -124,9 +124,13 @@ public class NntpClientTest {
     }
 
     private void start(String user, String password, StartTls tls) {
+        start(user, password, tls, null);
+    }
+
+    private void start(String user, String password, StartTls tls, String sasl) {
         endpoint = new RecordingStubEndpoint();
         events = new Events();
-        handler = new NntpClientProtocolHandler(events, user, password, tls, 0);
+        handler = new NntpClientProtocolHandler(events, user, password, tls, 0, sasl, "news.example.com");
         handler.connected(endpoint);
     }
 
@@ -262,6 +266,60 @@ public class NntpClientTest {
     public void testStartTlsRefusedWhenRequired() {
         start(null, null, StartTls.REQUIRED);
         server("200 hi\r\n101 caps\r\nSTARTTLS\r\n.\r\n580 no\r\n");
+        assertNotNull(events.error);
+    }
+
+    // ── AUTHINFO SASL ──
+
+    @Test
+    public void testSaslPlain() {
+        start("alice", "secret", StartTls.NEVER, "PLAIN");
+        server("200 hi\r\n");
+        sent();
+        server("101 caps\r\nAUTHINFO USER SASL\r\nSASL PLAIN SCRAM-SHA-256\r\n.\r\n");
+        String expected = "AUTHINFO SASL PLAIN " + java.util.Base64.getEncoder()
+                .encodeToString("\0alice\0secret".getBytes(StandardCharsets.UTF_8));
+        assertEquals(java.util.Arrays.asList(expected), sent());
+        server("281 ok\r\n");
+        assertNotNull(events.session);
+        assertTrue(events.greeting.isAuthenticated());
+    }
+
+    @Test
+    public void testSaslMechanismNotOffered() {
+        start("alice", "secret", StartTls.NEVER, "PLAIN");
+        server("200 hi\r\n101 caps\r\nSASL SCRAM-SHA-256\r\n.\r\n");
+        assertNull(events.session);
+        assertNotNull(events.error);
+    }
+
+    @Test
+    public void testSaslUnknownMechanism() {
+        start("alice", "secret", StartTls.NEVER, "FROBNICATE");
+        server("200 hi\r\n101 caps\r\n.\r\n");
+        assertNotNull(events.error);
+    }
+
+    @Test
+    public void testSaslRejected() {
+        start("alice", "wrong", StartTls.NEVER, "PLAIN");
+        server("200 hi\r\n101 caps\r\nSASL PLAIN\r\n.\r\n481 no\r\n");
+        assertNull(events.session);
+        assertEquals(481, ((NntpException) events.error).getCode());
+    }
+
+    @Test
+    public void testSaslChallengeIsAnswered() {
+        // OAUTHBEARER answers a failure challenge with a single 0x01 (RFC 7628)
+        start("alice", "token", StartTls.NEVER, "OAUTHBEARER");
+        server("200 hi\r\n");
+        sent();
+        server("101 caps\r\nSASL OAUTHBEARER\r\n.\r\n");
+        assertTrue(sent().get(0).startsWith("AUTHINFO SASL OAUTHBEARER "));
+        server("383 " + java.util.Base64.getEncoder().encodeToString("{\"status\":\"invalid_token\"}"
+                .getBytes(StandardCharsets.UTF_8)) + "\r\n");
+        assertEquals(java.util.Arrays.asList("AQ=="), sent());
+        server("481 no\r\n");
         assertNotNull(events.error);
     }
 

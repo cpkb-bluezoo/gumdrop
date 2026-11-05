@@ -44,6 +44,7 @@ import org.junit.rules.Timeout;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.ListenerBindCheck;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.mailbox.Flag;
@@ -85,21 +86,25 @@ public class NntpClientEndToEndTest {
     @Before
     public void setUp() throws Exception {
         root = Files.createTempDirectory("nntp-e2e");
-        Path user = root.resolve("news");
-        Files.createDirectories(user.resolve("cur"));
-        Files.createDirectories(user.resolve("new"));
-        Files.createDirectories(user.resolve("tmp"));
-        MaildirMailboxFactory factory = new MaildirMailboxFactory(root);
-        MailboxStore store = factory.createStore();
-        store.open("news");
-        store.createMailbox("comp/lang/java");
-        Mailbox mailbox = store.openMailbox("comp/lang/java", false);
-        append(mailbox, "Subject: Hello\r\nFrom: ann@example.com\r\nDate: Tue, 2 Jan 2024 10:00:00 +0000\r\n"
-                + "Message-ID: <a1@example.com>\r\n\r\nFirst body\r\n.starts with a dot\r\n");
-        append(mailbox, "Subject: Re: Hello\r\nFrom: bob@example.com\r\nMessage-ID: <a2@example.com>\r\n"
-                + "References: <a1@example.com>\r\n\r\nSecond body\r\n");
-        mailbox.close(false);
-        store.close();
+        // the store is opened for the logged-in user, so both users have the groups
+        String[] users = {"news", "alice"};
+        for (int u = 0; u < users.length; u++) {
+            Path user = root.resolve(users[u]);
+            Files.createDirectories(user.resolve("cur"));
+            Files.createDirectories(user.resolve("new"));
+            Files.createDirectories(user.resolve("tmp"));
+            MaildirMailboxFactory factory = new MaildirMailboxFactory(root);
+            MailboxStore store = factory.createStore();
+            store.open(users[u]);
+            store.createMailbox("comp/lang/java");
+            Mailbox mailbox = store.openMailbox("comp/lang/java", false);
+            append(mailbox, "Subject: Hello\r\nFrom: ann@example.com\r\nDate: Tue, 2 Jan 2024 10:00:00 +0000\r\n"
+                    + "Message-ID: <a1@example.com>\r\n\r\nFirst body\r\n.starts with a dot\r\n");
+            append(mailbox, "Subject: Re: Hello\r\nFrom: bob@example.com\r\nMessage-ID: <a2@example.com>\r\n"
+                    + "References: <a1@example.com>\r\n\r\nSecond body\r\n");
+            mailbox.close(false);
+            store.close();
+        }
     }
 
     private void startServer(boolean authRequired) throws Exception {
@@ -317,8 +322,7 @@ public class NntpClientEndToEndTest {
             }
         });
         assertTrue(loggedIn.greeting.isAuthenticated());
-        assertTrue(loggedIn.log.toString(), loggedIn.log.contains("group failed 411")
-                || loggedIn.log.contains("group ok"));
+        assertTrue(loggedIn.log.toString(), loggedIn.log.contains("group ok 2 1 2 " + GROUP));
     }
 
     @Test
@@ -340,11 +344,56 @@ public class NntpClientEndToEndTest {
         assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
     }
 
+    @Test
+    public void testScramLogin() throws Exception {
+        startServer(true);
+        Script s = run(new Script() {
+            @Override
+            void configure(NntpClient client) {
+                client.credentials("alice", "secret").saslMechanism("SCRAM-SHA-256");
+            }
+
+            @Override
+            void run(NntpSession session) {
+                session.group(GROUP, this.<GroupResult>record("group", null));
+                session.quit();
+            }
+        });
+        assertTrue(s.log.toString(), s.greeting.isAuthenticated());
+        assertTrue(s.log.toString(), s.log.contains("group ok 2 1 2 " + GROUP));
+    }
+
+    @Test
+    public void testScramWrongPasswordIsAnError() throws Exception {
+        startServer(true);
+        Script s = run(new Script() {
+            @Override
+            void configure(NntpClient client) {
+                client.credentials("alice", "wrong").saslMechanism("SCRAM-SHA-256");
+            }
+
+            @Override
+            void run(NntpSession session) {
+                session.quit();
+            }
+        });
+        assertFalse(s.log.toString(), s.log.contains("connected"));
+        assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
+    }
+
     private static final class TestRealm implements SynchronousRealm {
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
-            return Collections.emptySet();
+            return Collections.singleton(SaslMechanism.SCRAM_SHA_256);
+        }
+
+        @Override
+        public Realm.ScramCredentials getScramCredentials(String username) {
+            return "alice".equals(username)
+                    ? Realm.ScramCredentials.derive("secret", "0123456789abcdef".getBytes(StandardCharsets.UTF_8),
+                            4096, "SHA-256")
+                    : null;
         }
 
         @Override

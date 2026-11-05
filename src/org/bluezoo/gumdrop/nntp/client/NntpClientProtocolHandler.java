@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
@@ -34,6 +35,8 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.nntp.client.NntpClient.StartTls;
 import org.bluezoo.gumdrop.nntp.client.NntpCommand.Block;
@@ -63,13 +66,16 @@ final class NntpClientProtocolHandler
     /** The longest LIST ACTIVE or OVER line kept; a longer one is skipped. */
     private static final int MAX_ENTRY_LINE = 65536;
 
-    private enum Phase { GREETING, CAPABILITIES, STARTTLS, PENDING_TLS, AUTH_USER, AUTH_PASS, READY, CLOSED }
+    private enum Phase { GREETING, CAPABILITIES, STARTTLS, PENDING_TLS, AUTH_USER, AUTH_PASS, AUTH_SASL, READY, CLOSED }
 
     private final NntpClientHandler handler;
     private final String user;
     private final String password;
     private final StartTls tlsMode;
     private final long commandTimeoutMs;
+    private final String saslMechanism;
+    private final String host;
+    private SaslClientMechanism saslClient;
 
     private Endpoint endpoint;
     private Phase phase = Phase.GREETING;
@@ -104,7 +110,8 @@ final class NntpClientProtocolHandler
     private boolean lineOverflow;
 
     NntpClientProtocolHandler(NntpClientHandler handler, String user, String password,
-                              StartTls tlsMode, long commandTimeoutMs) {
+                              StartTls tlsMode, long commandTimeoutMs, String saslMechanism,
+                              String host) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
@@ -113,6 +120,8 @@ final class NntpClientProtocolHandler
         this.password = password;
         this.tlsMode = tlsMode;
         this.commandTimeoutMs = commandTimeoutMs;
+        this.saslMechanism = saslMechanism;
+        this.host = host;
     }
 
     private EventLogger events() {
@@ -274,6 +283,9 @@ final class NntpClientProtocolHandler
             case AUTH_PASS:
                 onAuthPass(s);
                 break;
+            case AUTH_SASL:
+                onAuthSasl(s);
+                break;
             case READY:
                 onCommandReply(s);
                 break;
@@ -330,6 +342,10 @@ final class NntpClientProtocolHandler
     }
 
     private void login() {
+        if (saslMechanism != null) {
+            startSasl();
+            return;
+        }
         if (user == null) {
             ready();
             return;
@@ -357,6 +373,83 @@ final class NntpClientProtocolHandler
         } else {
             fail(new NntpException(s.getCode(), "AUTHINFO PASS: " + s));
         }
+    }
+
+    // ── AUTHINFO SASL (RFC 4643 section 2.4) ──
+
+    private void startSasl() {
+        saslClient = SaslUtils.createClient(saslMechanism, user, password, host);
+        if (saslClient == null) {
+            fail(new IOException("SASL mechanism not supported by the client: " + saslMechanism));
+            return;
+        }
+        if (!capabilities.isEmpty() && !offersSasl(saslClient.getMechanismName())) {
+            fail(new IOException("server does not offer SASL " + saslClient.getMechanismName()));
+            return;
+        }
+        phase = Phase.AUTH_SASL;
+        String line = "AUTHINFO SASL " + saslClient.getMechanismName();
+        try {
+            if (saslClient.hasInitialResponse()) {
+                line += " " + encode(saslClient.evaluateChallenge(new byte[0]));
+            }
+        } catch (IOException e) {
+            fail(e);
+            return;
+        }
+        send(line);
+    }
+
+    private boolean offersSasl(String mechanism) {
+        for (int i = 0; i < capabilities.size(); i++) {
+            String cap = capabilities.get(i);
+            if (cap.startsWith("SASL ")) {
+                String[] words = cap.split(" ");
+                for (int j = 1; j < words.length; j++) {
+                    if (words[j].equalsIgnoreCase(mechanism)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private void onAuthSasl(NntpStatus s) {
+        try {
+            switch (s.getCode()) {
+                case 281:
+                    authenticated = true;
+                    ready();
+                    break;
+                case 283:
+                    // success with final server data, which the mechanism checks
+                    saslClient.evaluateChallenge(decode(s.getText()));
+                    authenticated = true;
+                    ready();
+                    break;
+                case 383:
+                    send(encode(saslClient.evaluateChallenge(decode(s.getText()))));
+                    break;
+                default:
+                    fail(new NntpException(s.getCode(), "AUTHINFO SASL: " + s));
+                    break;
+            }
+        } catch (IOException e) {
+            fail(e);
+        } catch (IllegalArgumentException e) {
+            fail(new IOException("malformed SASL data from the server"));
+        }
+    }
+
+    /** RFC 4643 section 2.4.1: base64, with "=" for no data. */
+    private static String encode(byte[] data) {
+        return data == null || data.length == 0 ? "=" : Base64.getEncoder().encodeToString(data);
+    }
+
+    private static byte[] decode(String text) {
+        String t = text.trim();
+        return t.equals("=") || t.isEmpty() ? new byte[0] : Base64.getDecoder().decode(t);
     }
 
     private void ready() {

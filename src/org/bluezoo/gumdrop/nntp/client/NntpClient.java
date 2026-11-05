@@ -78,6 +78,7 @@ public class NntpClient {
     private String user;
     private String password;
     private long commandTimeoutMs = DEFAULT_COMMAND_TIMEOUT_MS;
+    private String saslMechanism;
 
     private NntpClientProtocolHandler connection;
     private ClientEndpoint clientEndpoint;
@@ -156,6 +157,21 @@ public class NntpClient {
     }
 
     /**
+     * Logs in with AUTHINFO SASL (RFC 4643 section 2.4) using this mechanism
+     * instead of AUTHINFO USER/PASS. The mechanisms the client can drive are
+     * those of {@link org.bluezoo.gumdrop.auth.SaslUtils#createClient}:
+     * PLAIN, EXTERNAL, OAUTHBEARER (the password is the access token) and
+     * XOAUTH2. The server must offer it. PLAIN is best used under TLS.
+     *
+     * @param mechanism the mechanism name
+     * @return this client
+     */
+    public NntpClient saslMechanism(String mechanism) {
+        this.saslMechanism = mechanism;
+        return this;
+    }
+
+    /**
      * Sets how long to wait for the server to answer a command; 0 waits
      * forever. Default 60 seconds.
      *
@@ -219,12 +235,12 @@ public class NntpClient {
      */
     public void connect(final Gumdrop gumdrop, final NntpClientHandler handler) {
         dial.requireTarget();
-        if (user != null && password == null) {
+        if (user != null && password == null && saslMechanism == null) {
             throw new IllegalStateException("a user name needs a password");
         }
         final TcpTransportFactory transportFactory = new TcpTransportFactory();
         connection = new NntpClientProtocolHandler(handler, user, password, startTls,
-                commandTimeoutMs);
+                commandTimeoutMs, saslMechanism, dial.getHost());
         final NntpClientProtocolHandler protocol = connection;
         ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
             @Override

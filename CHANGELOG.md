@@ -24,7 +24,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `NntpListener.authenticationRequired`. A posted article reaches a
     `PostSink` dot-unstuffed, in chunks; the stock handler appends it to the
     mailbox of each newsgroup it names.
-  - Reader mode: no IHAVE, NEWNEWS or AUTHINFO SASL.
+  - AUTHINFO SASL (RFC 4643 section 2.4): the server offers PLAIN, LOGIN and
+    EXTERNAL (secure connections only) and SCRAM-SHA-256 from the realm's
+    mechanisms; the client
+    drives SCRAM-SHA-256, PLAIN, EXTERNAL, OAUTHBEARER and XOAUTH2 with
+    `NntpClient.saslMechanism`.
+- **SCRAM-SHA-256 client mechanism (RFC 5802, RFC 7677).**
+  `SaslUtils.createClient("SCRAM-SHA-256", user, password, host)` now returns
+  a client mechanism (no channel binding), checked against the RFC 7677 test
+  vector and the server-side helpers. It verifies the server's signature,
+  checks that the server's nonce extends its own and refuses more than a
+  million PBKDF2 iterations. Available to every client that drives SASL
+  through `SaslUtils.createClient`.
+  - Reader mode: no IHAVE or NEWNEWS.
   - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
     STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,
     STAT, ARTICLE, HEAD, BODY, LIST ACTIVE, OVER, POST and any other

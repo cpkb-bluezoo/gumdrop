@@ -48,6 +48,8 @@ import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.RealmCallback;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -105,6 +107,9 @@ public final class NntpProtocolHandler
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
 
+    /** Where an AUTHINFO SASL exchange has got to. */
+    private enum Sasl { NONE, PLAIN, LOGIN_USER, LOGIN_PASS, EXTERNAL, SCRAM_FIRST, SCRAM_FINAL }
+
     /** The commands this server implements. */
     enum Command {
         CAPABILITIES, MODE, QUIT, DATE, HELP,
@@ -120,12 +125,15 @@ public final class NntpProtocolHandler
         final String unknownText;
         final String args;
         final String error;
+        /** The line as sent, for SASL data, which is case sensitive and not a command. */
+        final String raw;
 
-        Line(Command command, String unknownText, String args, String error) {
+        Line(Command command, String unknownText, String args, String error, String raw) {
             this.command = command;
             this.unknownText = unknownText;
             this.args = args;
             this.error = error;
+            this.raw = raw;
         }
     }
 
@@ -142,6 +150,10 @@ public final class NntpProtocolHandler
     private String authUser;
     private String pendingUser;
     private boolean authBusy;
+    private Sasl sasl = Sasl.NONE;
+    private String saslUser;
+    private String saslNonce;
+    private String saslChallenge;
 
     // An article being posted (RFC 3977 section 6.3.1)
     private PostSink postSink;
@@ -185,6 +197,7 @@ public final class NntpProtocolHandler
             .onUnmappableCharacter(CodingErrorAction.REPORT);
     private Command pendingCommand = Command.UNKNOWN;
     private String pendingUnknownText = "";
+    private String pendingKeyword = "";
     private final StringBuilder argsBuilder = new StringBuilder();
     private int lineByteCount;
     private String lineErrorMessage;
@@ -262,6 +275,7 @@ public final class NntpProtocolHandler
                 if (lineErrorMessage == null) {
                     try {
                         String keyword = decode(window);
+                        pendingKeyword = keyword;
                         pendingCommand = matchCommand(keyword);
                         if (pendingCommand == Command.UNKNOWN) {
                             pendingUnknownText = keyword.toUpperCase(Locale.ENGLISH);
@@ -318,6 +332,7 @@ public final class NntpProtocolHandler
     private void resetLineState() {
         pendingCommand = Command.UNKNOWN;
         pendingUnknownText = "";
+        pendingKeyword = "";
         argsBuilder.setLength(0);
         lineByteCount = 0;
         lineErrorMessage = null;
@@ -340,8 +355,9 @@ public final class NntpProtocolHandler
     }
 
     private void lineComplete() {
-        Line line = new Line(pendingCommand, pendingUnknownText,
-                argsBuilder.toString().trim(), lineErrorMessage);
+        String args = argsBuilder.toString().trim();
+        Line line = new Line(pendingCommand, pendingUnknownText, args, lineErrorMessage,
+                args.isEmpty() ? pendingKeyword : pendingKeyword + " " + args);
         resetLineState();
         if (busy) {
             queue.add(line);
@@ -419,6 +435,16 @@ public final class NntpProtocolHandler
     // ── Command dispatch ──
 
     private void execute(Line line) {
+        if (sasl != Sasl.NONE) {
+            // inside an AUTHINFO SASL exchange the line is data, not a command
+            if (line.error != null) {
+                sasl = Sasl.NONE;
+                sendStatus(501, line.error);
+                return;
+            }
+            saslData(line.raw);
+            return;
+        }
         if (line.error != null) {
             sendStatus(501, line.error);
             return;
@@ -507,11 +533,18 @@ public final class NntpProtocolHandler
             sb.append("STARTTLS\r\n");
         }
         if (authAvailable() && authUser == null) {
+            String mechanisms = saslMechanisms();
             sb.append("AUTHINFO");
             if (authAllowedHere()) {
                 sb.append(" USER");
             }
+            if (!mechanisms.isEmpty()) {
+                sb.append(" SASL");
+            }
             sb.append("\r\n");
+            if (!mechanisms.isEmpty()) {
+                sb.append("SASL").append(mechanisms).append("\r\n");
+            }
         }
         sb.append("LIST ACTIVE NEWSGROUPS OVERVIEW.FMT\r\n");
         sb.append("OVER\r\n");
@@ -1366,6 +1399,8 @@ public final class NntpProtocolHandler
                 return;
             }
             authenticate(pendingUser, value);
+        } else if (sub.equals("SASL")) {
+            startSasl(value);
         } else {
             sendStatus(501, L10N.getString("nntp.err.unknown_authinfo"));
         }
@@ -1410,6 +1445,11 @@ public final class NntpProtocolHandler
     }
 
     private void authenticated(String user, boolean ok) {
+        authenticated(user, ok, null);
+    }
+
+    /** @param serverFinal base64 data to send with the success (283), or null for a plain 281 */
+    private void authenticated(String user, boolean ok, String serverFinal) {
         if (!ok) {
             server.recordAuthFailure(endpoint.getRemoteAddress(), user);
             events().warn("log.auth_failed").attr("username", user).emit();
@@ -1427,8 +1467,276 @@ public final class NntpProtocolHandler
         if (previous != null) {
             closeStoreOffloaded(previous);
         }
-        sendStatus(281, L10N.getString("nntp.authenticated"));
+        if (serverFinal != null) {
+            sendStatus(283, serverFinal);
+        } else {
+            sendStatus(281, L10N.getString("nntp.authenticated"));
+        }
         finishCommand();
+    }
+
+    // ── AUTHINFO SASL (RFC 4643 section 2.4) ──
+
+    /** The mechanisms offered, as a list each led by a space: PLAIN and SCRAM-SHA-256. */
+    private String saslMechanisms() {
+        Realm r = server.getRealm();
+        if (r == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        java.util.Set<SaslMechanism> supported = r.getSupportedSASLMechanisms();
+        SaslMechanism[] ours = {SaslMechanism.PLAIN, SaslMechanism.LOGIN, SaslMechanism.SCRAM_SHA_256,
+                SaslMechanism.EXTERNAL};
+        for (int i = 0; i < ours.length; i++) {
+            SaslMechanism m = ours[i];
+            // EXTERNAL rests on the client certificate of a TLS connection
+            boolean allowed = endpoint.isSecure() || (!m.requiresTLS() && m != SaslMechanism.EXTERNAL);
+            if (supported.contains(m) && allowed) {
+                sb.append(' ').append(m.getMechanismName());
+            }
+        }
+        return sb.toString();
+    }
+
+    private void startSasl(String value) {
+        int space = value.indexOf(' ');
+        String name = space < 0 ? value : value.substring(0, space);
+        String initial = space < 0 ? null : value.substring(space + 1).trim();
+        if (name.isEmpty()) {
+            sendStatus(501, L10N.getString("nntp.err.mechanism_required"));
+            return;
+        }
+        SaslMechanism mechanism = SaslMechanism.fromName(name);
+        if (mechanism == null || !(" " + saslMechanisms() + " ").contains(" " + mechanism.getMechanismName() + " ")) {
+            SaslMechanism known = SaslMechanism.fromName(name);
+            if (known != null && known.requiresTLS() && !endpoint.isSecure() && server.getRealm() != null
+                    && server.getRealm().getSupportedSASLMechanisms().contains(known)) {
+                sendStatus(483, L10N.getString("nntp.err.encryption_required"));
+            } else {
+                sendStatus(504, L10N.getString("nntp.err.unsupported_mechanism"));
+            }
+            return;
+        }
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendStatus(481, L10N.getString("nntp.err.auth_locked"));
+            return;
+        }
+        switch (mechanism) {
+            case PLAIN:
+                sasl = Sasl.PLAIN;
+                break;
+            case LOGIN:
+                sasl = Sasl.LOGIN_USER;
+                break;
+            case EXTERNAL:
+                sasl = Sasl.EXTERNAL;
+                break;
+            default:
+                sasl = Sasl.SCRAM_FIRST;
+                break;
+        }
+        if (initial == null || initial.isEmpty()) {
+            // LOGIN asks for the user name; the others have no data to ask for yet
+            sendStatus(383, sasl == Sasl.LOGIN_USER ? SaslUtils.encodeBase64("Username:") : "=");
+        } else {
+            saslData(initial);
+        }
+    }
+
+    /** A line of data from the client during an exchange. */
+    private void saslData(String data) {
+        if (data.equals("*")) {
+            sasl = Sasl.NONE;
+            sendStatus(481, L10N.getString("nntp.err.auth_cancelled"));
+            return;
+        }
+        byte[] decoded;
+        try {
+            decoded = data.equals("=") ? new byte[0] : SaslUtils.decodeBase64(data);
+        } catch (IllegalArgumentException e) {
+            sasl = Sasl.NONE;
+            sendStatus(501, L10N.getString("nntp.err.invalid_base64"));
+            return;
+        }
+        Sasl stage = sasl;
+        switch (stage) {
+            case PLAIN:
+                sasl = Sasl.NONE;
+                String[] parts;
+                try {
+                    parts = SaslUtils.parsePlainCredentials(decoded);
+                } catch (RuntimeException e) {
+                    parts = null; // not authzid NUL authcid NUL password
+                }
+                if (parts == null) {
+                    sendStatus(481, L10N.getString("nntp.err.auth_failed"));
+                    return;
+                }
+                authenticate(parts[0].isEmpty() ? parts[1] : parts[0], parts[2]);
+                break;
+            case LOGIN_USER:
+                saslUser = new String(decoded, StandardCharsets.UTF_8);
+                sasl = Sasl.LOGIN_PASS;
+                sendStatus(383, SaslUtils.encodeBase64("Password:"));
+                break;
+            case LOGIN_PASS:
+                sasl = Sasl.NONE;
+                authenticate(saslUser, new String(decoded, StandardCharsets.UTF_8));
+                break;
+            case EXTERNAL:
+                sasl = Sasl.NONE;
+                external(decoded.length == 0 ? null : new String(decoded, StandardCharsets.UTF_8));
+                break;
+            case SCRAM_FIRST:
+                scramFirst(new String(decoded, StandardCharsets.UTF_8));
+                break;
+            case SCRAM_FINAL:
+                scramFinal(new String(decoded, StandardCharsets.UTF_8));
+                break;
+            default:
+                break;
+        }
+    }
+
+    // RFC 4422 appendix A: the identity is the TLS client certificate; the
+    // client may ask to act as another user the realm allows
+    private void external(final String authzid) {
+        final String label = authzid != null ? authzid : "external";
+        saslUser = label;
+        beginCommand(Command.AUTHINFO);
+        endpoint.pauseRead();
+        readPaused = true;
+        SaslUtils.authenticateExternal(endpoint, getRealm(), authzid,
+                new RealmCallback<Realm.CertificateAuthenticationResult>() {
+            @Override
+            public void completed(final Realm.CertificateAuthenticationResult result) {
+                onLoop(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (result != null && result.valid) {
+                            authenticated(result.username, true);
+                        } else {
+                            authenticated(label, false);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void failed(final Throwable cause) {
+                scramFailed(cause);
+            }
+        });
+    }
+
+    // RFC 5802 section 5: client-first-message is "n,,n=user,r=nonce"
+    private void scramFirst(String clientFirst) {
+        if (!clientFirst.startsWith("n,,")) {
+            sasl = Sasl.NONE;
+            sendStatus(501, L10N.getString("nntp.err.invalid_scram_message"));
+            return;
+        }
+        String bare = clientFirst.substring(3);
+        String user = null;
+        String clientNonce = null;
+        String[] attrs = bare.split(",");
+        for (int i = 0; i < attrs.length; i++) {
+            if (attrs[i].startsWith("n=")) {
+                user = attrs[i].substring(2);
+            } else if (attrs[i].startsWith("r=")) {
+                clientNonce = attrs[i].substring(2);
+            }
+        }
+        if (user == null || clientNonce == null || user.isEmpty()) {
+            sasl = Sasl.NONE;
+            sendStatus(501, L10N.getString("nntp.err.invalid_scram_message"));
+            return;
+        }
+        final String name = user.replace("=2C", ",").replace("=3D", "=");
+        saslUser = name;
+        final String nonce = clientNonce;
+        final String clientFirstBare = bare;
+        beginCommand(Command.AUTHINFO);
+        endpoint.pauseRead();
+        readPaused = true;
+        getRealm().getScramCredentials(name, new RealmCallback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(final Realm.ScramCredentials creds) {
+                onLoop(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (creds == null) {
+                            sasl = Sasl.NONE;
+                            authenticated(name, false);
+                            return;
+                        }
+                        saslUser = name;
+                        saslNonce = nonce + SaslUtils.generateNonce(16);
+                        String serverFirst = SaslUtils.generateScramServerFirst(saslNonce, creds.salt,
+                                creds.iterations);
+                        saslChallenge = clientFirstBare + "," + serverFirst;
+                        sasl = Sasl.SCRAM_FINAL;
+                        sendStatus(383, SaslUtils.encodeBase64(serverFirst));
+                        finishCommand();
+                    }
+                });
+            }
+
+            @Override
+            public void failed(final Throwable cause) {
+                scramFailed(cause);
+            }
+        });
+    }
+
+    private void scramFinal(final String clientFinal) {
+        final String name = saslUser;
+        final String challenge = saslChallenge;
+        final String nonce = saslNonce;
+        sasl = Sasl.NONE;
+        beginCommand(Command.AUTHINFO);
+        endpoint.pauseRead();
+        readPaused = true;
+        getRealm().getScramCredentials(name, new RealmCallback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(final Realm.ScramCredentials creds) {
+                onLoop(new Runnable() {
+                    @Override
+                    public void run() {
+                        byte[] signature = creds == null ? null
+                                : SaslUtils.verifyScramClientFinal(creds, challenge, clientFinal, nonce);
+                        if (signature == null) {
+                            authenticated(name, false);
+                        } else {
+                            authenticated(name, true, SaslUtils.encodeBase64(
+                                    "v=" + java.util.Base64.getEncoder().encodeToString(signature)));
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void failed(final Throwable cause) {
+                scramFailed(cause);
+            }
+        });
+    }
+
+    private void scramFailed(final Throwable cause) {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                sasl = Sasl.NONE;
+                if (cause instanceof UnsupportedOperationException) {
+                    sendStatus(504, L10N.getString("nntp.err.unsupported_mechanism"));
+                } else {
+                    events().error("warn.error_during_authentication").attr("username", saslUser)
+                            .thrown(cause).emit();
+                    sendStatus(403, L10N.getString("nntp.err.internal_fault"));
+                }
+                finishCommand();
+            }
+        });
     }
 
     /** Forgets the selected group, closing its mailbox. */
