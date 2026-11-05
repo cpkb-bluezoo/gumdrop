@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
+  `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit
+  TLS) serves the mailboxes of a mailbox store as newsgroups, through the
+  stock `DefaultNntpHandler` or an application `ReaderHandler`, in the staged
+  handler style of the POP3 and IMAP servers.
+  - Commands: CAPABILITIES, MODE READER, DATE, HELP, QUIT, GROUP, LISTGROUP,
+    LAST, NEXT, ARTICLE, HEAD, BODY, STAT, LIST (ACTIVE, NEWSGROUPS,
+    OVERVIEW.FMT), NEWGROUPS, OVER and HDR (and XOVER and XHDR). Wildmats are
+    supported (`Wildmat`).
+  - Commands are read by a streaming lexer and answered one at a time, so
+    clients may pipeline; articles are streamed in chunks, dot-stuffed with
+    CRLF line endings, in constant memory. OVER reads only the raw headers.
+  - Reader mode only for now: no POST, IHAVE, NEWNEWS, STARTTLS or AUTHINFO.
+  - Documented in `web/nntp.html`.
 - **uuencode in the MIME layer.** `MimeParser` decodes bodies sent with
   `Content-Transfer-Encoding: x-uuencode` (also `uuencode`, `x-uue`) as they
   arrive, in any chunking, in constant memory. New `UuDecoder`, `UuEncoder`

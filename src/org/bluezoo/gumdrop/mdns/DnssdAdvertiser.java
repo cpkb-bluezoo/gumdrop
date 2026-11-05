@@ -92,6 +92,8 @@ public final class DnssdAdvertiser {
         m.put("imaps", "_imaps._tcp");
         m.put("pop3", "_pop3._tcp");
         m.put("pop3s", "_pop3s._tcp");
+        m.put("nntp", "_nntp._tcp");
+        m.put("nntps", "_nntps._tcp");
         m.put("smtp", "_smtp._tcp");
         return Collections.unmodifiableMap(m);
     }

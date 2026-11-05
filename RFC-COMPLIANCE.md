@@ -1459,6 +1459,45 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 
 ---
 
+## NNTP Server — RFC 3977
+
+Reader mode only. Streaming of articles and the line-oriented command channel
+follow the other mail protocols; see `NntpProtocolHandler`.
+
+### Commands
+
+| Requirement | RFC Section | Status | Notes |
+|---|---|---|---|
+| Greeting 200 / 201 | 3977 §5.1 | Compliant | 200 if posting is advertised, else 201 |
+| CAPABILITIES | 3977 §5.2 | Compliant | VERSION 2 first; READER, LIST, OVER, HDR |
+| MODE READER | 3977 §5.3 | Compliant | Always in reader mode |
+| QUIT | 3977 §5.4 | Compliant | 205 |
+| GROUP | 3977 §6.1.1 | Compliant | Count is the mailbox's message count (an estimate) |
+| LISTGROUP | 3977 §6.1.2 | Compliant | Optional group and range; selects the group |
+| LAST, NEXT | 3977 §6.1.3, §6.1.4 | Compliant | Skip articles marked deleted |
+| ARTICLE, HEAD, BODY, STAT | 3977 §6.2 | Compliant | By number, message-id or current article |
+| Article number 0 for a message-id | 3977 §6.2 | Compliant | Current article is not changed |
+| POST | 3977 §6.3.1 | Not implemented | |
+| IHAVE | 3977 §6.3.2 | Not implemented | Reader mode only |
+| DATE | 3977 §7.1 | Compliant | UTC, yyyymmddhhmmss |
+| HELP | 3977 §7.2 | Compliant | |
+| NEWGROUPS | 3977 §7.3 | Partial | Mailboxes have no creation time, so no group is new |
+| NEWNEWS | 3977 §7.4 | Not implemented | Optional |
+| LIST ACTIVE | 3977 §7.6.3 | Compliant | Wildmat argument |
+| LIST NEWSGROUPS | 3977 §7.6.6 | Partial | Descriptions are empty |
+| LIST OVERVIEW.FMT | 3977 §8.4 | Compliant | |
+| OVER | 3977 §8.3 | Compliant | Range, message-id or current article; XOVER accepted |
+| HDR | 3977 §8.5 | Compliant | Any header field and `:bytes`; XHDR accepted |
+| Command line at most 512 octets | 3977 §3.1 | Compliant | Longer lines are refused and discarded unbuffered |
+| Multi-line responses dot-stuffed, ended by "." | 3977 §3.1.1 | Compliant | |
+| Lines end in CRLF | 3977 §3.1.1 | Compliant | Article line endings are normalised |
+| Wildmat | 3977 §4.2 | Compliant | `Wildmat` |
+| Message-ID syntax | 3977 §3.6 | Compliant | 3 to 250 octets, angle brackets, no spaces |
+| Overview fields unfolded, tab and line breaks replaced | 3977 §8.3.2 | Compliant | |
+| STARTTLS | 4642 | Not implemented | |
+| AUTHINFO | 4643 | Not implemented | |
+| Implicit TLS (NNTPS, port 563) | 8143 | Compliant | `NntpListener` secure mode |
+
 ## LDAP Client — RFC 4511
 
 ### Connection and Message Envelope
