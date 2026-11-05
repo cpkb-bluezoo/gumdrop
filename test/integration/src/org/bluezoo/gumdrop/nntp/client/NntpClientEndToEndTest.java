@@ -44,6 +44,7 @@ import org.junit.rules.Timeout;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.ListenerBindCheck;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SynchronousRealm;
@@ -54,6 +55,7 @@ import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 import org.bluezoo.gumdrop.nntp.NntpListener;
 import org.bluezoo.gumdrop.nntp.server.MailboxStoreNntpSessionProvider;
 import org.bluezoo.gumdrop.nntp.server.NntpServer;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -108,8 +110,23 @@ public class NntpClientEndToEndTest {
     }
 
     private void startServer(boolean authRequired) throws Exception {
+        startServer(authRequired, Tls.NONE);
+    }
+
+    /** How the listener does TLS. */
+    private enum Tls { NONE, STARTTLS, IMPLICIT }
+
+    private String host = HOST;
+
+    private void startServer(boolean authRequired, Tls tls) throws Exception {
         NntpListener listener = new NntpListener().port(PORT)
-                .addresses(InetAddress.getByName(HOST));
+                .addresses(InetAddress.getByName(tls == Tls.NONE ? HOST : "localhost"));
+        if (tls != Tls.NONE) {
+            // the certificate is for localhost, not for 127.0.0.1
+            host = "localhost";
+            listener.tls(TestTlsFiles.serverTlsConfig());
+            listener.secure(tls == Tls.IMPLICIT);
+        }
         NntpServer.Composer composer = NntpServer.compose()
                 .listener(listener)
                 .sessionProvider(new MailboxStoreNntpSessionProvider()
@@ -216,7 +233,7 @@ public class NntpClientEndToEndTest {
     }
 
     private Script run(Script script) throws Exception {
-        NntpClient client = new NntpClient(HOST, PORT);
+        NntpClient client = new NntpClient(host, PORT);
         script.configure(client);
         client.connect(gumdrop, script);
         boolean finished = script.done.await(30, TimeUnit.SECONDS);
@@ -381,11 +398,157 @@ public class NntpClientEndToEndTest {
         assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
     }
 
+    // ── TLS ──
+
+    /** Trusts the test CA, whatever else is configured. */
+    private static void trusting(NntpClient client) throws Exception {
+        client.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()));
+    }
+
+    /** Reads the group after logging in, and quits. */
+    private abstract static class ReadsAGroup extends Script {
+        @Override
+        void run(NntpSession session) {
+            session.group(GROUP, this.<GroupResult>record("group", null));
+            session.quit();
+        }
+    }
+
+    @Test
+    public void testStartTlsThenSaslPlain() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        startServer(true, Tls.STARTTLS);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                try {
+                    trusting(client);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+                client.startTls(NntpClient.StartTls.REQUIRED).credentials("alice", "secret")
+                        .saslMechanism("PLAIN");
+            }
+        });
+        assertTrue(s.log.toString(), s.greeting.isSecure());
+        assertTrue(s.log.toString(), s.greeting.isAuthenticated());
+        assertTrue(s.log.toString(), s.greeting.getCapabilities().contains("SASL PLAIN LOGIN SCRAM-SHA-256"));
+        assertTrue(s.log.toString(), s.log.contains("group ok 2 1 2 " + GROUP));
+    }
+
+    @Test
+    public void testStartTlsThenUserPass() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        startServer(true, Tls.STARTTLS);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                try {
+                    trusting(client);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+                client.startTls(NntpClient.StartTls.REQUIRED).credentials("alice", "secret");
+            }
+        });
+        assertTrue(s.log.toString(), s.greeting.isSecure() && s.greeting.isAuthenticated());
+        assertTrue(s.log.toString(), s.log.contains("group ok 2 1 2 " + GROUP));
+    }
+
+    @Test
+    public void testPasswordsAreRefusedBeforeStartTls() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        startServer(true, Tls.STARTTLS);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                client.credentials("alice", "secret");
+            }
+        });
+        assertFalse(s.log.toString(), s.log.contains("connected"));
+        assertTrue(s.log.toString(), s.log.get(0).startsWith("error") && s.log.get(0).contains("483"));
+    }
+
+    @Test
+    public void testSaslPlainIsRefusedBeforeStartTls() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        startServer(true, Tls.STARTTLS);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                client.credentials("alice", "secret").saslMechanism("PLAIN");
+            }
+        });
+        assertFalse(s.log.toString(), s.log.contains("connected"));
+        // PLAIN is not offered on a plain connection, so the client does not even try it
+        assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
+    }
+
+    @Test
+    public void testImplicitTls() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        startServer(true, Tls.IMPLICIT);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                try {
+                    trusting(client);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+                client.secure(true).credentials("alice", "secret").saslMechanism("PLAIN");
+            }
+        });
+        assertTrue(s.log.toString(), s.greeting.isSecure() && s.greeting.isAuthenticated());
+        assertTrue(s.log.toString(), s.log.contains("group ok 2 1 2 " + GROUP));
+    }
+
+    @Test
+    public void testStartTlsIfOfferedCarriesOnWhenNotOffered() throws Exception {
+        startServer(false);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                client.startTls(NntpClient.StartTls.IF_OFFERED);
+            }
+        });
+        assertFalse(s.log.toString(), s.greeting.isSecure());
+        assertTrue(s.log.toString(), s.log.contains("group ok 2 1 2 " + GROUP));
+    }
+
+    @Test
+    public void testStartTlsRequiredFailsWhenNotOffered() throws Exception {
+        startServer(false);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                client.startTls(NntpClient.StartTls.REQUIRED);
+            }
+        });
+        assertFalse(s.log.toString(), s.log.contains("connected"));
+        assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
+    }
+
+    @Test
+    public void testUntrustedServerCertificateFails() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        startServer(false, Tls.STARTTLS);
+        Script s = run(new ReadsAGroup() {
+            @Override
+            void configure(NntpClient client) {
+                // no trust manager for the test CA: the JVM's own roots do not know it
+                client.startTls(NntpClient.StartTls.REQUIRED);
+            }
+        });
+        assertFalse(s.log.toString(), s.log.contains("connected"));
+        assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
+    }
+
     private static final class TestRealm implements SynchronousRealm {
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
-            return Collections.singleton(SaslMechanism.SCRAM_SHA_256);
+            return EnumSet.of(SaslMechanism.SCRAM_SHA_256, SaslMechanism.PLAIN, SaslMechanism.LOGIN);
         }
 
         @Override

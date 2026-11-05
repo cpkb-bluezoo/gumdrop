@@ -1179,7 +1179,7 @@
   </target>
 
   <!-- Run NNTP integration tests -->
-  <target name='integration-test-nntp' depends='integration-build'
+  <target name='integration-test-nntp' depends='integration-setup'
           description='Run NNTP client and server integration tests'>
     <integration-junit includes='**/nntp/**/*EndToEndTest.java'/>
   </target>
