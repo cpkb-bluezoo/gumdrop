@@ -583,6 +583,22 @@ public class NntpProtocolHandlerTest {
         @Override public boolean isDeleted(int n) { return deleted.contains(Integer.valueOf(n)); }
         @Override public void undeleteAll() { deleted.clear(); }
         @Override public String getUniqueId(int n) { return Integer.toString(n); }
+
+        private ByteArrayOutputStream appending;
+        @Override public void startAppendMessage(java.util.Set<org.bluezoo.gumdrop.mailbox.Flag> flags,
+                java.time.OffsetDateTime date) {
+            appending = new ByteArrayOutputStream();
+        }
+        @Override public void appendMessageContent(ByteBuffer data) {
+            byte[] b = new byte[data.remaining()];
+            data.get(b);
+            appending.write(b, 0, b.length);
+        }
+        @Override public long endAppendMessage() {
+            articles.add(new String(appending.toByteArray(), StandardCharsets.ISO_8859_1));
+            appending = null;
+            return articles.size();
+        }
     }
 
 }

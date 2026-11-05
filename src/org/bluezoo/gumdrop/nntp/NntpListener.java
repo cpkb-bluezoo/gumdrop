@@ -67,6 +67,7 @@ public class NntpListener extends TcpListener {
     protected MailboxFactory mailboxFactory;
     protected String anonymousUser = DEFAULT_ANONYMOUS_USER;
     protected boolean postingAllowed = false;
+    protected boolean authenticationRequired = false;
 
     private NntpServer server;
     private NntpServerSessionProvider sessionProvider;
@@ -281,6 +282,29 @@ public class NntpListener extends TcpListener {
      */
     public NntpListener postingAllowed(boolean postingAllowed) {
         this.postingAllowed = postingAllowed;
+        return this;
+    }
+
+    /**
+     * Returns whether clients must authenticate before reading news.
+     *
+     * @return true if authentication is required
+     */
+    public boolean isAuthenticationRequired() {
+        return authenticationRequired;
+    }
+
+    /**
+     * Sets whether clients must authenticate (AUTHINFO, RFC 4643) before
+     * they may read or post news; commands other than CAPABILITIES, MODE,
+     * HELP, QUIT, STARTTLS and AUTHINFO are refused with 480 until they do.
+     * Requires a {@link #realm(Realm) realm}. Default false.
+     *
+     * @param authenticationRequired true to require authentication
+     * @return this listener
+     */
+    public NntpListener authenticationRequired(boolean authenticationRequired) {
+        this.authenticationRequired = authenticationRequired;
         return this;
     }
 

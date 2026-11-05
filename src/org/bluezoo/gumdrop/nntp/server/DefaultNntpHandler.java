@@ -101,6 +101,99 @@ public class DefaultNntpHandler implements ClientConnected, ReaderHandler {
         // nothing to release
     }
 
+    // ── Posting (RFC 3977 section 6.3.1) ──
+
+    /** The largest article this handler accepts; it is held in memory. */
+    static final int MAX_POST_BYTES = 1024 * 1024;
+
+    @Override
+    public void post(PostState state, MailboxStore store) {
+        if (!postingAllowed) {
+            state.refuse(this);
+            return;
+        }
+        state.accept(new PostCollector(store));
+    }
+
+    /**
+     * Collects a posted article and appends it to the mailbox of each
+     * newsgroup it names that exists.
+     */
+    private final class PostCollector implements PostSink {
+
+        private final MailboxStore store;
+        private final ByteArrayOutputStream article = new ByteArrayOutputStream();
+        private boolean tooLarge;
+
+        PostCollector(MailboxStore store) {
+            this.store = store;
+        }
+
+        @Override
+        public void content(ByteBuffer chunk) {
+            int n = chunk.remaining();
+            if (tooLarge || article.size() + n > MAX_POST_BYTES) {
+                tooLarge = true;
+                return;
+            }
+            byte[] bytes = new byte[n];
+            chunk.get(bytes);
+            article.write(bytes, 0, n);
+        }
+
+        @Override
+        public void end(PostState state) {
+            if (tooLarge) {
+                state.notPosted(L10N.getString("nntp.err.article_too_large"), DefaultNntpHandler.this);
+                return;
+            }
+            byte[] bytes = article.toByteArray();
+            Map<String, String> headers = parseHeaders(bytes);
+            String newsgroups = headers.get("newsgroups");
+            if (newsgroups == null || newsgroups.isEmpty() || !headers.containsKey("from")
+                    || !headers.containsKey("subject")) {
+                state.notPosted(L10N.getString("nntp.err.article_incomplete"), DefaultNntpHandler.this);
+                return;
+            }
+            int appended = 0;
+            try {
+                for (String group : newsgroups.split(",")) {
+                    group = group.trim();
+                    if (group.isEmpty() || group.indexOf('*') >= 0 || group.indexOf('%') >= 0) {
+                        continue;
+                    }
+                    String name = toMailboxName(store, group);
+                    if (!store.listMailboxes("", name).contains(name)) {
+                        continue;
+                    }
+                    Mailbox mailbox = store.openMailbox(name, false);
+                    try {
+                        mailbox.startAppendMessage(null, null);
+                        mailbox.appendMessageContent(ByteBuffer.wrap(bytes));
+                        mailbox.endAppendMessage();
+                        appended++;
+                    } finally {
+                        mailbox.close(false);
+                    }
+                }
+            } catch (IOException e) {
+                events().warn("warn.failed_post_article").thrown(e).emit();
+                state.notPosted(L10N.getString("nntp.err.post_failed"), DefaultNntpHandler.this);
+                return;
+            }
+            if (appended == 0) {
+                state.notPosted(L10N.getString("nntp.err.no_such_newsgroup"), DefaultNntpHandler.this);
+            } else {
+                state.posted(DefaultNntpHandler.this);
+            }
+        }
+
+        @Override
+        public void abort() {
+            article.reset();
+        }
+    }
+
     // ── Group names ──
 
     private static String toMailboxName(MailboxStore store, String group) {
@@ -285,7 +378,11 @@ public class DefaultNntpHandler implements ClientConnected, ReaderHandler {
      * for every article of a listing).
      */
     private static Map<String, String> headers(Mailbox mailbox, int number) throws IOException {
-        byte[] bytes = readTop(mailbox, number);
+        return parseHeaders(readTop(mailbox, number));
+    }
+
+    /** Parses the header section of an article; names are lower case. */
+    static Map<String, String> parseHeaders(byte[] bytes) {
         Map<String, String> result = new HashMap<String, String>();
         String name = null;
         StringBuilder value = new StringBuilder();

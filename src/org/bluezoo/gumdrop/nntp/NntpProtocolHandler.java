@@ -46,6 +46,8 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -60,10 +62,13 @@ import org.bluezoo.gumdrop.nntp.server.GroupState;
 import org.bluezoo.gumdrop.nntp.server.ListState;
 import org.bluezoo.gumdrop.nntp.server.ListType;
 import org.bluezoo.gumdrop.nntp.server.OverState;
+import org.bluezoo.gumdrop.nntp.server.PostSink;
+import org.bluezoo.gumdrop.nntp.server.PostState;
 import org.bluezoo.gumdrop.nntp.server.ReaderHandler;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.util.DotUnstuffer;
 
 /**
  * Server side of an NNTP connection (RFC 3977), in reader mode.
@@ -80,7 +85,7 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  */
 public final class NntpProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<NntpServerLexer.Token>,
-                   ConnectedState, GroupState, ListState, ArticleState, OverState {
+                   ConnectedState, GroupState, ListState, ArticleState, OverState, PostState {
 
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.nntp.L10N");
@@ -105,6 +110,7 @@ public final class NntpProtocolHandler
         CAPABILITIES, MODE, QUIT, DATE, HELP,
         GROUP, LISTGROUP, LAST, NEXT, ARTICLE, HEAD, BODY, STAT,
         LIST, NEWGROUPS, OVER, HDR,
+        POST, STARTTLS, AUTHINFO,
         UNKNOWN
     }
 
@@ -130,6 +136,17 @@ public final class NntpProtocolHandler
     private ClientConnected clientConnected;
     private ReaderHandler readerHandler;
     private boolean postingAllowed;
+
+    // Authentication (RFC 4643); authUser is null until a client has logged in
+    private Realm realm;
+    private String authUser;
+    private String pendingUser;
+    private boolean authBusy;
+
+    // An article being posted (RFC 3977 section 6.3.1)
+    private PostSink postSink;
+    private DotUnstuffer unstuffer;
+    private boolean posting;
 
     // The store, opened on first use
     private MailboxStore store;
@@ -197,12 +214,20 @@ public final class NntpProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
+        if (posting) {
+            if (unstuffer.process(data)) {
+                return; // more of the article to come
+            }
+            // The article is complete; anything after it is the next command
+            // and waits for the article to be stored.
+        }
         lexer.feed(data);
     }
 
     @Override
     public void disconnected() {
         try {
+            abortPost();
             if (clientConnected != null) {
                 clientConnected.disconnected();
             }
@@ -403,7 +428,20 @@ public final class NntpProtocolHandler
             return;
         }
         String args = line.args;
+        if (!allowedBeforeAuth(line.command) && authenticationRequired()) {
+            sendStatus(480, L10N.getString("nntp.err.auth_required"));
+            return;
+        }
         switch (line.command) {
+            case STARTTLS:
+                handleStartTls();
+                break;
+            case AUTHINFO:
+                handleAuthinfo(args);
+                break;
+            case POST:
+                handlePost();
+                break;
             case CAPABILITIES:
                 handleCapabilities();
                 break;
@@ -464,6 +502,16 @@ public final class NntpProtocolHandler
         sb.append("READER\r\n");
         if (postingAllowed) {
             sb.append("POST\r\n");
+        }
+        if (!endpoint.isSecure() && server.isSTARTTLSAvailable()) {
+            sb.append("STARTTLS\r\n");
+        }
+        if (authAvailable() && authUser == null) {
+            sb.append("AUTHINFO");
+            if (authAllowedHere()) {
+                sb.append(" USER");
+            }
+            sb.append("\r\n");
         }
         sb.append("LIST ACTIVE NEWSGROUPS OVERVIEW.FMT\r\n");
         sb.append("OVER\r\n");
@@ -840,7 +888,8 @@ public final class NntpProtocolHandler
             @Override
             public void run() {
                 useHandler(handler);
-                sendStatus(403, message != null ? message : L10N.getString("nntp.err.internal_fault"));
+                int code = inflight == Command.POST ? 441 : 403;
+                sendStatus(code, message != null ? message : L10N.getString("nntp.err.internal_fault"));
                 finishCommand();
             }
         });
@@ -1216,6 +1265,299 @@ public final class NntpProtocolHandler
         }
     }
 
+    // ── STARTTLS (RFC 4642) ──
+
+    private void handleStartTls() {
+        if (endpoint.isSecure()) {
+            sendStatus(502, L10N.getString("nntp.err.already_tls"));
+            return;
+        }
+        if (!server.isSTARTTLSAvailable()) {
+            sendStatus(580, L10N.getString("nntp.err.starttls_unavailable"));
+            return;
+        }
+        sendStatus(382, L10N.getString("nntp.starttls_begin"));
+        // Whatever the client sent after STARTTLS was sent in the clear and is dropped.
+        queue.clear();
+        try {
+            endpoint.startTLS();
+        } catch (IOException e) {
+            events().error("warn.failed_init_tls").thrown(e).emit();
+            closeEndpoint();
+            return;
+        }
+        // RFC 4642 section 2.2.2: knowledge from before the upgrade is discarded
+        authUser = null;
+        pendingUser = null;
+        resetGroup();
+    }
+
+    // ── AUTHINFO USER/PASS (RFC 4643 section 2.3) ──
+
+    private Realm getRealm() {
+        if (realm == null) {
+            Realm serverRealm = server.getRealm();
+            if (serverRealm != null) {
+                SelectorLoop loop = endpoint.getSelectorLoop();
+                realm = loop != null ? serverRealm.forSelectorLoop(loop) : serverRealm;
+            }
+        }
+        return realm;
+    }
+
+    private boolean authAvailable() {
+        return server.getRealm() != null;
+    }
+
+    /** Passwords travel in the clear, so they are accepted only under TLS where TLS can be had. */
+    private boolean authAllowedHere() {
+        return endpoint.isSecure() || !server.isSTARTTLSAvailable();
+    }
+
+    private boolean authenticationRequired() {
+        return server.isAuthenticationRequired() && authUser == null;
+    }
+
+    private static boolean allowedBeforeAuth(Command command) {
+        switch (command) {
+            case CAPABILITIES:
+            case QUIT:
+            case AUTHINFO:
+            case STARTTLS:
+            case MODE:
+            case HELP:
+            case UNKNOWN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void handleAuthinfo(String args) {
+        if (!authAvailable()) {
+            sendStatus(500, L10N.getString("nntp.err.unknown_command"));
+            return;
+        }
+        if (authUser != null) {
+            sendStatus(502, L10N.getString("nntp.err.already_authenticated"));
+            return;
+        }
+        int space = args.indexOf(' ');
+        String sub = (space < 0 ? args : args.substring(0, space)).toUpperCase(Locale.ENGLISH);
+        String value = space < 0 ? "" : args.substring(space + 1).trim();
+        if (sub.equals("USER")) {
+            if (value.isEmpty()) {
+                sendStatus(501, L10N.getString("nntp.err.username_required"));
+                return;
+            }
+            if (!authAllowedHere()) {
+                sendStatus(483, L10N.getString("nntp.err.encryption_required"));
+                return;
+            }
+            pendingUser = value;
+            sendStatus(381, L10N.getString("nntp.password_required"));
+        } else if (sub.equals("PASS")) {
+            if (pendingUser == null) {
+                sendStatus(482, L10N.getString("nntp.err.user_required_first"));
+                return;
+            }
+            if (value.isEmpty()) {
+                sendStatus(501, L10N.getString("nntp.err.password_required"));
+                return;
+            }
+            authenticate(pendingUser, value);
+        } else {
+            sendStatus(501, L10N.getString("nntp.err.unknown_authinfo"));
+        }
+    }
+
+    private void authenticate(final String user, String password) {
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendStatus(481, L10N.getString("nntp.err.auth_locked"));
+            return;
+        }
+        Realm r = getRealm();
+        beginCommand(Command.AUTHINFO);
+        pendingUser = null;
+        endpoint.pauseRead();
+        readPaused = true;
+        // Realm.passwordMatch can wait on a directory or token server: the realm
+        // calls back when it has an answer, and the event loop is not held.
+        r.passwordMatch(user, password, new RealmCallback<Boolean>() {
+            @Override
+            public void completed(final Boolean ok) {
+                onLoop(new Runnable() {
+                    @Override
+                    public void run() {
+                        authenticated(user, ok != null && ok.booleanValue());
+                    }
+                });
+            }
+
+            @Override
+            public void failed(final Throwable cause) {
+                onLoop(new Runnable() {
+                    @Override
+                    public void run() {
+                        events().error("warn.error_during_authentication").attr("username", user)
+                                .thrown(cause).emit();
+                        sendStatus(403, L10N.getString("nntp.err.internal_fault"));
+                        finishCommand();
+                    }
+                });
+            }
+        });
+    }
+
+    private void authenticated(String user, boolean ok) {
+        if (!ok) {
+            server.recordAuthFailure(endpoint.getRemoteAddress(), user);
+            events().warn("log.auth_failed").attr("username", user).emit();
+            sendStatus(481, L10N.getString("nntp.err.auth_failed"));
+            finishCommand();
+            return;
+        }
+        server.recordAuthSuccess(endpoint.getRemoteAddress(), user);
+        events().info("log.auth_successful").attr("username", user).emit();
+        authUser = user;
+        // The store was opened for the previous user (RFC 4643 section 2.2)
+        resetGroup();
+        final MailboxStore previous = store;
+        store = null;
+        if (previous != null) {
+            closeStoreOffloaded(previous);
+        }
+        sendStatus(281, L10N.getString("nntp.authenticated"));
+        finishCommand();
+    }
+
+    /** Forgets the selected group, closing its mailbox. */
+    private void resetGroup() {
+        Mailbox previous = mailbox;
+        mailbox = null;
+        groupName = null;
+        currentArticle = 0;
+        selectedCount = 0;
+        selectedLow = 0;
+        selectedHigh = 0;
+        if (previous != null) {
+            closeMailboxOffloaded(previous);
+        }
+    }
+
+    // ── POST (RFC 3977 section 6.3.1) ──
+
+    private void handlePost() {
+        if (!postingAllowed) {
+            sendStatus(440, L10N.getString("nntp.err.posting_not_permitted"));
+            return;
+        }
+        beginCommand(Command.POST);
+        final ReaderHandler handler = readerHandler;
+        withStore(new Runnable() {
+            @Override
+            public void run() {
+                final MailboxStore st = store;
+                offload(new Runnable() {
+                    @Override
+                    public void run() {
+                        handler.post(NntpProtocolHandler.this, st);
+                    }
+                });
+            }
+        });
+    }
+
+    // PostState
+    @Override
+    public void accept(final PostSink sink) {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                postSink = sink;
+                unstuffer = new DotUnstuffer(new PostReceiver());
+                posting = true;
+                sendStatus(340, L10N.getString("nntp.send_article"));
+                // reads were held while the handler decided; the article may now arrive
+                if (readPaused) {
+                    readPaused = false;
+                    endpoint.resumeRead();
+                }
+            }
+        });
+    }
+
+    @Override
+    public void refuse(final ReaderHandler handler) {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                useHandler(handler);
+                sendStatus(440, L10N.getString("nntp.err.posting_not_permitted"));
+                finishCommand();
+            }
+        });
+    }
+
+    @Override
+    public void posted(final ReaderHandler handler) {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                useHandler(handler);
+                sendStatus(240, L10N.getString("nntp.article_received"));
+                finishCommand();
+            }
+        });
+    }
+
+    @Override
+    public void notPosted(final String message, final ReaderHandler handler) {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                useHandler(handler);
+                sendStatus(441, message != null ? message : L10N.getString("nntp.err.post_failed"));
+                finishCommand();
+            }
+        });
+    }
+
+    /** Passes the unstuffed article to the sink, and ends the post. */
+    private final class PostReceiver implements DotUnstuffer.Callback {
+
+        @Override
+        public void content(ByteBuffer chunk) {
+            PostSink sink = postSink;
+            if (sink != null) {
+                sink.content(chunk);
+            }
+        }
+
+        @Override
+        public void complete() {
+            final PostSink sink = postSink;
+            postSink = null;
+            posting = false;
+            offload(new Runnable() {
+                @Override
+                public void run() {
+                    sink.end(NntpProtocolHandler.this);
+                }
+            });
+        }
+    }
+
+    /** The connection ended part way through an article. */
+    private void abortPost() {
+        PostSink sink = postSink;
+        postSink = null;
+        posting = false;
+        if (sink != null) {
+            sink.abort();
+        }
+    }
+
     // ── Running handler calls ──
 
     private void beginCommand(Command command) {
@@ -1316,7 +1658,7 @@ public final class NntpProtocolHandler
             finishCommand();
             return;
         }
-        final String user = server.getAnonymousUser();
+        final String user = authUser != null ? authUser : server.getAnonymousUser();
         if (!readPaused) {
             readPaused = true;
             endpoint.pauseRead();

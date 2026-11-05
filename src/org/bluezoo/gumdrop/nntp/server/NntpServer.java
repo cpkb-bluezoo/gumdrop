@@ -69,6 +69,7 @@ public final class NntpServer implements Server, NntpServerSessionProvider {
     private Realm realm;
     private String anonymousUser;
     private boolean postingAllowed;
+    private boolean authenticationRequired;
 
     private NntpServer() {
     }
@@ -143,6 +144,9 @@ public final class NntpServer implements Server, NntpServerSessionProvider {
         if (postingAllowed) {
             listener.postingAllowed(true);
         }
+        if (authenticationRequired) {
+            listener.authenticationRequired(true);
+        }
         if (sessionProvider != null) {
             listener.sessionProvider(sessionProvider);
         }
@@ -157,6 +161,7 @@ public final class NntpServer implements Server, NntpServerSessionProvider {
         private Realm realm;
         private String anonymousUser;
         private boolean postingAllowed;
+        private boolean authenticationRequired;
 
         private Composer() {
         }
@@ -224,6 +229,18 @@ public final class NntpServer implements Server, NntpServerSessionProvider {
         }
 
         /**
+         * Sets whether clients must authenticate before reading news, given
+         * to every listener. Needs a realm.
+         *
+         * @param authenticationRequired true to require authentication
+         * @return this composer
+         */
+        public Composer authenticationRequired(boolean authenticationRequired) {
+            this.authenticationRequired = authenticationRequired;
+            return this;
+        }
+
+        /**
          * Builds the server.
          *
          * @return the server
@@ -238,6 +255,7 @@ public final class NntpServer implements Server, NntpServerSessionProvider {
             server.realm = realm;
             server.anonymousUser = anonymousUser;
             server.postingAllowed = postingAllowed;
+            server.authenticationRequired = authenticationRequired;
             for (int i = 0; i < listeners.size(); i++) {
                 server.listeners.add(listeners.get(i));
             }

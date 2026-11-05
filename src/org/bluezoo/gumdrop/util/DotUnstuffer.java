@@ -19,12 +19,12 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.pop3.client;
+package org.bluezoo.gumdrop.util;
 
 import java.nio.ByteBuffer;
 
 /**
- * Handles POP3 dot-unstuffing and termination detection for multi-line
+ * Handles dot-unstuffing and termination detection for multi-line (POP3, NNTP)
  * responses.
  *
  * <p>Per RFC 1939, multi-line responses are terminated by a line
@@ -48,12 +48,12 @@ import java.nio.ByteBuffer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-3">RFC 1939 section 3 — Multi-line Responses</a>
  */
-class DotUnstuffer {
+public class DotUnstuffer {
 
     /**
      * Callback for receiving decoded content and termination signals.
      */
-    interface Callback {
+    public interface Callback {
 
         /**
          * Called with a chunk of decoded (dot-unstuffed) content.
@@ -89,7 +89,7 @@ class DotUnstuffer {
      *
      * @param callback receives decoded content and termination
      */
-    DotUnstuffer(Callback callback) {
+    public DotUnstuffer(Callback callback) {
         this.callback = callback;
         this.state = State.SAW_CRLF;
         this.atStart = true;
@@ -105,7 +105,7 @@ class DotUnstuffer {
      * @return true if more data is expected, false if the terminator
      *         was detected
      */
-    boolean process(ByteBuffer input) {
+    public boolean process(ByteBuffer input) {
         int flushFrom = input.position();
 
         while (input.hasRemaining()) {
@@ -236,7 +236,7 @@ class DotUnstuffer {
     /**
      * Resets the unstuffer for reuse.
      */
-    void reset() {
+    public void reset() {
         state = State.SAW_CRLF;
         atStart = true;
     }

@@ -1477,7 +1477,7 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 | LAST, NEXT | 3977 §6.1.3, §6.1.4 | Compliant | Skip articles marked deleted |
 | ARTICLE, HEAD, BODY, STAT | 3977 §6.2 | Compliant | By number, message-id or current article |
 | Article number 0 for a message-id | 3977 §6.2 | Compliant | Current article is not changed |
-| POST | 3977 §6.3.1 | Not implemented | |
+| POST | 3977 §6.3.1 | Compliant | Stock handler holds the article in memory (1 MiB limit); `PostSink` streams for other handlers |
 | IHAVE | 3977 §6.3.2 | Not implemented | Reader mode only |
 | DATE | 3977 §7.1 | Compliant | UTC, yyyymmddhhmmss |
 | HELP | 3977 §7.2 | Compliant | |
@@ -1494,8 +1494,9 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 | Wildmat | 3977 §4.2 | Compliant | `Wildmat` |
 | Message-ID syntax | 3977 §3.6 | Compliant | 3 to 250 octets, angle brackets, no spaces |
 | Overview fields unfolded, tab and line breaks replaced | 3977 §8.3.2 | Compliant | |
-| STARTTLS | 4642 | Not implemented | |
-| AUTHINFO | 4643 | Not implemented | |
+| STARTTLS | 4642 | Compliant | 382, then `startTLS()`; state is reset; 502 if already secure, 580 if unavailable |
+| AUTHINFO USER/PASS | 4643 §2.3 | Compliant | 381, 281, 481, 482, 483 (encryption required), 480 when authentication is required |
+| AUTHINFO SASL | 4643 §2.4 | Not implemented | |
 | Implicit TLS (NNTPS, port 563) | 8143 | Compliant | `NntpListener` secure mode |
 
 ## LDAP Client — RFC 4511

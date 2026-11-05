@@ -88,6 +88,27 @@ body, by number, by message-id, or (with no argument) the current article</li>
 <li><b>LAST</b>, <b>NEXT</b> - move the current article back or forward</li>
 </ul>
 
+<h4>Posting, TLS and authentication</h4>
+
+<ul>
+<li><b>POST</b> - accepts an article from a client when posting is allowed
+(<code>postingAllowed</code>); otherwise it is refused with 440. The article is
+read dot-unstuffed and handed to the handler. The stock handler holds a posted
+article in memory (up to 1 MiB, larger ones get 441), requires the
+<code>From</code>, <code>Subject</code> and <code>Newsgroups</code> headers, and
+appends it to the mailbox of each listed newsgroup that exists</li>
+<li><b>STARTTLS</b> (RFC 4642) - upgrades a plain connection to TLS. It is
+advertised only on a listener with TLS configured and only before TLS is in use.
+After the upgrade the client starts again: the selected newsgroup and any login
+are forgotten</li>
+<li><b>AUTHINFO USER</b> and <b>AUTHINFO PASS</b> (RFC 4643) - log in against the
+listener's realm. The command is available when a realm is set. Where TLS can be
+had, passwords are refused (483) until the connection is secure. After a login
+the newsgroup store is opened for that user, and the selected newsgroup is
+forgotten. Failed logins count towards the listener's lockout
+(<code>maxAuthFailures</code>)</li>
+</ul>
+
 <h4>Listings</h4>
 
 <ul>
@@ -231,6 +252,9 @@ use <code>MailboxStoreNntpSessionProvider</code> to serve a mailbox store</li>
 (default: <code>news</code>)</li>
 <li><code>postingAllowed(boolean)</code> - whether readers are told they may
 post (default: false)</li>
+<li><code>authenticationRequired(boolean)</code> - whether clients must log in
+(AUTHINFO) before they can read or post; until then other commands get 480
+(default: false; needs a realm)</li>
 </ul>
 
 <h4>MailboxStoreNntpSessionProvider settings</h4>
@@ -254,7 +278,8 @@ kept (<a href="mailbox.html">Maildir or mbox</a>)</li>
 <code>authLockoutTimeMs(long)</code> - abuse protection</li>
 <li><code>allowedNetworks</code> and <code>blockedNetworks</code> - CIDR allow and block lists</li>
 <li><code>idleTimeoutMs</code>, <code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - timeouts</li>
-<li><code>anonymousUser(String)</code> and <code>postingAllowed(boolean)</code> -
+<li><code>realm(Realm)</code>, <code>anonymousUser(String)</code>,
+<code>postingAllowed(boolean)</code> and <code>authenticationRequired(boolean)</code> -
 as the composer's, per listener</li>
 </ul>
 
@@ -295,6 +320,10 @@ With the store above, the mailboxes of the user <code>news</code> under
 start (RFC 8143)</li>
 <li><b>Limits</b> - the listener's connection caps, rate limit, network allow
 and block lists, and timeouts apply as for the other mail protocols</li>
+<li><b>STARTTLS and AUTHINFO</b> - give a listener a <code>tls</code>
+configuration and a <code>realm</code>, and set
+<code>authenticationRequired(true)</code> for a private server. Passwords are
+not accepted in the clear when TLS is available</li>
 <li><b>Command size</b> - lines over 512 octets are refused and discarded
 without being buffered</li>
 </ul>
@@ -303,8 +332,10 @@ without being buffered</li>
 
 <ul>
 <li>The server is a reader server. It does not accept articles from other
-servers (IHAVE), has no NEWNEWS, and does not yet accept POST, AUTHINFO or
-STARTTLS</li>
+servers (IHAVE) and has no NEWNEWS. AUTHINFO supports USER and PASS but not SASL</li>
+<li>The stock handler's POST keeps the whole article in memory while it is
+received, so it limits articles to 1 MiB; a handler of your own can write the
+article out as it arrives (<code>PostSink</code>)</li>
 <li>With the stock handler, looking up an article by message-id searches the
 current group only, because a mailbox store has no index of message-ids; a
 lookup with no group selected finds nothing</li>

@@ -104,4 +104,13 @@ public interface ReaderHandler {
      */
     void headers(OverState state, Mailbox mailbox, ArticleRef ref, String field);
 
+    /**
+     * POST: the client wishes to post an article (RFC 3977 section 6.3.1).
+     * Answer with {@link PostState#accept} or {@link PostState#refuse}.
+     *
+     * @param state the state to answer through
+     * @param store the open store
+     */
+    void post(PostState state, MailboxStore store);
+
 }

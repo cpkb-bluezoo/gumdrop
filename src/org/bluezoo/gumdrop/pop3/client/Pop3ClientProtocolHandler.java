@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.util.DotUnstuffer;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.Tokens;
 import org.bluezoo.gumdrop.telemetry.EventLogger;

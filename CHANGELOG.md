@@ -20,7 +20,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Commands are read by a streaming lexer and answered one at a time, so
     clients may pipeline; articles are streamed in chunks, dot-stuffed with
     CRLF line endings, in constant memory. OVER reads only the raw headers.
-  - Reader mode only for now: no POST, IHAVE, NEWNEWS, STARTTLS or AUTHINFO.
+  - POST, STARTTLS (RFC 4642) and AUTHINFO USER/PASS (RFC 4643), with
+    `NntpListener.authenticationRequired`. A posted article reaches a
+    `PostSink` dot-unstuffed, in chunks; the stock handler appends it to the
+    mailbox of each newsgroup it names.
+  - Reader mode: no IHAVE, NEWNEWS or AUTHINFO SASL.
   - Documented in `web/nntp.html`.
 - **uuencode in the MIME layer.** `MimeParser` decodes bodies sent with
   `Content-Transfer-Encoding: x-uuencode` (also `uuencode`, `x-uue`) as they
@@ -54,6 +58,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `DotUnstuffer` moved from `pop3.client` (package-private) to
+  `org.bluezoo.gumdrop.util` (public) so the NNTP server shares it with the
+  POP3 client.
 - **jsonparser 2.0.0.** Gumdrop now builds against jsonparser 2.0.0 (was
   1.3), whose content handler and `receive()` contract changed.
   - OAuth token introspection and JWT validation read JSON strings as they

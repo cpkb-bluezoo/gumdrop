@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.pop3.client;
+package org.bluezoo.gumdrop.util;
 
 import org.junit.Before;
 import org.junit.Test;
