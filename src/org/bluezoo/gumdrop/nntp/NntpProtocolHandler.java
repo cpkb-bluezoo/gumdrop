@@ -68,7 +68,10 @@ import org.bluezoo.gumdrop.nntp.server.PostSink;
 import org.bluezoo.gumdrop.nntp.server.PostState;
 import org.bluezoo.gumdrop.nntp.server.ReaderHandler;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.Span;
+import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.util.DotUnstuffer;
 
@@ -149,7 +152,15 @@ public final class NntpProtocolHandler
     private Realm realm;
     private String authUser;
     private String pendingUser;
-    private boolean authBusy;
+    private String authMechanism = "USER/PASS";
+    private boolean starttlsPending;
+    private boolean quitReceived;
+
+    // Telemetry
+    private Trace connectionTrace;
+    private Span sessionSpan;
+    private Span authenticatedSpan;
+    private long connectedAt;
     private Sasl sasl = Sasl.NONE;
     private String saslUser;
     private String saslNonce;
@@ -218,6 +229,13 @@ public final class NntpProtocolHandler
     @Override
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
+        connectedAt = System.currentTimeMillis();
+        NntpServerMetrics m = metrics();
+        if (m != null) {
+            m.connectionOpened();
+        }
+        initConnectionTrace();
+        startSessionSpan();
         // For implicit TLS (NNTPS), the greeting waits for the handshake
         if (endpoint.isSecure()) {
             return;
@@ -244,6 +262,16 @@ public final class NntpProtocolHandler
             if (clientConnected != null) {
                 clientConnected.disconnected();
             }
+            endAuthenticatedSpan();
+            if (quitReceived) {
+                endSessionSpan();
+            } else {
+                endSessionSpanError("Connection lost");
+            }
+            NntpServerMetrics m = metrics();
+            if (m != null && connectedAt != 0) {
+                m.connectionClosed(System.currentTimeMillis() - connectedAt);
+            }
         } finally {
             offloadClose();
         }
@@ -251,6 +279,17 @@ public final class NntpProtocolHandler
 
     @Override
     public void securityEstablished(SecurityInfo info) {
+        if (starttlsPending) {
+            starttlsPending = false;
+            NntpServerMetrics m = metrics();
+            if (m != null) {
+                m.starttlsUpgraded();
+            }
+            addSessionEvent("STARTTLS_SUCCESS");
+            if (sessionSpan != null && !sessionSpan.isEnded()) {
+                sessionSpan.addAttribute("net.protocol.name", "nntps");
+            }
+        }
         if (clientConnected == null && readerHandler == null) {
             sendGreetingWithHandler();
         }
@@ -458,6 +497,10 @@ public final class NntpProtocolHandler
             sendStatus(480, L10N.getString("nntp.err.auth_required"));
             return;
         }
+        NntpServerMetrics cm = metrics();
+        if (cm != null) {
+            cm.commandExecuted(line.command.name());
+        }
         switch (line.command) {
             case STARTTLS:
                 handleStartTls();
@@ -564,6 +607,7 @@ public final class NntpProtocolHandler
 
     // RFC 3977 section 5.4
     private void handleQuit() {
+        quitReceived = true;
         sendStatus(205, L10N.getString("nntp.goodbye"));
         closeEndpoint();
     }
@@ -659,6 +703,9 @@ public final class NntpProtocolHandler
                 selectedLow = low;
                 selectedHigh = high;
                 currentArticle = count > 0 && low > 0 ? low : 0;
+                if (sessionSpan != null && !sessionSpan.isEnded()) {
+                    sessionSpan.addAttribute("nntp.group", group);
+                }
                 if (previous != null && previous != mb) {
                     closeMailboxOffloaded(previous);
                 }
@@ -1122,6 +1169,7 @@ public final class NntpProtocolHandler
 
         private final AsyncMessageContent content;
         private final ArticlePart part;
+        private long sent;
         private long position;
         private boolean inHeader = true;
         private boolean lineEmpty = true;
@@ -1262,6 +1310,7 @@ public final class NntpProtocolHandler
 
         private void send() {
             if (outLen > 0) {
+                sent += outLen;
                 endpoint.send(ByteBuffer.wrap(out, 0, outLen));
             }
             out = null;
@@ -1284,6 +1333,12 @@ public final class NntpProtocolHandler
             send();
             endpoint.onWriteReady(null);
             closeContent(content);
+            NntpServerMetrics m = metrics();
+            if (m != null) {
+                m.articleRetrieved(sent);
+            }
+            addSessionEvent(part == ArticlePart.ARTICLE ? "ARTICLE_SENT"
+                    : part == ArticlePart.HEAD ? "HEAD_SENT" : "BODY_SENT");
             finishCommand();
         }
     }
@@ -1314,8 +1369,11 @@ public final class NntpProtocolHandler
         queue.clear();
         try {
             endpoint.startTLS();
+            starttlsPending = true;
         } catch (IOException e) {
             events().error("warn.failed_init_tls").thrown(e).emit();
+            addSessionEvent("STARTTLS_FAILURE");
+            recordSessionException(e);
             closeEndpoint();
             return;
         }
@@ -1398,6 +1456,7 @@ public final class NntpProtocolHandler
                 sendStatus(501, L10N.getString("nntp.err.password_required"));
                 return;
             }
+            authMechanism = "USER/PASS";
             authenticate(pendingUser, value);
         } else if (sub.equals("SASL")) {
             startSasl(value);
@@ -1450,7 +1509,17 @@ public final class NntpProtocolHandler
 
     /** @param serverFinal base64 data to send with the success (283), or null for a plain 281 */
     private void authenticated(String user, boolean ok, String serverFinal) {
+        NntpServerMetrics m = metrics();
+        if (m != null) {
+            m.authAttempt(authMechanism);
+            if (ok) {
+                m.authSuccess(authMechanism);
+            } else {
+                m.authFailure(authMechanism);
+            }
+        }
         if (!ok) {
+            recordAuthenticationFailure(user);
             server.recordAuthFailure(endpoint.getRemoteAddress(), user);
             events().warn("log.auth_failed").attr("username", user).emit();
             sendStatus(481, L10N.getString("nntp.err.auth_failed"));
@@ -1460,6 +1529,7 @@ public final class NntpProtocolHandler
         server.recordAuthSuccess(endpoint.getRemoteAddress(), user);
         events().info("log.auth_successful").attr("username", user).emit();
         authUser = user;
+        recordAuthenticationSuccess(user);
         // The store was opened for the previous user (RFC 4643 section 2.2)
         resetGroup();
         final MailboxStore previous = store;
@@ -1507,6 +1577,9 @@ public final class NntpProtocolHandler
             return;
         }
         SaslMechanism mechanism = SaslMechanism.fromName(name);
+        if (mechanism != null) {
+            authMechanism = mechanism.getMechanismName();
+        }
         if (mechanism == null || !(" " + saslMechanisms() + " ").contains(" " + mechanism.getMechanismName() + " ")) {
             SaslMechanism known = SaslMechanism.fromName(name);
             if (known != null && known.requiresTLS() && !endpoint.isSecure() && server.getRealm() != null
@@ -1757,6 +1830,7 @@ public final class NntpProtocolHandler
 
     private void handlePost() {
         if (!postingAllowed) {
+            recordPostRejected();
             sendStatus(440, L10N.getString("nntp.err.posting_not_permitted"));
             return;
         }
@@ -1801,6 +1875,7 @@ public final class NntpProtocolHandler
             @Override
             public void run() {
                 useHandler(handler);
+                recordPostRejected();
                 sendStatus(440, L10N.getString("nntp.err.posting_not_permitted"));
                 finishCommand();
             }
@@ -1813,6 +1888,11 @@ public final class NntpProtocolHandler
             @Override
             public void run() {
                 useHandler(handler);
+                NntpServerMetrics m = metrics();
+                if (m != null) {
+                    m.articlePosted();
+                }
+                addSessionEvent("ARTICLE_POSTED");
                 sendStatus(240, L10N.getString("nntp.article_received"));
                 finishCommand();
             }
@@ -1825,6 +1905,7 @@ public final class NntpProtocolHandler
             @Override
             public void run() {
                 useHandler(handler);
+                recordPostRejected();
                 sendStatus(441, message != null ? message : L10N.getString("nntp.err.post_failed"));
                 finishCommand();
             }
@@ -1864,6 +1945,110 @@ public final class NntpProtocolHandler
         if (sink != null) {
             sink.abort();
         }
+    }
+
+    // ── Telemetry ──
+
+    private NntpServerMetrics metrics() {
+        return server.getMetrics();
+    }
+
+    private void initConnectionTrace() {
+        TelemetryConfig config = endpoint.getTelemetryConfig();
+        if (config != null) {
+            connectionTrace = config.createTrace(L10N.getString("telemetry.nntp_connection"));
+            if (connectionTrace == null) {
+                return; // tracing is off, as when only metrics are wanted
+            }
+            Span root = connectionTrace.getRootSpan();
+            root.addAttribute("net.transport", "ip_tcp");
+            root.addAttribute("net.peer.ip", String.valueOf(endpoint.getRemoteAddress()));
+            root.addAttribute("rpc.system", "nntp");
+        }
+    }
+
+    private void startSessionSpan() {
+        if (connectionTrace != null) {
+            sessionSpan = connectionTrace.startSpan(L10N.getString("telemetry.nntp_session"), SpanKind.SERVER);
+            sessionSpan.addEvent("SESSION_START");
+        }
+    }
+
+    private void endSessionSpan() {
+        if (sessionSpan != null) {
+            sessionSpan.addEvent("SESSION_END");
+            sessionSpan.setStatusOk();
+            sessionSpan.end();
+            sessionSpan = null;
+        }
+        if (connectionTrace != null) {
+            connectionTrace.end();
+            connectionTrace = null;
+        }
+    }
+
+    private void endSessionSpanError(String error) {
+        if (sessionSpan != null) {
+            sessionSpan.addEvent("SESSION_ERROR");
+            sessionSpan.setStatusError(error);
+            sessionSpan.end();
+            sessionSpan = null;
+        }
+        if (connectionTrace != null) {
+            connectionTrace.end();
+            connectionTrace = null;
+        }
+    }
+
+    private void endAuthenticatedSpan() {
+        if (authenticatedSpan != null) {
+            authenticatedSpan.setStatusOk();
+            authenticatedSpan.end();
+            authenticatedSpan = null;
+        }
+    }
+
+    private void addSessionEvent(String event) {
+        if (sessionSpan != null && !sessionSpan.isEnded()) {
+            sessionSpan.addEvent(event);
+        }
+    }
+
+    private void recordSessionException(Exception e) {
+        if (sessionSpan != null && !sessionSpan.isEnded()) {
+            sessionSpan.recordExceptionWithCategory(e);
+        }
+    }
+
+    private void recordAuthenticationSuccess(String user) {
+        if (sessionSpan != null && !sessionSpan.isEnded()) {
+            sessionSpan.addAttribute("nntp.auth.mechanism", authMechanism);
+            sessionSpan.addAttribute("enduser.id", user);
+            addSessionEvent("AUTH_SUCCESS");
+            endAuthenticatedSpan();
+            authenticatedSpan = sessionSpan.startChild(L10N.getString("telemetry.nntp_authenticated"),
+                    SpanKind.SERVER);
+            authenticatedSpan.addAttribute("enduser.id", user);
+            authenticatedSpan.addEvent("AUTHENTICATED");
+        }
+    }
+
+    private void recordAuthenticationFailure(String user) {
+        if (sessionSpan != null && !sessionSpan.isEnded()) {
+            sessionSpan.addAttribute("nntp.auth.mechanism", authMechanism);
+            if (user != null) {
+                sessionSpan.addAttribute("nntp.auth.attempted_user", user);
+            }
+            addSessionEvent("AUTH_FAILURE");
+        }
+    }
+
+    private void recordPostRejected() {
+        NntpServerMetrics m = metrics();
+        if (m != null) {
+            m.articleRejected();
+        }
+        addSessionEvent("POST_REJECTED");
     }
 
     // ── Running handler calls ──

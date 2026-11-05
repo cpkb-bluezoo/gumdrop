@@ -45,7 +45,7 @@ composed in code: the console through <code>java.util.logging</code>, an
 OpenTelemetry Collector over OTLP/HTTP or OTLP/gRPC, JSONL files, an access
 log file in Common Log Format, or a qlog directory, alone or in any
 combination. Built-in instrumentation is provided for the HTTP, SMTP, IMAP,
-POP3 and FTP servers and for the session replication cluster. The API
+POP3, NNTP and FTP servers and for the session replication cluster. The API
 enables custom instrumentation and custom log events for any Gumdrop-based
 service.
 </p>
@@ -1440,6 +1440,46 @@ The POP3 server creates traces similar to IMAP:
 <tr><td><code>pop3.server.messages.deleted</code></td><td>Counter</td><td>Messages deleted</td></tr>
 <tr><td><code>pop3.server.bytes.transferred</code></td><td>Counter</td><td>Bytes transferred</td></tr>
 <tr><td><code>pop3.server.starttls</code></td><td>Counter</td><td>STLS upgrades</td></tr>
+</table>
+
+<h4>NNTP Server</h4>
+
+<p>
+The NNTP server creates traces like the POP3 server:
+</p>
+
+<ul>
+<li><b>Connection trace</b>: root span covering the TCP connection
+  (<code>rpc.system</code> = <code>nntp</code>)</li>
+<li><b>Session span</b>: child span for the NNTP session; it ends with an error
+  status if the connection is lost before QUIT
+  <ul>
+  <li><code>nntp.group</code> - the newsgroup last selected</li>
+  <li><code>nntp.auth.mechanism</code> - USER/PASS or the SASL mechanism</li>
+  <li><code>enduser.id</code> - the user who logged in</li>
+  </ul>
+</li>
+<li><b>Authenticated span</b>: child of the session span from a successful login</li>
+<li><b>Events</b>: STARTTLS_SUCCESS and STARTTLS_FAILURE, AUTH_SUCCESS and
+  AUTH_FAILURE, ARTICLE_SENT, HEAD_SENT and BODY_SENT, ARTICLE_POSTED and
+  POST_REJECTED</li>
+</ul>
+
+<p><b>Metrics</b> (meter <code>org.bluezoo.gumdrop.nntp</code>):</p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>nntp.server.connections</code></td><td>Counter</td><td>Total NNTP connections</td></tr>
+<tr><td><code>nntp.server.active_connections</code></td><td>UpDownCounter</td><td>Active NNTP connections</td></tr>
+<tr><td><code>nntp.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
+<tr><td><code>nntp.server.commands</code></td><td>Counter</td><td>Commands executed (by <code>nntp.command</code>)</td></tr>
+<tr><td><code>nntp.server.authentications</code></td><td>Counter</td><td>Authentication attempts (by <code>nntp.auth.mechanism</code>)</td></tr>
+<tr><td><code>nntp.server.authentications.success</code></td><td>Counter</td><td>Successful authentications</td></tr>
+<tr><td><code>nntp.server.authentications.failure</code></td><td>Counter</td><td>Failed authentications</td></tr>
+<tr><td><code>nntp.server.articles.retrieved</code></td><td>Counter</td><td>Articles, heads and bodies sent in full</td></tr>
+<tr><td><code>nntp.server.bytes.sent</code></td><td>Counter</td><td>Article bytes sent</td></tr>
+<tr><td><code>nntp.server.articles.posted</code></td><td>Counter</td><td>Articles accepted from clients</td></tr>
+<tr><td><code>nntp.server.articles.rejected</code></td><td>Counter</td><td>Articles refused or not accepted</td></tr>
+<tr><td><code>nntp.server.starttls</code></td><td>Counter</td><td>STARTTLS upgrades</td></tr>
 </table>
 
 <h4>FTP Server</h4>

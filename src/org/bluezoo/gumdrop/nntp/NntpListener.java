@@ -69,6 +69,9 @@ public class NntpListener extends TcpListener {
     protected boolean postingAllowed = false;
     protected boolean authenticationRequired = false;
 
+    // Metrics for this listener (null if telemetry is not enabled)
+    private NntpServerMetrics metrics;
+
     private NntpServer server;
     private NntpServerSessionProvider sessionProvider;
 
@@ -314,6 +317,10 @@ public class NntpListener extends TcpListener {
         if (port <= 0) {
             port = secure ? NNTPS_DEFAULT_PORT : NNTP_DEFAULT_PORT;
         }
+
+        if (isMetricsEnabled()) {
+            metrics = new NntpServerMetrics(getTelemetryConfig());
+        }
     }
 
     /**
@@ -322,6 +329,16 @@ public class NntpListener extends TcpListener {
      * @param server the owning server
      * @return this
      */
+    /**
+     * Returns the metrics of this listener, or null if metrics are not
+     * enabled in the telemetry configuration.
+     *
+     * @return the metrics
+     */
+    public NntpServerMetrics getMetrics() {
+        return metrics;
+    }
+
     public NntpListener server(NntpServer server) {
         this.server = server;
         return this;

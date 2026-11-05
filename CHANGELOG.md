@@ -36,6 +36,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   checks that the server's nonce extends its own and refuses more than a
   million PBKDF2 iterations. Available to every client that drives SASL
   through `SaslUtils.createClient`.
+  - Telemetry: a trace per connection (session span, authenticated span,
+    events for STARTTLS, login, articles sent and posted) and metrics under
+    `org.bluezoo.gumdrop.nntp` (`NntpServerMetrics`, from
+    `NntpListener.getMetrics()`): connections, session duration, commands,
+    authentications by mechanism, articles retrieved and posted, bytes sent and
+    STARTTLS upgrades.
   - Reader mode: no IHAVE or NEWNEWS.
   - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
     STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,

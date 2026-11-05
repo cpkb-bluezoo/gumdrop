@@ -52,6 +52,7 @@ streamed to the client in constant memory however large they are. An NNTP
 <li><a href="#handlers">Handlers</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#security">Security</a></li>
+<li><a href="#telemetry">Telemetry</a></li>
 <li><a href="#client">Client</a></li>
 <li><a href="#limits">Limitations</a></li>
 </ul>
@@ -346,6 +347,18 @@ not accepted in the clear when TLS is available</li>
 <li><b>Command size</b> - lines over 512 octets are refused and discarded
 without being buffered</li>
 </ul>
+
+<h3 id="telemetry">Telemetry</h3>
+
+<p>
+When the telemetry configuration has an exporter that takes traces, each
+connection produces a trace with a session span and, after a login, an
+authenticated span; with metrics enabled (the default) each listener records
+connections, session duration, commands, authentications by mechanism, articles
+read and posted, article bytes sent and STARTTLS upgrades. The names are listed
+under <a href="telemetry.html">Telemetry</a>. A listener's metrics are
+available from <code>NntpListener.getMetrics()</code>.
+</p>
 
 <h3 id="client">Client</h3>
 
