@@ -42,6 +42,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     `NntpListener.getMetrics()`): connections, session duration, commands,
     authentications by mechanism, articles retrieved and posted, bytes sent and
     STARTTLS upgrades.
+  - Usenet attachments: `NntpSession.articleWithAttachments` finds the
+    uuencoded blocks that news readers put in article bodies and decodes
+    them as the article arrives, in constant memory, handing the text around
+    them and each file (mode, name, decoded content, complete or cut off) to
+    a `UuScanner.Handler`. `UuScanner` and its `Handler` are now public API in
+    `org.bluezoo.gumdrop.mime`; the NNTP module requires the MIME module.
   - Reader mode: no IHAVE or NEWNEWS.
   - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
     STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,

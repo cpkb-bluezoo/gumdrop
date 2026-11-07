@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.bluezoo.gumdrop.mime.UuScanner;
 import org.bluezoo.gumdrop.nntp.client.NntpCommand.Block;
 
 /**
@@ -213,6 +214,44 @@ public final class NntpSession {
     }
 
     /**
+     * ARTICLE by number in the selected group, with its attachments taken
+     * out. Usenet articles carry files as uuencoded blocks in the body
+     * ({@code begin 644 name} ... {@code end}) rather than as MIME parts;
+     * this finds those blocks as the article arrives and decodes them, in
+     * constant memory, however the article is split on the wire.
+     *
+     * <p>The handler gets the article text (headers included) around the
+     * files, and for each file its {@code begin} (mode and name), its
+     * decoded {@code content} and its {@code end}. A file cut short by the
+     * end of the article, or by a failure, ends with {@code end(false)}.
+     * Calls are made on the connection's event loop and the buffers are valid
+     * only during the call.
+     *
+     * @param number the article number
+     * @param handler receives the text and the files
+     * @param done called when the whole article has been delivered
+     * @see UuScanner
+     */
+    public void articleWithAttachments(long number, UuScanner.Handler handler,
+                                       NntpCallback<Void> done) {
+        scanned("ARTICLE " + number, handler, done);
+    }
+
+    /**
+     * As {@link #articleWithAttachments(long, UuScanner.Handler, NntpCallback)},
+     * for an article identified by message-id.
+     *
+     * @param messageId the message-id, with angle brackets
+     * @param handler receives the text and the files
+     * @param done called when the whole article has been delivered
+     */
+    public void articleWithAttachments(String messageId, UuScanner.Handler handler,
+                                       NntpCallback<Void> done) {
+        check(messageId);
+        scanned("ARTICLE " + messageId, handler, done);
+    }
+
+    /**
      * HEAD (RFC 3977 section 6.2.2) by number in the selected group.
      *
      * @param number the article number
@@ -279,6 +318,29 @@ public final class NntpSession {
                         return null;
                     }
                 }, 0, null, false));
+    }
+
+    private void scanned(String line, UuScanner.Handler handler, final NntpCallback<Void> done) {
+        final UuScanner scanner = new UuScanner(handler);
+        retrieve(line, 220, new NntpConsumer<ByteBuffer>() {
+            @Override
+            public void accept(ByteBuffer chunk) {
+                scanner.receive(chunk);
+            }
+        }, new NntpCallback<Void>() {
+            @Override
+            public void completed(Void result) {
+                scanner.finish();
+                done.completed(result);
+            }
+
+            @Override
+            public void failed(NntpException error) {
+                // whatever arrived is delivered, a cut-off file as incomplete
+                scanner.finish();
+                done.failed(error);
+            }
+        });
     }
 
     private static NntpCommand simple(String line, NntpCallback<NntpStatus> done) {

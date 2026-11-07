@@ -409,6 +409,8 @@ order issued, and each reports to a callback on the connection's event loop.
 passed to your <code>NntpConsumer&lt;ByteBuffer&gt;</code> dot-unstuffed, with line
 endings kept, in pieces of whatever size the connection delivers; the buffer is
 valid only during the call</li>
+<li><code>articleWithAttachments(number, handler, callback)</code> (also by
+message-id) - an article with its attachments taken out, see below</li>
 <li><code>post(article, callback)</code> - the article with any line endings;
 dot-stuffing and the terminator are added</li>
 <li><code>command(line, multiline, content, callback)</code> - any other command;
@@ -447,12 +449,50 @@ new NntpClient("news.example.com", 119)
         });
 </pre>
 
+<h4>Attachments</h4>
+
+<p>
+News readers do not use MIME multiparts for files. They put them in the body of
+the article as uuencoded blocks, from a line <code>begin 644 name</code> to an
+<code>end</code> line, and that is how files travel on Usenet.
+<code>articleWithAttachments</code> finds those blocks as the article arrives and
+decodes them, in constant memory however the article is split on the wire. Your
+<code>org.bluezoo.gumdrop.mime.UuScanner.Handler</code> is given:
+</p>
+
+<ul>
+<li><code>text(data)</code> - the article text outside the files, headers included,
+in order and in pieces of any size</li>
+<li><code>begin(mode, name)</code> - a file starts, with the permissions and name
+from the begin line</li>
+<li><code>content(data)</code> - decoded bytes of the file, in pieces of any size</li>
+<li><code>end(complete)</code> - the file ends; <code>false</code> if the article
+(or the connection) ended before the <code>end</code> line</li>
+</ul>
+
+<p>
+Buffers are valid only during the call. Lines that merely look like a begin line
+are text, and a begin line split across network reads is found all the same. The same
+scanner is public as <code>UuScanner</code> in the MIME package, for articles you
+already have.
+</p>
+
+<pre>
+session.articleWithAttachments(number, new UuScanner.Handler() {
+    public void text(ByteBuffer data) { /* the message */ }
+    public void begin(int mode, String name) { out = new FileOutputStream(name); }
+    public void content(ByteBuffer data) { /* write data to out */ }
+    public void end(boolean complete) { out.close(); }
+}, new NntpCallback&lt;Void&gt;() { /* completed, or failed */ });
+</pre>
+
 <h3 id="limits">Limitations</h3>
 
 <ul>
 <li>The server is a reader server. It does not accept articles from other
 servers (IHAVE) and has no NEWNEWS. AUTHINFO SASL offers PLAIN, LOGIN, SCRAM-SHA-256 and EXTERNAL (not OAUTHBEARER or GSSAPI)</li>
-<li>The client does not do GSSAPI or LOGIN for AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
+<li>The client reads uuencoded attachments but does not yet write them: a POST sends the
+article as given. It does not do GSSAPI or LOGIN for AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
 LIST ACTIVE or OVER entry is delivered once the line after it has begun to
 arrive (or the list ends), and an entry line over 64 KiB is skipped</li>
 <li>The stock handler's POST keeps the whole article in memory while it is

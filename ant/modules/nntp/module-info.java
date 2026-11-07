@@ -3,7 +3,7 @@
 module org.bluezoo.gumdrop.nntp {
     requires java.logging;
     requires transitive org.bluezoo.gumdrop.core;
-    requires org.bluezoo.gumdrop.mime;
+    requires transitive org.bluezoo.gumdrop.mime; // UuScanner is part of the client API
     requires org.bluezoo.gumdrop.mailbox;
 
     exports org.bluezoo.gumdrop.nntp;

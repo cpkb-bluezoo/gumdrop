@@ -1515,6 +1515,7 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 | LIST ACTIVE | 3977 §7.6.3 | Compliant | One callback per newsgroup |
 | OVER | 3977 §8.3 | Compliant | One callback per article; standard fields |
 | POST | 3977 §6.3.1 | Compliant | Dot-stuffing and CRLF added by the client |
+| Attachments as uuencoded blocks in the body | de facto (Usenet) | Supported | `articleWithAttachments()`; decoded as the article arrives; a block cut short is reported as incomplete |
 | Any other command | 3977 | Compliant | `command()`, with an optional multi-line block |
 | Implicit TLS (NNTPS, port 563) | 8143 | Compliant | `NntpClient.secure(true)` |
 

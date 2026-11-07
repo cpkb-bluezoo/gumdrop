@@ -32,6 +32,11 @@
  * dot-unstuffed in whatever pieces the connection delivers it, and LIST
  * ACTIVE and OVER output as parsed entries, so nothing is held whole.
  *
+ * <p>Files on Usenet travel as uuencoded blocks in the article body, not as
+ * MIME parts. {@link org.bluezoo.gumdrop.nntp.client.NntpSession#articleWithAttachments(long,
+ * org.bluezoo.gumdrop.mime.UuScanner.Handler, org.bluezoo.gumdrop.nntp.client.NntpCallback)}
+ * finds those blocks as the article arrives and decodes them.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 package org.bluezoo.gumdrop.nntp.client;

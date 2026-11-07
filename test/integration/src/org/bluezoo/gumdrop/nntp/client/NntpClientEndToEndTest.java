@@ -398,6 +398,117 @@ public class NntpClientEndToEndTest {
         assertTrue(s.log.toString(), s.log.get(0).startsWith("error"));
     }
 
+    // ── attachments ──
+
+    private static char uuchr(int v) {
+        return v == 0 ? '`' : (char) (v + 32);
+    }
+
+    /** A uuencoded block, as news readers write one into the body of an article. */
+    private static String uuencode(byte[] data, String name) {
+        StringBuilder sb = new StringBuilder("begin 644 ").append(name).append("\r\n");
+        for (int p = 0; p < data.length; p += 45) {
+            int n = Math.min(45, data.length - p);
+            sb.append(uuchr(n));
+            for (int i = 0; i < n; i += 3) {
+                int b0 = data[p + i] & 0xff;
+                int b1 = i + 1 < n ? data[p + i + 1] & 0xff : 0;
+                int b2 = i + 2 < n ? data[p + i + 2] & 0xff : 0;
+                sb.append(uuchr(b0 >> 2));
+                sb.append(uuchr(((b0 << 4) | (b1 >> 4)) & 63));
+                sb.append(uuchr(((b1 << 2) | (b2 >> 6)) & 63));
+                sb.append(uuchr(b2 & 63));
+            }
+            sb.append("\r\n");
+        }
+        return sb.append("`\r\nend\r\n").toString();
+    }
+
+    @Test
+    public void testAttachmentPostedAndReadBack() throws Exception {
+        startServer(false);
+        // 45 + 14 bytes: the second line's length character is a dot, so the
+        // line has to be dot-stuffed on the way in and unstuffed on the way out
+        final byte[] attachment = new byte[59];
+        for (int i = 0; i < attachment.length; i++) {
+            attachment[i] = (byte) (i * 7 + 3);
+        }
+        final String body = "Here is the file:\r\n" + uuencode(attachment, "pic.bin") + "-- \r\nregards\r\n";
+        final String posted = "From: cat@example.com\r\nSubject: A file\r\nNewsgroups: " + GROUP + "\r\n\r\n" + body;
+        assertTrue(uuencode(attachment, "x").contains("\r\n."));
+        final java.io.ByteArrayOutputStream file = new java.io.ByteArrayOutputStream();
+        final StringBuilder text = new StringBuilder();
+        Script s = run(new Script() {
+            @Override
+            void run(final NntpSession session) {
+                session.group(GROUP, this.<GroupResult>record("group", new Runnable() {
+                    @Override
+                    public void run() {
+                        post(session);
+                    }
+                }));
+            }
+
+            void post(final NntpSession session) {
+                final Script self = this;
+                session.post(posted.getBytes(StandardCharsets.ISO_8859_1), self.<Void>record("post", new Runnable() {
+                    @Override
+                    public void run() {
+                        session.group(GROUP, self.<GroupResult>record("regroup", new Runnable() {
+                            @Override
+                            public void run() {
+                                read(session);
+                            }
+                        }));
+                    }
+                }));
+            }
+
+            void read(final NntpSession session) {
+                final Script self = this;
+                session.articleWithAttachments(3, new org.bluezoo.gumdrop.mime.UuScanner.Handler() {
+                    @Override
+                    public void text(ByteBuffer data) {
+                        byte[] b = new byte[data.remaining()];
+                        data.get(b);
+                        text.append(new String(b, StandardCharsets.ISO_8859_1));
+                    }
+
+                    @Override
+                    public void begin(int mode, String name) {
+                        log.add("begin " + Integer.toOctalString(mode) + " " + name);
+                    }
+
+                    @Override
+                    public void content(ByteBuffer data) {
+                        while (data.hasRemaining()) {
+                            file.write(data.get());
+                        }
+                    }
+
+                    @Override
+                    public void end(boolean complete) {
+                        log.add(complete ? "end" : "cut off");
+                    }
+                }, self.<Void>record("read", new Runnable() {
+                    @Override
+                    public void run() {
+                        session.quit();
+                    }
+                }));
+            }
+        });
+        String log = s.log.toString();
+        assertTrue(log, s.log.contains("post ok"));
+        assertTrue(log, s.log.contains("regroup ok 3 1 3 " + GROUP));
+        assertTrue(log, s.log.contains("begin 644 pic.bin"));
+        assertTrue(log, s.log.contains("end"));
+        assertTrue(log, s.log.contains("read ok"));
+        org.junit.Assert.assertArrayEquals(attachment, file.toByteArray());
+        assertEquals("From: cat@example.com\r\nSubject: A file\r\nNewsgroups: " + GROUP
+                + "\r\n\r\nHere is the file:\r\n-- \r\nregards\r\n", text.toString());
+    }
+
     // ── TLS ──
 
     /** Trusts the test CA, whatever else is configured. */

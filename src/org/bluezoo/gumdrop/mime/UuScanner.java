@@ -36,22 +36,39 @@ import java.nio.ByteBuffer;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class UuScanner {
+public final class UuScanner {
 
-	/** Receives the text and the files found in it. */
-	interface Handler {
+	/**
+	 * Receives the text and the files found in it. The buffers passed to
+	 * the handler are valid only during the call.
+	 */
+	public interface Handler {
 
-		/** Text outside any file, in order, in pieces of any size. */
+		/**
+		 * Text outside any file, in order, in pieces of any size.
+		 *
+		 * @param data the text, line endings as received
+		 */
 		void text(ByteBuffer data);
 
-		/** A file starts. */
+		/**
+		 * A file starts.
+		 *
+		 * @param mode the Unix permission bits from the begin line
+		 * @param name the file name from the begin line
+		 */
 		void begin(int mode, String name);
 
-		/** Decoded bytes of the current file. */
+		/**
+		 * Decoded bytes of the current file, in pieces of any size.
+		 *
+		 * @param data the decoded bytes
+		 */
 		void content(ByteBuffer data);
 
 		/**
 		 * The file ends.
+		 *
 		 * @param complete false if the input ended before the end line
 		 */
 		void end(boolean complete);
@@ -76,14 +93,20 @@ final class UuScanner {
 
 	/**
 	 * Creates a scanner.
+	 *
 	 * @param handler the receiver of text and files
 	 */
-	UuScanner(Handler handler) {
+	public UuScanner(Handler handler) {
 		this.handler = handler;
 	}
 
-	/** Consumes all of src. */
-	void receive(ByteBuffer src) {
+	/**
+	 * Scans the next piece of input. The input may be split anywhere, even
+	 * in the middle of a begin line; all of {@code src} is consumed.
+	 *
+	 * @param src the input
+	 */
+	public void receive(ByteBuffer src) {
 		while (src.hasRemaining()) {
 			if (state == BLOCK) {
 				block(src);
@@ -95,8 +118,12 @@ final class UuScanner {
 		}
 	}
 
-	/** Ends the input. */
-	void finish() {
+	/**
+	 * Ends the input. A file still open is ended with
+	 * {@link Handler#end(boolean) end(false)}, and text held back because
+	 * it might have been the start of a begin line is passed on.
+	 */
+	public void finish() {
 		if (state == BLOCK) {
 			ByteBuffer room = outBuffer();
 			decoder.finish(room);
