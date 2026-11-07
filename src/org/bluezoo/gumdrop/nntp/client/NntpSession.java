@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.bluezoo.gumdrop.mime.UuEncoder;
 import org.bluezoo.gumdrop.mime.UuScanner;
 import org.bluezoo.gumdrop.nntp.client.NntpCommand.Block;
 
@@ -288,6 +289,51 @@ public final class NntpSession {
                         return null;
                     }
                 }, 340, dotStuff(article), false));
+    }
+
+    /**
+     * POST an article with files attached, in the way news readers do: each
+     * file is uuencoded and appended to the body, after the text. The article
+     * is given whole, as for {@link #post}; the files are encoded one line at
+     * a time into the post, so the only copy of a file is the encoded one.
+     *
+     * @param article the headers, an empty line and the body text, to which
+     * the files are added; a final line ending is supplied if it lacks one
+     * @param attachments the files, in the order they should appear
+     * @param done called with the outcome
+     * @throws IllegalArgumentException if an attachment is null
+     */
+    public void postWithAttachments(byte[] article, List<NntpAttachment> attachments,
+                                    NntpCallback<Void> done) {
+        long encoded = article.length;
+        for (int i = 0; i < attachments.size(); i++) {
+            if (attachments.get(i) == null) {
+                throw new IllegalArgumentException("null attachment");
+            }
+            encoded += attachments.get(i).getData().length / 45L * 62 + 128;
+        }
+        if (encoded > Integer.MAX_VALUE - 16) {
+            throw new IllegalArgumentException("the post would be too large");
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream((int) encoded);
+        out.write(article, 0, article.length);
+        if (article.length > 0 && article[article.length - 1] != '\n' && article[article.length - 1] != '\r') {
+            out.write('\n');
+        }
+        ByteBuffer dst = ByteBuffer.allocate(8192);
+        for (int i = 0; i < attachments.size(); i++) {
+            NntpAttachment a = attachments.get(i);
+            UuEncoder encoder = new UuEncoder(a.getName(), a.getMode());
+            ByteBuffer src = ByteBuffer.wrap(a.getData());
+            boolean finished;
+            do {
+                finished = encoder.encode(src, dst, true);
+                dst.flip();
+                out.write(dst.array(), 0, dst.limit());
+                dst.clear();
+            } while (!finished);
+        }
+        post(out.toByteArray(), done);
     }
 
     /**

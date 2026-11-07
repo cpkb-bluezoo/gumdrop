@@ -35,7 +35,9 @@
  * <p>Files on Usenet travel as uuencoded blocks in the article body, not as
  * MIME parts. {@link org.bluezoo.gumdrop.nntp.client.NntpSession#articleWithAttachments(long,
  * org.bluezoo.gumdrop.mime.UuScanner.Handler, org.bluezoo.gumdrop.nntp.client.NntpCallback)}
- * finds those blocks as the article arrives and decodes them.
+ * finds those blocks as the article arrives and decodes them, and
+ * {@link org.bluezoo.gumdrop.nntp.client.NntpSession#postWithAttachments(byte[], java.util.List,
+ * org.bluezoo.gumdrop.nntp.client.NntpCallback)} posts files the same way.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

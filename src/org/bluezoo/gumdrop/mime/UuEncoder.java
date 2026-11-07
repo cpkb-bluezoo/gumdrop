@@ -40,7 +40,7 @@ import java.nio.charset.StandardCharsets;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class UuEncoder {
+public final class UuEncoder {
 
 	/** Data bytes in a full line. */
 	static final int LINE_BYTES = 45;
@@ -60,11 +60,13 @@ final class UuEncoder {
 
 	/**
 	 * Creates an encoder.
+	 *
 	 * @param name the file name for the begin line; it must not contain
 	 * line ending or other control characters
 	 * @param mode the file mode, for example {@code 0644}
+	 * @throws IllegalArgumentException if the name has a control character
 	 */
-	UuEncoder(String name, int mode) {
+	public UuEncoder(String name, int mode) {
 		for (int i = 0; i < name.length(); i++) {
 			if (name.charAt(i) < ' ' || name.charAt(i) == 0x7f) {
 				throw new IllegalArgumentException("control character in uuencode file name");
@@ -77,14 +79,15 @@ final class UuEncoder {
 	/**
 	 * Encodes input to output. Returns when src is empty (any input
 	 * under a line is held), or when dst has too little room for the
-	 * next line, in which case src may have input left.
+	 * next line, in which case src may have input left. A destination of
+	 * 62 bytes or more always has room for a line.
 	 *
 	 * @param src the input
 	 * @param dst the output
 	 * @param endOfStream true when src is the last input
 	 * @return true when the end line has been written
 	 */
-	boolean encode(ByteBuffer src, ByteBuffer dst, boolean endOfStream) {
+	public boolean encode(ByteBuffer src, ByteBuffer dst, boolean endOfStream) {
 		if (finished) {
 			return true;
 		}

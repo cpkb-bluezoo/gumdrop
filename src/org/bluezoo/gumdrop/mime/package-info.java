@@ -28,7 +28,8 @@
  * {@link org.bluezoo.gumdrop.mime.ContentType} and {@link
  * org.bluezoo.gumdrop.mime.ContentDisposition} parse and represent those
  * headers; {@link org.bluezoo.gumdrop.mime.UuScanner} finds and decodes
- * uuencoded files inline in text, as news readers write them;
+ * uuencoded files inline in text, as news readers write them, and
+ * {@link org.bluezoo.gumdrop.mime.UuEncoder} writes them;
  * {@link org.bluezoo.gumdrop.mime.Base64Decoder} and {@link
  * org.bluezoo.gumdrop.mime.QuotedPrintableDecoder} handle the two
  * standard transfer encodings.

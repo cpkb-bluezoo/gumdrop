@@ -309,4 +309,162 @@ public class NntpAttachmentsTest {
     public void testLineBreakInMessageIdIsRefused() {
         events.session.articleWithAttachments("<a@b>\r\nQUIT", new Found(), new Outcome());
     }
+
+    // ── posting attachments ──
+
+    /** Everything the client sends from here on. */
+    private ByteArrayOutputStream capture() {
+        final ByteArrayOutputStream sent = new ByteArrayOutputStream();
+        wire.setSendFilter(new RecordingStubEndpoint.SendFilter() {
+            @Override
+            public byte[] filter(byte[] outbound) {
+                sent.write(outbound, 0, outbound.length);
+                return outbound;
+            }
+        });
+        return sent;
+    }
+
+    /** The article as the server would receive it: the POST payload, unstuffed. */
+    private static String received(ByteArrayOutputStream sent) {
+        String all = new String(sent.toByteArray(), StandardCharsets.ISO_8859_1);
+        assertTrue(all, all.startsWith("POST\r\n"));
+        String payload = all.substring("POST\r\n".length());
+        assertTrue(payload, payload.endsWith("\r\n.\r\n"));
+        payload = payload.substring(0, payload.length() - 3); // the terminating dot line
+        StringBuilder sb = new StringBuilder();
+        for (String line : payload.split("\r\n", -1)) {
+            sb.append(line.startsWith("..") ? line.substring(1) : line).append("\r\n");
+        }
+        sb.setLength(sb.length() - 2);
+        return sb.toString();
+    }
+
+    private String post(String article, List<NntpAttachment> attachments, Outcome done) {
+        ByteArrayOutputStream sent = capture();
+        events.session.postWithAttachments(article.getBytes(StandardCharsets.ISO_8859_1), attachments, done);
+        server("340 send it\r\n");
+        return received(sent);
+    }
+
+    private static NntpAttachment attachment(String name, byte[] data) {
+        return new NntpAttachment(name, 0644, data);
+    }
+
+    @Test
+    public void testPostedAttachmentsComeBackOutOfTheArticle() {
+        byte[] first = "first file".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] second = data59();
+        Outcome done = new Outcome();
+        String article = post(HEADERS + "Two files for you.\r\n",
+                java.util.Arrays.asList(attachment("a.txt", first), attachment("b.bin", second)), done);
+        server("240 received\r\n");
+        assertTrue(done.done);
+        assertNull(done.error);
+        Found found = new Found();
+        UuScanner scanner = new UuScanner(found);
+        scanner.receive(ByteBuffer.wrap(article.getBytes(StandardCharsets.ISO_8859_1)));
+        scanner.finish();
+        assertEquals(HEADERS + "Two files for you.\r\n", found.text.toString());
+        assertEquals(java.util.Arrays.asList("begin 644 a.txt", "end", "begin 644 b.bin", "end"), found.events);
+        assertArrayEquals(first, found.files.get(0));
+        assertArrayEquals(second, found.files.get(1));
+    }
+
+    @Test
+    public void testLineThatBeginsWithADotIsStuffedOnTheWire() {
+        ByteArrayOutputStream sent = capture();
+        events.session.postWithAttachments(latin1(HEADERS + "x\r\n"),
+                java.util.Arrays.asList(attachment("b.bin", data59())), new Outcome());
+        server("340 go\r\n");
+        String wireText = new String(sent.toByteArray(), StandardCharsets.ISO_8859_1);
+        assertTrue(wireText, wireText.contains("\r\n..") );
+        // and it is the same article once unstuffed
+        assertEquals(uuencode(data59(), "b.bin"), received(sent).substring((HEADERS + "x\r\n").length()));
+    }
+
+    private static byte[] latin1(String s) {
+        return s.getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    @Test
+    public void testFinalLineEndingOfTheTextIsSupplied() {
+        Outcome done = new Outcome();
+        String article = post(HEADERS + "no line ending", java.util.Arrays.asList(attachment("f", latin1("Cat"))), done);
+        assertTrue(article, article.startsWith(HEADERS + "no line ending\r\nbegin 644 f\r\n"));
+        assertTrue(article, article.endsWith("end\r\n"));
+    }
+
+    @Test
+    public void testNoAttachmentsIsAnOrdinaryPost() {
+        Outcome done = new Outcome();
+        String article = post(HEADERS + "text\r\n", java.util.Collections.<NntpAttachment>emptyList(), done);
+        assertEquals(HEADERS + "text\r\n", article);
+    }
+
+    @Test
+    public void testEmptyAttachment() {
+        Outcome done = new Outcome();
+        String article = post(HEADERS + "t\r\n", java.util.Arrays.asList(attachment("empty", new byte[0])), done);
+        assertTrue(article, article.endsWith("begin 644 empty\r\n`\r\nend\r\n"));
+    }
+
+    @Test
+    public void testLargeAttachmentRoundTrips() {
+        byte[] big = new byte[300000];
+        new java.util.Random(5).nextBytes(big);
+        Outcome done = new Outcome();
+        String article = post(HEADERS + "big\r\n", java.util.Arrays.asList(attachment("big.bin", big)), done);
+        Found found = new Found();
+        UuScanner scanner = new UuScanner(found);
+        scanner.receive(ByteBuffer.wrap(latin1(article)));
+        scanner.finish();
+        assertArrayEquals(big, found.files.get(0));
+    }
+
+    @Test
+    public void testPostingRefused() {
+        Outcome done = new Outcome();
+        events.session.postWithAttachments(latin1(HEADERS), java.util.Arrays.asList(attachment("f", latin1("x"))), done);
+        server("440 posting not permitted\r\n");
+        assertEquals(440, done.error.getCode());
+    }
+
+    @Test
+    public void testAttachmentsMustBeValid() {
+        String[] names = {null, "", "a\nb", "a\u0000b"};
+        for (int i = 0; i < names.length; i++) {
+            try {
+                new NntpAttachment(names[i], 0644, new byte[0]);
+                org.junit.Assert.fail("accepted a bad name");
+            } catch (IllegalArgumentException expected) {
+                // good
+            }
+        }
+        for (int mode : new int[] {-1, 01000}) {
+            try {
+                new NntpAttachment("f", mode, new byte[0]);
+                org.junit.Assert.fail("accepted a bad mode");
+            } catch (IllegalArgumentException expected) {
+                // good
+            }
+        }
+        try {
+            new NntpAttachment("f", 0644, null);
+            org.junit.Assert.fail("accepted no content");
+        } catch (IllegalArgumentException expected) {
+            // good
+        }
+        try {
+            events.session.postWithAttachments(latin1(HEADERS), java.util.Arrays.asList((NntpAttachment) null),
+                    new Outcome());
+            org.junit.Assert.fail("accepted a null attachment");
+        } catch (IllegalArgumentException expected) {
+            // good
+        }
+        NntpAttachment a = new NntpAttachment("f.txt", 0600, latin1("x"));
+        assertEquals("f.txt", a.getName());
+        assertEquals(0600, a.getMode());
+        assertEquals(1, a.getData().length);
+    }
 }

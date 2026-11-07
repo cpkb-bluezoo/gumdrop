@@ -411,6 +411,8 @@ endings kept, in pieces of whatever size the connection delivers; the buffer is
 valid only during the call</li>
 <li><code>articleWithAttachments(number, handler, callback)</code> (also by
 message-id) - an article with its attachments taken out, see below</li>
+<li><code>postWithAttachments(article, attachments, callback)</code> - POST with
+files attached, see below</li>
 <li><code>post(article, callback)</code> - the article with any line endings;
 dot-stuffing and the terminator are added</li>
 <li><code>command(line, multiline, content, callback)</code> - any other command;
@@ -477,6 +479,17 @@ scanner is public as <code>UuScanner</code> in the MIME package, for articles yo
 already have.
 </p>
 
+<p>
+To post files, give <code>postWithAttachments</code> the article (headers, an empty
+line and the text) and a list of <code>NntpAttachment</code> (name, mode, content).
+Each file is uuencoded and appended to the body after the text, as news readers do,
+and a final line ending is supplied if the text lacks one. The files are encoded a
+line at a time into the post; the encoder is public as <code>UuEncoder</code> in the
+MIME package for other uses. A post goes as one POST, so very large files are better
+split into parts, as is the custom on binary newsgroups; the stock server handler
+accepts articles of up to 1 MiB.
+</p>
+
 <pre>
 session.articleWithAttachments(number, new UuScanner.Handler() {
     public void text(ByteBuffer data) { /* the message */ }
@@ -491,8 +504,7 @@ session.articleWithAttachments(number, new UuScanner.Handler() {
 <ul>
 <li>The server is a reader server. It does not accept articles from other
 servers (IHAVE) and has no NEWNEWS. AUTHINFO SASL offers PLAIN, LOGIN, SCRAM-SHA-256 and EXTERNAL (not OAUTHBEARER or GSSAPI)</li>
-<li>The client reads uuencoded attachments but does not yet write them: a POST sends the
-article as given. It does not do GSSAPI or LOGIN for AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
+<li>The client does not do GSSAPI or LOGIN for AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
 LIST ACTIVE or OVER entry is delivered once the line after it has begun to
 arrive (or the list ends), and an entry line over 64 KiB is skipped</li>
 <li>The stock handler's POST keeps the whole article in memory while it is

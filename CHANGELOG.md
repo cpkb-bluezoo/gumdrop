@@ -48,6 +48,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     them and each file (mode, name, decoded content, complete or cut off) to
     a `UuScanner.Handler`. `UuScanner` and its `Handler` are now public API in
     `org.bluezoo.gumdrop.mime`; the NNTP module requires the MIME module.
+    `NntpSession.postWithAttachments` posts files the same way, uuencoding
+    each `NntpAttachment` (name, mode, content) into the body after the text;
+    `UuEncoder` is public too.
   - Reader mode: no IHAVE or NEWNEWS.
   - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
     STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,

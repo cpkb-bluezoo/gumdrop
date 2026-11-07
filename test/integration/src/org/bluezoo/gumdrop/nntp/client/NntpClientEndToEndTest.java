@@ -509,6 +509,99 @@ public class NntpClientEndToEndTest {
                 + "\r\n\r\nHere is the file:\r\n-- \r\nregards\r\n", text.toString());
     }
 
+    @Test
+    public void testPostWithAttachmentsAndReadThemBack() throws Exception {
+        startServer(false);
+        final byte[] small = new byte[59]; // its last uuencoded line begins with a dot
+        for (int i = 0; i < small.length; i++) {
+            small[i] = (byte) (i * 7 + 3);
+        }
+        final byte[] large = new byte[200000];
+        new java.util.Random(11).nextBytes(large);
+        final String text = "From: cat@example.com\r\nSubject: Files\r\nNewsgroups: " + GROUP
+                + "\r\n\r\nTwo files.\r\n";
+        final java.util.List<java.io.ByteArrayOutputStream> files =
+                new java.util.ArrayList<java.io.ByteArrayOutputStream>();
+        final StringBuilder body = new StringBuilder();
+        Script s = run(new Script() {
+            @Override
+            void run(final NntpSession session) {
+                final Script self = this;
+                session.group(GROUP, self.<GroupResult>record("group", new Runnable() {
+                    @Override
+                    public void run() {
+                        post(session);
+                    }
+                }));
+            }
+
+            void post(final NntpSession session) {
+                final Script self = this;
+                java.util.List<NntpAttachment> attachments = new java.util.ArrayList<NntpAttachment>();
+                attachments.add(new NntpAttachment("small.bin", 0644, small));
+                attachments.add(new NntpAttachment("large.bin", 0600, large));
+                session.postWithAttachments(text.getBytes(StandardCharsets.ISO_8859_1), attachments,
+                        self.<Void>record("post", new Runnable() {
+                            @Override
+                            public void run() {
+                                // the group's range is a snapshot: select it again to see the new article
+                                session.group(GROUP, self.<GroupResult>record("regroup", new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        read(session);
+                                    }
+                                }));
+                            }
+                        }));
+            }
+
+            void read(final NntpSession session) {
+                final Script self = this;
+                session.articleWithAttachments(3, new org.bluezoo.gumdrop.mime.UuScanner.Handler() {
+                    @Override
+                    public void text(ByteBuffer data) {
+                        byte[] b = new byte[data.remaining()];
+                        data.get(b);
+                        body.append(new String(b, StandardCharsets.ISO_8859_1));
+                    }
+
+                    @Override
+                    public void begin(int mode, String name) {
+                        log.add("begin " + Integer.toOctalString(mode) + " " + name);
+                        files.add(new java.io.ByteArrayOutputStream());
+                    }
+
+                    @Override
+                    public void content(ByteBuffer data) {
+                        java.io.ByteArrayOutputStream out = files.get(files.size() - 1);
+                        while (data.hasRemaining()) {
+                            out.write(data.get());
+                        }
+                    }
+
+                    @Override
+                    public void end(boolean complete) {
+                        log.add(complete ? "end" : "cut off");
+                    }
+                }, self.<Void>record("read", new Runnable() {
+                    @Override
+                    public void run() {
+                        session.quit();
+                    }
+                }));
+            }
+        });
+        String log = s.log.toString();
+        assertTrue(log, s.log.contains("post ok"));
+        assertTrue(log, s.log.contains("read ok"));
+        assertTrue(log, s.log.contains("begin 644 small.bin"));
+        assertTrue(log, s.log.contains("begin 600 large.bin"));
+        assertEquals(log, 2, files.size());
+        org.junit.Assert.assertArrayEquals(small, files.get(0).toByteArray());
+        org.junit.Assert.assertArrayEquals(large, files.get(1).toByteArray());
+        assertEquals(text, body.toString());
+    }
+
     // ── TLS ──
 
     /** Trusts the test CA, whatever else is configured. */
