@@ -234,9 +234,11 @@ public class DefaultNntpHandler implements ClientConnected, ReaderHandler {
     public void listGroups(ListState state, MailboxStore store, ListType type,
                            String wildmat, Instant since) {
         try {
+            // read the store before answering, so that a failure is a plain 403
+            List<String> names = type != ListType.NEW_GROUPS
+                    ? store.listMailboxes("", "*") : java.util.Collections.<String>emptyList();
             ListState.ListWriter writer = state.begin();
             if (type != ListType.NEW_GROUPS) {
-                List<String> names = store.listMailboxes("", "*");
                 for (int i = 0; i < names.size(); i++) {
                     String mailboxName = names.get(i);
                     String group = toGroupName(store, mailboxName);
@@ -276,8 +278,8 @@ public class DefaultNntpHandler implements ClientConnected, ReaderHandler {
     @Override
     public void listArticles(ListState state, Mailbox mailbox, ArticleRef range) {
         try {
-            ListState.ListWriter writer = state.begin();
             int count = mailbox.getMessageCount();
+            ListState.ListWriter writer = state.begin();
             long last = Math.min(range.getLast(), count);
             for (long n = Math.max(1, range.getNumber()); n <= last; n++) {
                 if (!mailbox.isDeleted((int) n)) {

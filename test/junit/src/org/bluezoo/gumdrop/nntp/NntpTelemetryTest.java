@@ -317,6 +317,28 @@ public class NntpTelemetryTest {
     }
 
     @Test
+    public void testStartTlsFailureIsRecorded() {
+        listener.tls = true;
+        endpoint = new StubEndpoint() {
+            @Override
+            public TelemetryConfig getTelemetryConfig() {
+                return config;
+            }
+
+            @Override
+            public void startTLS() throws java.io.IOException {
+                throw new java.io.IOException("no handshake");
+            }
+        };
+        handler = new NntpProtocolHandler(listener);
+        handler.connected(endpoint);
+        send("STARTTLS");
+        handler.disconnected();
+        Span session = sessionSpan();
+        assertTrue(hasEvent(session, "STARTTLS_FAILURE"));
+    }
+
+    @Test
     public void testNoMetricsWhenTheListenerHasNone() {
         NntpListener plain = new NntpListener();
         StubEndpoint e = new StubEndpoint();

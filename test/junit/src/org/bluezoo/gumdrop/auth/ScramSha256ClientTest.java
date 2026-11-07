@@ -144,6 +144,22 @@ public class ScramSha256ClientTest {
     }
 
     @Test
+    public void testMalformedServerFinalMessages() throws IOException {
+        String[] bad = {"x=whatever", "v=!!!", ""};
+        for (int i = 0; i < bad.length; i++) {
+            SaslClientMechanism m = new ScramSha256Client("user", "pencil", NONCE);
+            m.evaluateChallenge(new byte[0]);
+            m.evaluateChallenge(bytes(SERVER_FIRST));
+            try {
+                m.evaluateChallenge(bytes(bad[i]));
+                fail("accepted: " + bad[i]);
+            } catch (IOException expected) {
+                assertFalse(m.isComplete());
+            }
+        }
+    }
+
+    @Test
     public void testAgainstTheServerHelpers() throws IOException {
         // the client's proof is accepted by SaslUtils.verifyScramClientFinal, and
         // the signature that returns is accepted by the client

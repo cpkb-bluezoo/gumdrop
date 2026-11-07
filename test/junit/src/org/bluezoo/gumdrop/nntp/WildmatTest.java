@@ -89,4 +89,10 @@ public class WildmatTest {
         assertFalse(Wildmat.matches("!a.*", "b.c"));
     }
 
+
+    @Test
+    public void testUnclosedBracketIsLiteral() {
+        assertTrue(Wildmat.matches("[abc", "[abc"));
+        assertFalse(Wildmat.matches("[abc", "a"));
+    }
 }

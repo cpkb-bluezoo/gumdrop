@@ -186,7 +186,7 @@ final class UuDecoder {
 	 * @param dst room for up to three bytes per missing group
 	 */
 	boolean finish(ByteBuffer dst) {
-		if (state == S_MAYBE_END && matched == END.length) {
+		if ((state == S_MAYBE_END || state == S_END_WAIT) && matched == END.length) {
 			state = S_DONE; // "end" with no line feed
 		} else if (state == S_DATA && col > 0) {
 			ByteBuffer eol = ByteBuffer.wrap(new byte[] { '\n' });

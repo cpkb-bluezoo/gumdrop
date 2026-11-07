@@ -679,8 +679,6 @@ public final class NntpProtocolHandler
         final ReaderHandler handler = readerHandler;
         final Mailbox mb = mailbox;
         final ArticleRef range = inflightRange;
-        sendStatus(211, selectedCount + " " + selectedLow + " " + selectedHigh + " "
-                + groupName + " " + L10N.getString("nntp.list_follows"));
         offload(new Runnable() {
             @Override
             public void run() {
@@ -807,7 +805,10 @@ public final class NntpProtocolHandler
                 first = "231 " + L10N.getString("nntp.newgroups_follow");
                 break;
             case LISTGROUP:
-                first = null; // sent when the group was selected
+                // the answer starts when the handler starts the list, so that a
+                // failure before then is a plain error
+                first = "211 " + selectedCount + " " + selectedLow + " " + selectedHigh + " "
+                        + groupName + " " + L10N.getString("nntp.list_follows");
                 break;
             default:
                 first = "215 " + L10N.getString(type == ListType.NEWSGROUPS

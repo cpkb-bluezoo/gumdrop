@@ -513,10 +513,10 @@ public class NntpProtocolHandlerTest {
             this.factory = factory;
         }
 
-        @Override public void open(String username) { user = username; }
-        @Override public void close() { closed = true; }
+        @Override public void open(String username) throws IOException { user = username; }
+        @Override public void close() throws IOException { closed = true; }
         @Override public char getHierarchyDelimiter() { return '.'; }
-        @Override public List<String> listMailboxes(String reference, String pattern) {
+        @Override public List<String> listMailboxes(String reference, String pattern) throws IOException {
             List<String> r = new ArrayList<String>();
             for (String name : factory.groups.keySet()) {
                 if (pattern.equals("*") || pattern.equals(name)) {
@@ -560,41 +560,49 @@ public class NntpProtocolHandlerTest {
             this.deleted = deleted;
         }
 
-        @Override public void close(boolean expunge) { closed = true; }
+        List<String> articlesList() {
+            return articles;
+        }
+
+        List<Integer> deletedList() {
+            return deleted;
+        }
+
+        @Override public void close(boolean expunge) throws IOException { closed = true; }
         @Override public String getName() { return name; }
-        @Override public int getMessageCount() { return articles.size(); }
+        @Override public int getMessageCount() throws IOException { return articles.size(); }
         @Override public long getMailboxSize() { return 0; }
         @Override public Iterator<MessageDescriptor> getMessageList() { return Collections.<MessageDescriptor>emptyList().iterator(); }
-        @Override public MessageDescriptor getMessage(final int n) {
+        @Override public MessageDescriptor getMessage(final int n) throws IOException {
             return new MessageDescriptor() {
                 @Override public int getMessageNumber() { return n; }
                 @Override public long getSize() { return articles.get(n - 1).length(); }
                 @Override public String getUniqueId() { return Integer.toString(n); }
             };
         }
-        @Override public ReadableByteChannel getMessageContent(int n) {
+        @Override public ReadableByteChannel getMessageContent(int n) throws IOException {
             return Channels.newChannel(new java.io.ByteArrayInputStream(
                     articles.get(n - 1).getBytes(StandardCharsets.ISO_8859_1)));
         }
-        @Override public ReadableByteChannel getMessageTop(int n, int lines) {
+        @Override public ReadableByteChannel getMessageTop(int n, int lines) throws IOException {
             return getMessageContent(n);
         }
         @Override public void deleteMessage(int n) { deleted.add(Integer.valueOf(n)); }
-        @Override public boolean isDeleted(int n) { return deleted.contains(Integer.valueOf(n)); }
+        @Override public boolean isDeleted(int n) throws IOException { return deleted.contains(Integer.valueOf(n)); }
         @Override public void undeleteAll() { deleted.clear(); }
-        @Override public String getUniqueId(int n) { return Integer.toString(n); }
+        @Override public String getUniqueId(int n) throws IOException { return Integer.toString(n); }
 
         private ByteArrayOutputStream appending;
         @Override public void startAppendMessage(java.util.Set<org.bluezoo.gumdrop.mailbox.Flag> flags,
-                java.time.OffsetDateTime date) {
+                java.time.OffsetDateTime date) throws IOException {
             appending = new ByteArrayOutputStream();
         }
-        @Override public void appendMessageContent(ByteBuffer data) {
+        @Override public void appendMessageContent(ByteBuffer data) throws IOException {
             byte[] b = new byte[data.remaining()];
             data.get(b);
             appending.write(b, 0, b.length);
         }
-        @Override public long endAppendMessage() {
+        @Override public long endAppendMessage() throws IOException {
             articles.add(new String(appending.toByteArray(), StandardCharsets.ISO_8859_1));
             appending = null;
             return articles.size();

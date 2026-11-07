@@ -70,7 +70,7 @@ public class NntpPostAuthTest {
     private static final Realm.ScramCredentials CREDENTIALS =
             Realm.ScramCredentials.derive("secret", SALT, 4096, "SHA-256");
 
-    private static final class TestRealm implements Realm {
+    private static class TestRealm implements Realm {
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
             return this;
@@ -547,6 +547,204 @@ public class NntpPostAuthTest {
         listener.realm(new TestRealm());
         connect();
         assertEquals("483 Encryption required\r\n", exchange("AUTHINFO SASL EXTERNAL"));
+    }
+
+    // ── edges of AUTHINFO ──
+
+    @Test
+    public void testAuthinfoSyntax() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("501 User name required\r\n", exchange("AUTHINFO USER"));
+        exchange("AUTHINFO USER alice");
+        assertEquals("501 Password required\r\n", exchange("AUTHINFO PASS"));
+        assertEquals("501 Unknown AUTHINFO keyword\r\n", exchange("AUTHINFO FROB"));
+        assertEquals("501 Unknown AUTHINFO keyword\r\n", exchange("AUTHINFO"));
+    }
+
+    @Test
+    public void testLockoutAfterTooManyFailures() {
+        listener.realm(new TestRealm());
+        listener.maxAuthFailures(1);
+        connect();
+        exchange("AUTHINFO USER alice");
+        assertEquals("481 Authentication failed\r\n", exchange("AUTHINFO PASS wrong"));
+        exchange("AUTHINFO USER alice");
+        assertEquals("481 Too many failed attempts; try again later\r\n", exchange("AUTHINFO PASS secret"));
+        endpoint.secure = true;
+        assertEquals("481 Too many failed attempts; try again later\r\n",
+                exchange("AUTHINFO SASL PLAIN " + plain("alice", "secret")));
+    }
+
+    /** A realm whose lookups fail. */
+    private static final class BrokenRealm implements Realm {
+        final Throwable failure;
+
+        BrokenRealm(Throwable failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public Realm forSelectorLoop(SelectorLoop loop) {
+            return this;
+        }
+
+        @Override
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
+            return EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.SCRAM_SHA_256, SaslMechanism.EXTERNAL);
+        }
+
+        @Override
+        public void passwordMatch(String user, String password, RealmCallback<Boolean> callback) {
+            callback.failed(failure);
+        }
+
+        @Override
+        public void getScramCredentials(String user, RealmCallback<Realm.ScramCredentials> callback) {
+            callback.failed(failure);
+        }
+
+        @Override
+        public void authenticateCertificate(X509Certificate certificate,
+                RealmCallback<Realm.CertificateAuthenticationResult> callback) {
+            callback.failed(failure);
+        }
+
+        @Override
+        public void getDigestHA1(String username, String realmName, RealmCallback<String> callback) {
+            callback.completed(null);
+        }
+
+        @Override
+        public void isUserInRole(String username, String role, RealmCallback<Boolean> callback) {
+            callback.completed(Boolean.FALSE);
+        }
+    }
+
+    @Test
+    public void testRealmThatFailsOnPassword() {
+        listener.realm(new BrokenRealm(new RuntimeException("directory down")));
+        connect();
+        exchange("AUTHINFO USER alice");
+        assertEquals("403 Internal fault\r\n", exchange("AUTHINFO PASS secret"));
+        // the connection carries on
+        assertTrue(exchange("DATE").startsWith("111 "));
+    }
+
+    @Test
+    public void testRealmThatFailsOnScram() {
+        listener.realm(new BrokenRealm(new RuntimeException("directory down")));
+        connect();
+        assertEquals("403 Internal fault\r\n",
+                exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,,n=alice,r=abc")));
+        assertTrue(exchange("DATE").startsWith("111 "));
+    }
+
+    @Test
+    public void testRealmWithoutScram() {
+        listener.realm(new BrokenRealm(new UnsupportedOperationException("no SCRAM")));
+        connect();
+        assertEquals("504 Mechanism not supported\r\n",
+                exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,,n=alice,r=abc")));
+    }
+
+    @Test
+    public void testRealmThatFailsOnTheFinalScramStep() {
+        final int[] calls = {0};
+        listener.realm(new TestRealm() {
+            @Override
+            public void getScramCredentials(String user, RealmCallback<Realm.ScramCredentials> callback) {
+                if (++calls[0] == 1) {
+                    super.getScramCredentials(user, callback);
+                } else {
+                    callback.failed(new RuntimeException("went away"));
+                }
+            }
+        });
+        connect();
+        assertTrue(exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,,n=alice,r=abc")).startsWith("383 "));
+        assertEquals("403 Internal fault\r\n", exchange(b64("c=biws,r=abc,p=AAAA")));
+    }
+
+    @Test
+    public void testRealmThatFailsOnTheCertificate() throws Exception {
+        listener.realm(new BrokenRealm(new RuntimeException("directory down")));
+        secureWithCertificate();
+        assertEquals("403 Internal fault\r\n", exchange("AUTHINFO SASL EXTERNAL ="));
+    }
+
+    @Test
+    public void testSaslDataThatIsNotBase64() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("501 Invalid base64 data\r\n", exchange("AUTHINFO SASL PLAIN !!!"));
+        assertTrue(exchange("DATE").startsWith("111 "));
+    }
+
+    @Test
+    public void testScramFirstMessageWithoutANonce() {
+        listener.realm(new TestRealm());
+        connect();
+        assertEquals("501 Invalid SCRAM message\r\n",
+                exchange("AUTHINFO SASL SCRAM-SHA-256 " + b64("n,,n=alice")));
+    }
+
+    @Test
+    public void testOverlongSaslLineEndsTheExchange() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        exchange("AUTHINFO SASL PLAIN");
+        StringBuilder sb = new StringBuilder("x ");
+        for (int i = 0; i < 600; i++) {
+            sb.append('y');
+        }
+        assertTrue(exchange(sb.toString()).startsWith("501 "));
+        assertTrue(exchange("DATE").startsWith("111 "));
+    }
+
+    @Test
+    public void testPlainWithoutThreeParts() {
+        listener.realm(new TestRealm());
+        connect();
+        endpoint.secure = true;
+        assertEquals("481 Authentication failed\r\n", exchange("AUTHINFO SASL PLAIN " + b64("no separators")));
+    }
+
+    @Test
+    public void testStartTlsThatCannotBeStarted() {
+        listener.tls = true;
+        endpoint = new StubEndpoint() {
+            @Override
+            public void startTLS() throws java.io.IOException {
+                throw new java.io.IOException("no handshake");
+            }
+        };
+        handler = new NntpProtocolHandler(listener);
+        handler.connected(endpoint);
+        take();
+        assertEquals("382 Continue with TLS negotiation\r\n", exchange("STARTTLS"));
+        assertFalse(endpoint.open);
+    }
+
+    @Test
+    public void testPostRefusedByTheApplicationAfterAccepting() {
+        listener.postingAllowed(true);
+        listener.sessionProvider(new org.bluezoo.gumdrop.nntp.server.NntpServerSessionProvider() {
+            @Override
+            public org.bluezoo.gumdrop.nntp.server.ClientConnected openSession(org.bluezoo.gumdrop.TcpListener l) {
+                return new org.bluezoo.gumdrop.nntp.server.DefaultNntpHandler("hi", true) {
+                    @Override
+                    public void post(org.bluezoo.gumdrop.nntp.server.PostState state,
+                            org.bluezoo.gumdrop.mailbox.MailboxStore store) {
+                        state.refuse(this);
+                    }
+                };
+            }
+        });
+        connect();
+        assertEquals("440 Posting not permitted\r\n", exchange("POST"));
     }
 
     private static byte[] hmac(byte[] key, String data) throws RuntimeException {
