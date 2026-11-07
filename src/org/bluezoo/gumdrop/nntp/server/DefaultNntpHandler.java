@@ -24,17 +24,23 @@ package org.bluezoo.gumdrop.nntp.server;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.CompletionHandler;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.concurrent.Callable;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
+import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -57,6 +63,9 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * article up by message-id searches the current group only, since a
  * mailbox store has no index of message-ids.
  * <li>Mailboxes carry no creation time, so NEWGROUPS lists nothing.
+ * <li>A posted article is written to each newsgroup it names as it arrives,
+ * in constant memory, through the mailbox's asynchronous writer; a store
+ * that has none (mbox) refuses the post.
  * <li>Whatever the backend, LIST ACTIVE opens each mailbox to count its
  * messages.
  * </ul>
@@ -103,94 +112,494 @@ public class DefaultNntpHandler implements ClientConnected, ReaderHandler {
 
     // ── Posting (RFC 3977 section 6.3.1) ──
 
-    /** The largest article this handler accepts; it is held in memory. */
-    static final int MAX_POST_BYTES = 1024 * 1024;
-
     @Override
     public void post(PostState state, MailboxStore store) {
         if (!postingAllowed) {
             state.refuse(this);
             return;
         }
-        state.accept(new PostCollector(store));
+        state.accept(new PostWriter(state, store));
+    }
+
+    /** A reason a post cannot go ahead, for the client. */
+    private static final class Refusal extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        Refusal(String message) {
+            super(message);
+        }
+    }
+
+    /** A newsgroup being posted to. */
+    private static final class Target {
+        final Mailbox mailbox;
+        final AsyncMessageWriter writer;
+
+        Target(Mailbox mailbox, AsyncMessageWriter writer) {
+            this.mailbox = mailbox;
+            this.writer = writer;
+        }
     }
 
     /**
-     * Collects a posted article and appends it to the mailbox of each
-     * newsgroup it names that exists.
+     * Stores an article as it arrives, in constant memory.
+     *
+     * <p>Only the header block is held (up to 64 KiB) until it is complete,
+     * which says where the article goes. The newsgroups' mailboxes are then
+     * opened off the event loop, each giving an {@link AsyncMessageWriter},
+     * and what arrived since is written to all of them, chunk by chunk, one
+     * chunk at a time. The connection is told to stop reading when more than
+     * 256 KiB waits to be written and to go on when it falls below 64 KiB, so
+     * the memory in use is the header block, that bound and one network read,
+     * whatever the size of the article. A store that cannot write a message
+     * as it arrives (no asynchronous append) refuses the post rather than
+     * buffering it.
+     *
+     * <p>Everything here runs on the event loop; the writers' completions
+     * are brought back to it.
      */
-    private final class PostCollector implements PostSink {
+    private final class PostWriter implements PostSink {
 
+        private static final int MAX_HEADER_BYTES = 65536;
+        private static final int HIGH_WATER = 256 * 1024;
+        private static final int LOW_WATER = 64 * 1024;
+        private static final int CHUNK = 16 * 1024;
+
+        private final PostState state;
         private final MailboxStore store;
-        private final ByteArrayOutputStream article = new ByteArrayOutputStream();
-        private boolean tooLarge;
 
-        PostCollector(MailboxStore store) {
+        private final ByteArrayOutputStream header = new ByteArrayOutputStream();
+        private boolean afterLineEnd;
+
+        // what has arrived and is not yet written: whole chunks, then a partly filled one
+        private final ArrayDeque<ByteBuffer> queue = new ArrayDeque<ByteBuffer>();
+        private byte[] current = new byte[CHUNK];
+        private int currentLength;
+        private long queuedBytes;
+        private boolean inputPaused;
+
+        private List<Target> targets = new ArrayList<Target>();
+        private boolean opening;
+        private boolean streaming;
+        private boolean writing;
+        private int outstanding;
+        private boolean pumping;
+        private boolean again;
+
+        private PostState ended;
+        private boolean finishing;
+        private int unfinished;
+        private String failure;
+        private boolean replied;
+
+        PostWriter(PostState state, MailboxStore store) {
+            this.state = state;
             this.store = store;
         }
 
-        @Override
-        public void content(ByteBuffer chunk) {
-            int n = chunk.remaining();
-            if (tooLarge || article.size() + n > MAX_POST_BYTES) {
-                tooLarge = true;
-                return;
-            }
-            byte[] bytes = new byte[n];
-            chunk.get(bytes);
-            article.write(bytes, 0, n);
-        }
+        // ── input, on the event loop ──
 
         @Override
-        public void end(PostState state) {
-            if (tooLarge) {
-                state.notPosted(L10N.getString("nntp.err.article_too_large"), DefaultNntpHandler.this);
-                return;
+        public void content(ByteBuffer chunk) {
+            if (failure != null || replied) {
+                return; // refused already: the rest of the article is read and dropped
             }
-            byte[] bytes = article.toByteArray();
-            Map<String, String> headers = parseHeaders(bytes);
+            if (!opening && !streaming) {
+                chunk = headerBytes(chunk);
+                if (chunk == null) {
+                    return;
+                }
+            }
+            if (chunk.hasRemaining()) {
+                // the connection hands over a slice per line; gather them into chunks
+                while (chunk.hasRemaining()) {
+                    int n = Math.min(chunk.remaining(), CHUNK - currentLength);
+                    chunk.get(current, currentLength, n);
+                    currentLength += n;
+                    queuedBytes += n;
+                    if (currentLength == CHUNK) {
+                        seal();
+                    }
+                }
+                if (queuedBytes >= HIGH_WATER && !inputPaused) {
+                    inputPaused = true;
+                    state.pauseInput();
+                }
+                if (streaming) {
+                    pump();
+                }
+            }
+        }
+
+        /** The chunk being gathered is complete (or is all there is to write now). */
+        private void seal() {
+            queue.add(ByteBuffer.wrap(current, 0, currentLength));
+            current = new byte[CHUNK];
+            currentLength = 0;
+        }
+
+        /**
+         * Takes header bytes until the blank line. Returns what follows it in
+         * this chunk, or null if the header block goes on or the post failed.
+         */
+        private ByteBuffer headerBytes(ByteBuffer chunk) {
+            while (chunk.hasRemaining()) {
+                byte b = chunk.get();
+                header.write(b);
+                if (b == '\n') {
+                    if (afterLineEnd) {
+                        beginPost();
+                        return failure == null ? chunk : null;
+                    }
+                    afterLineEnd = true;
+                } else if (b != '\r') {
+                    afterLineEnd = false;
+                }
+                if (header.size() > MAX_HEADER_BYTES) {
+                    fail(L10N.getString("nntp.err.headers_too_large"));
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        /** The header block is complete: find the newsgroups and open them. */
+        private void beginPost() {
+            Map<String, String> headers = parseHeaders(header.toByteArray());
             String newsgroups = headers.get("newsgroups");
             if (newsgroups == null || newsgroups.isEmpty() || !headers.containsKey("from")
                     || !headers.containsKey("subject")) {
-                state.notPosted(L10N.getString("nntp.err.article_incomplete"), DefaultNntpHandler.this);
+                fail(L10N.getString("nntp.err.article_incomplete"));
                 return;
             }
-            int appended = 0;
-            try {
-                for (String group : newsgroups.split(",")) {
-                    group = group.trim();
-                    if (group.isEmpty() || group.indexOf('*') >= 0 || group.indexOf('%') >= 0) {
-                        continue;
+            final java.util.Set<String> groups = new java.util.LinkedHashSet<String>();
+            for (String group : newsgroups.split(",")) {
+                group = group.trim();
+                if (!group.isEmpty() && group.indexOf('*') < 0 && group.indexOf('%') < 0) {
+                    groups.add(group);
+                }
+            }
+            opening = true;
+            // what follows the header waits, a read at most, while the mailboxes open
+            inputPaused = true;
+            state.pauseInput();
+            state.offload(new Callable<List<Target>>() {
+                @Override
+                public List<Target> call() throws IOException {
+                    return open(groups);
+                }
+            }, new StorageExecutor.Callback<List<Target>>() {
+                @Override
+                public void completed(List<Target> opened) {
+                    opened(opened);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    if (!(error instanceof Refusal)) {
+                        events().warn("warn.failed_post_article").thrown(error).emit();
                     }
+                    fail(error instanceof Refusal ? error.getMessage()
+                            : L10N.getString("nntp.err.post_failed"));
+                }
+            });
+        }
+
+        /** Opens a writer on each newsgroup that exists. Runs off the event loop. */
+        private List<Target> open(java.util.Set<String> groups) throws IOException {
+            List<Target> opened = new ArrayList<Target>();
+            try {
+                for (String group : groups) {
                     String name = toMailboxName(store, group);
                     if (!store.listMailboxes("", name).contains(name)) {
                         continue;
                     }
                     Mailbox mailbox = store.openMailbox(name, false);
+                    AsyncMessageWriter writer = null;
                     try {
-                        mailbox.startAppendMessage(null, null);
-                        mailbox.appendMessageContent(ByteBuffer.wrap(bytes));
-                        mailbox.endAppendMessage();
-                        appended++;
+                        writer = mailbox.openAsyncAppend(null, null);
                     } finally {
-                        mailbox.close(false);
+                        if (writer == null) {
+                            mailbox.close(false);
+                        }
                     }
+                    if (writer == null) {
+                        throw new Refusal(L10N.getString("nntp.err.store_cannot_stream"));
+                    }
+                    opened.add(new Target(mailbox, writer));
+                }
+                if (opened.isEmpty()) {
+                    throw new Refusal(L10N.getString("nntp.err.no_such_newsgroup"));
                 }
             } catch (IOException e) {
-                events().warn("warn.failed_post_article").thrown(e).emit();
-                state.notPosted(L10N.getString("nntp.err.post_failed"), DefaultNntpHandler.this);
+                // already off the event loop: undo what was opened
+                for (int i = 0; i < opened.size(); i++) {
+                    opened.get(i).writer.abort();
+                }
+                close(opened);
+                throw e;
+            }
+            return opened;
+        }
+
+        /** The writers are open. */
+        private void opened(List<Target> opened) {
+            if (failure != null || replied) {
+                // the connection went, or the post failed, while they were opening
+                for (int i = 0; i < opened.size(); i++) {
+                    opened.get(i).writer.abort();
+                }
+                discard(opened);
                 return;
             }
-            if (appended == 0) {
-                state.notPosted(L10N.getString("nntp.err.no_such_newsgroup"), DefaultNntpHandler.this);
-            } else {
-                state.posted(DefaultNntpHandler.this);
+            targets = opened;
+            opening = false;
+            streaming = true;
+            byte[] head = header.toByteArray();
+            queue.addFirst(ByteBuffer.wrap(head));
+            queuedBytes += head.length;
+            pump();
+            relieve();
+            finishIfReady();
+        }
+
+        // ── writing ──
+
+        private void pump() {
+            if (pumping) {
+                again = true;
+                return;
+            }
+            pumping = true;
+            do {
+                again = false;
+                writeNext();
+            } while (again);
+            pumping = false;
+        }
+
+        private void writeNext() {
+            if (writing || failure != null) {
+                return;
+            }
+            if (queue.isEmpty() && currentLength > 0) {
+                seal(); // nothing is being written: do not hold what has arrived
+            }
+            if (queue.isEmpty()) {
+                return;
+            }
+            final ByteBuffer chunk = queue.poll();
+            final int size = chunk.remaining();
+            writing = true;
+            outstanding = targets.size();
+            for (int i = 0; i < targets.size(); i++) {
+                targets.get(i).writer.write(chunk.duplicate(), new CompletionHandler<Integer, ByteBuffer>() {
+                    @Override
+                    public void completed(Integer result, ByteBuffer attachment) {
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                written(size);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void failed(final Throwable error, ByteBuffer attachment) {
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                events().warn("warn.failed_post_article").thrown(error).emit();
+                                fail(L10N.getString("nntp.err.post_failed"));
+                            }
+                        });
+                    }
+                });
             }
         }
 
+        private void written(int size) {
+            if (failure != null || replied) {
+                return;
+            }
+            if (--outstanding > 0) {
+                return;
+            }
+            writing = false;
+            queuedBytes -= size;
+            relieve();
+            pump();
+            finishIfReady();
+        }
+
+        /** Lets the connection go on once the writers have caught up. */
+        private void relieve() {
+            if (inputPaused && !opening && queuedBytes < LOW_WATER) {
+                inputPaused = false;
+                state.resumeInput();
+            }
+        }
+
+        // ── the end ──
+
+        @Override
+        public void end(final PostState done) {
+            endpoint.execute(new Runnable() {
+                @Override
+                public void run() {
+                    ended = done;
+                    if (failure != null) {
+                        reply();
+                    } else if (!opening && !streaming) {
+                        beginPost(); // headers with no body: there was no blank line
+                    } else {
+                        finishIfReady();
+                    }
+                }
+            });
+        }
+
+        private void finishIfReady() {
+            if (ended == null || !streaming || finishing || failure != null) {
+                return;
+            }
+            if (writing || !queue.isEmpty() || currentLength > 0) {
+                pump(); // all that has arrived must be written first
+                return;
+            }
+            finishing = true;
+            unfinished = targets.size();
+            for (int i = 0; i < targets.size(); i++) {
+                targets.get(i).writer.finish(new CompletionHandler<Long, Void>() {
+                    @Override
+                    public void completed(Long uid, Void attachment) {
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (--unfinished == 0 && failure == null) {
+                                    reply();
+                                }
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void failed(final Throwable error, Void attachment) {
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                events().warn("warn.failed_post_article").thrown(error).emit();
+                                fail(L10N.getString("nntp.err.post_failed"));
+                            }
+                        });
+                    }
+                });
+            }
+        }
+
+        /** The connection ended part way through the article. */
         @Override
         public void abort() {
-            article.reset();
+            if (!replied) {
+                fail("connection lost");
+            }
+        }
+
+        /** The post cannot succeed; what is left of the article is dropped. */
+        private void fail(String reason) {
+            if (failure == null) {
+                failure = reason;
+            }
+            queue.clear();
+            currentLength = 0;
+            queuedBytes = 0;
+            List<Target> open = targets;
+            targets = new ArrayList<Target>();
+            for (int i = 0; i < open.size(); i++) {
+                open.get(i).writer.abort();
+            }
+            discard(open);
+            if (inputPaused) {
+                inputPaused = false; // the rest of the article is read, and dropped
+                state.resumeInput();
+            }
+            if (ended != null) {
+                reply();
+            }
+        }
+
+        /** Answers the client, closing the mailboxes first. */
+        private void reply() {
+            if (replied) {
+                return;
+            }
+            replied = true;
+            final List<Target> done = targets;
+            targets = new ArrayList<Target>();
+            final PostState answer = ended;
+            final String why = failure;
+            state.offload(new Callable<Void>() {
+                @Override
+                public Void call() {
+                    close(done);
+                    return null;
+                }
+            }, new StorageExecutor.Callback<Void>() {
+                @Override
+                public void completed(Void result) {
+                    answer(answer, why);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    events().warn("warn.failed_post_article").thrown(error).emit();
+                    answer(answer, why);
+                }
+            });
+        }
+
+        private void answer(PostState answer, String why) {
+            if (answer == null) {
+                return;
+            }
+            if (why == null) {
+                answer.posted(DefaultNntpHandler.this);
+            } else {
+                answer.notPosted(why, DefaultNntpHandler.this);
+            }
+        }
+
+        /** Closes mailboxes whose writers have been aborted or have finished. */
+        private void discard(final List<Target> open) {
+            if (open.isEmpty()) {
+                return;
+            }
+            state.offload(new Callable<Void>() {
+                @Override
+                public Void call() {
+                    close(open);
+                    return null;
+                }
+            }, new StorageExecutor.Callback<Void>() {
+                @Override
+                public void completed(Void result) {
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    events().warn("warn.failed_post_article").thrown(error).emit();
+                }
+            });
+        }
+
+        private void close(List<Target> open) {
+            for (int i = 0; i < open.size(); i++) {
+                try {
+                    open.get(i).mailbox.close(false);
+                } catch (IOException e) {
+                    events().warn("warn.failed_post_article").thrown(e).emit();
+                }
+            }
         }
     }
 

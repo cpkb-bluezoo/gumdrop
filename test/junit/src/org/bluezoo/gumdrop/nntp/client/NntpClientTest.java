@@ -523,15 +523,6 @@ public class NntpClientTest {
     }
 
     @Test
-    public void testDotStuff() {
-        assertEquals("a\r\n..b\r\n.\r\n", new String(
-                NntpSession.dotStuff("a\n.b".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
-        assertEquals("a\r\n\r\nb\r\n.\r\n", new String(
-                NntpSession.dotStuff("a\r\rb\r\n".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
-        assertEquals(".\r\n", new String(NntpSession.dotStuff(new byte[0]), StandardCharsets.UTF_8));
-    }
-
-    @Test
     public void testQuit() {
         ready();
         sent();

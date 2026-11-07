@@ -468,6 +468,7 @@ public class NntpEdgeCasesTest {
         boolean failRead;
         boolean failClose;
         boolean failAsyncOpen;
+        boolean noAsyncAppend;
 
         Faulty(StubFactory factory) {
             super(factory);
@@ -487,7 +488,7 @@ public class NntpEdgeCasesTest {
                 throw new IOException("open");
             }
             final StubMailbox base = (StubMailbox) super.openMailbox(name, readOnly);
-            return new StubMailbox(name, base.articlesList(), base.deletedList()) {
+            StubMailbox made = new StubMailbox(name, base.articlesList(), base.deletedList()) {
                 @Override
                 public int getMessageCount() throws IOException {
                     if (failCount) {
@@ -513,12 +514,13 @@ public class NntpEdgeCasesTest {
                 }
 
                 @Override
-                public void startAppendMessage(java.util.Set<org.bluezoo.gumdrop.mailbox.Flag> flags,
+                public org.bluezoo.gumdrop.mailbox.AsyncMessageWriter openAsyncAppend(
+                        java.util.Set<org.bluezoo.gumdrop.mailbox.Flag> flags,
                         java.time.OffsetDateTime date) throws IOException {
                     if (failAppend) {
                         throw new IOException("append");
                     }
-                    super.startAppendMessage(flags, date);
+                    return noAsyncAppend ? null : super.openAsyncAppend(flags, date);
                 }
 
                 @Override
@@ -561,6 +563,9 @@ public class NntpEdgeCasesTest {
                     super.close(expunge);
                 }
             };
+            factory.lastMailbox = made;
+            factory.opened.add(made);
+            return made;
         }
     }
 
@@ -670,25 +675,6 @@ public class NntpEdgeCasesTest {
         connect();
         assertEquals("440 Posting not permitted\r\n", exchange("POST"));
         assertTrue(exchange("DATE").startsWith("111 "));
-    }
-
-    @Test
-    public void testPostedArticleThatIsTooLarge() {
-        listener.postingAllowed(true);
-        connect();
-        exchange("POST");
-        StringBuilder line = new StringBuilder();
-        for (int i = 0; i < 1000; i++) {
-            line.append('x');
-        }
-        line.append("\r\n");
-        feed("From: a@x\r\nSubject: s\r\nNewsgroups: test.group\r\n\r\n");
-        for (int i = 0; i < 1100; i++) {
-            feed(line.toString());
-        }
-        feed(".\r\n");
-        assertTrue(take().endsWith("441 Article too large\r\n"));
-        assertEquals(1, factory.groups.get("test.group").size());
     }
 
     @Test
@@ -840,6 +826,19 @@ public class NntpEdgeCasesTest {
         public HeaderWriter beginHeaders() {
             last = "headers";
             return null;
+        }
+
+        public void pauseInput() {
+            last = "pause";
+        }
+
+        public void resumeInput() {
+            last = "resume";
+        }
+
+        public <T> void offload(java.util.concurrent.Callable<T> work,
+                org.bluezoo.gumdrop.StorageExecutor.Callback<T> callback) {
+            last = "offload";
         }
 
         public void accept(org.bluezoo.gumdrop.nntp.server.PostSink sink) {

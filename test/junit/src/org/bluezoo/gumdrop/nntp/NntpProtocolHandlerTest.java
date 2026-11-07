@@ -484,6 +484,7 @@ public class NntpProtocolHandlerTest {
         int storesCreated;
         StubStore lastStore;
         StubMailbox lastMailbox;
+        final List<StubMailbox> opened = new ArrayList<StubMailbox>();
 
         void add(String group, String... articles) {
             List<String> list = new ArrayList<String>();
@@ -537,6 +538,7 @@ public class NntpProtocolHandlerTest {
             }
             StubMailbox m = new StubMailbox(name, articles, factory.deleted.get(name));
             factory.lastMailbox = m;
+            factory.opened.add(m);
             return m;
         }
         @Override public void createMailbox(String mailboxName) { }
@@ -591,6 +593,91 @@ public class NntpProtocolHandlerTest {
         @Override public boolean isDeleted(int n) throws IOException { return deleted.contains(Integer.valueOf(n)); }
         @Override public void undeleteAll() { deleted.clear(); }
         @Override public String getUniqueId(int n) throws IOException { return Integer.toString(n); }
+
+        /** Whether openAsyncAppend works; false makes it return null, as mbox does. */
+        boolean asyncAppend = true;
+        /** Holds each write's completion until completeWrites() is called. */
+        boolean deferWrites;
+        boolean failWrites;
+        boolean failFinish;
+        final List<StubWriter> writers = new ArrayList<StubWriter>();
+
+        void completeWrites() {
+            for (StubWriter w : writers) {
+                w.completePending();
+            }
+        }
+
+        @Override public org.bluezoo.gumdrop.mailbox.AsyncMessageWriter openAsyncAppend(
+                java.util.Set<org.bluezoo.gumdrop.mailbox.Flag> flags, java.time.OffsetDateTime date)
+                throws IOException {
+            if (!asyncAppend) {
+                return null;
+            }
+            StubWriter w = new StubWriter();
+            w.failWrites = failWrites;
+            w.failFinish = failFinish;
+            writers.add(w);
+            return w;
+        }
+
+        /** An asynchronous writer that keeps what it is given. */
+        final class StubWriter implements org.bluezoo.gumdrop.mailbox.AsyncMessageWriter {
+            final ByteArrayOutputStream data = new ByteArrayOutputStream();
+            final List<Integer> chunkSizes = new ArrayList<Integer>();
+            final List<Runnable> pending = new ArrayList<Runnable>();
+            boolean finished;
+            boolean aborted;
+            boolean failWrites;
+            boolean failFinish;
+
+            @Override public void write(final ByteBuffer src,
+                    final java.nio.channels.CompletionHandler<Integer, ByteBuffer> handler) {
+                final int n = src.remaining();
+                byte[] b = new byte[n];
+                src.get(b);
+                Runnable done = new Runnable() {
+                    @Override public void run() {
+                        if (failWrites) {
+                            handler.failed(new IOException("disk full"), src);
+                        } else {
+                            data.write(b, 0, n);
+                            chunkSizes.add(Integer.valueOf(n));
+                            handler.completed(Integer.valueOf(n), src);
+                        }
+                    }
+                };
+                if (deferWrites) {
+                    pending.add(done);
+                } else {
+                    done.run();
+                }
+            }
+
+            void completePending() {
+                List<Runnable> now = new ArrayList<Runnable>(pending);
+                pending.clear();
+                for (Runnable r : now) {
+                    r.run();
+                }
+            }
+
+            @Override public boolean wantsPause() { return false; }
+
+            @Override public void finish(java.nio.channels.CompletionHandler<Long, Void> handler) {
+                if (failFinish) {
+                    handler.failed(new IOException("cannot move into place"), null);
+                    return;
+                }
+                finished = true;
+                articles.add(new String(data.toByteArray(), StandardCharsets.ISO_8859_1));
+                handler.completed(Long.valueOf(articles.size()), null);
+            }
+
+            @Override public void abort() { aborted = true; }
+
+            @Override public void close() { }
+        }
 
         private ByteArrayOutputStream appending;
         @Override public void startAppendMessage(java.util.Set<org.bluezoo.gumdrop.mailbox.Flag> flags,

@@ -27,9 +27,14 @@ import java.nio.ByteBuffer;
  * Receives an article being posted (RFC 3977 section 6.3.1).
  *
  * <p>The article arrives dot-unstuffed, as it was sent, in chunks of any
- * size. {@link #content} is called on the event loop and the buffer is
- * valid only during the call: the sink consumes it at once or copies what
- * it needs, and must not block.
+ * size, and is never held whole by the server: a sink that stores it does so
+ * as it arrives. {@link #content} is called on the event loop and the buffer
+ * is valid only during the call: the sink consumes it at once or copies what
+ * it needs, and must not block. When it holds more than it wants, it asks the
+ * server to stop reading with {@link PostState#pauseInput()} and lets it go
+ * on with {@link PostState#resumeInput()}; chunks already read when it asks
+ * still arrive, so the most a sink can be handed after asking is one network
+ * read.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

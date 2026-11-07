@@ -316,7 +316,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - NNTPS (implicit TLS on port 563)
     - POST, STARTTLS (RFC 4642) and AUTHINFO USER/PASS (RFC 4643)
     - NNTP client: streaming article, LIST ACTIVE and OVER results, POST, STARTTLS and AUTHINFO
-    - uuencoded attachments in articles (the Usenet convention): decoded as the article arrives, and encoded when posting
+    - uuencoded attachments in articles (the Usenet convention): decoded as the article arrives, and encoded when posting, with uploads streamed in constant memory
 - POP3
     - complete POP3 implementation (RFC 1939)
     - POP3S (implicit TLS on port 995)

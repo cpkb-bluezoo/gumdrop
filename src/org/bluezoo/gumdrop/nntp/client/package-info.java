@@ -38,6 +38,11 @@
  * finds those blocks as the article arrives and decodes them, and
  * {@link org.bluezoo.gumdrop.nntp.client.NntpSession#postWithAttachments(byte[], java.util.List,
  * org.bluezoo.gumdrop.nntp.client.NntpCallback)} posts files the same way.
+ * Uploads are streamed: an {@link org.bluezoo.gumdrop.nntp.client.NntpPoster}
+ * writes the article to an {@link org.bluezoo.gumdrop.nntp.client.NntpPostStream}
+ * a chunk at a time, each only once the connection has taken the last, and
+ * attachments are read, encoded and written in chunks, so an article of any
+ * size is posted in constant memory.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

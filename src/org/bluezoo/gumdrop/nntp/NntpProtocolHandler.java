@@ -170,6 +170,7 @@ public final class NntpProtocolHandler
     private PostSink postSink;
     private DotUnstuffer unstuffer;
     private boolean posting;
+    private boolean inputPaused;
 
     // The store, opened on first use
     private MailboxStore store;
@@ -1853,6 +1854,37 @@ public final class NntpProtocolHandler
 
     // PostState
     @Override
+    public void pauseInput() {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                if (!inputPaused) {
+                    inputPaused = true;
+                    endpoint.pauseRead();
+                }
+            }
+        });
+    }
+
+    @Override
+    public void resumeInput() {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                if (inputPaused) {
+                    inputPaused = false;
+                    endpoint.resumeRead();
+                }
+            }
+        });
+    }
+
+    @Override
+    public <T> void offload(Callable<T> work, StorageExecutor.Callback<T> callback) {
+        submitStorage(work, callback);
+    }
+
+    @Override
     public void accept(final PostSink sink) {
         onLoop(new Runnable() {
             @Override
@@ -2071,8 +2103,9 @@ public final class NntpProtocolHandler
     private void finishCommand() {
         busy = false;
         inflight = Command.UNKNOWN;
-        if (readPaused) {
+        if (readPaused || inputPaused) {
             readPaused = false;
+            inputPaused = false;
             endpoint.resumeRead();
         }
         while (!busy && !queue.isEmpty() && endpoint.isOpen()) {

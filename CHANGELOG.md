@@ -22,8 +22,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     CRLF line endings, in constant memory. OVER reads only the raw headers.
   - POST, STARTTLS (RFC 4642) and AUTHINFO USER/PASS (RFC 4643), with
     `NntpListener.authenticationRequired`. A posted article reaches a
-    `PostSink` dot-unstuffed, in chunks; the stock handler appends it to the
-    mailbox of each newsgroup it names.
+    `PostSink` dot-unstuffed, in chunks, and is never held whole: the stock
+    handler keeps only the header block (up to 64 KiB), then streams the rest to
+    the asynchronous writer of each newsgroup it names, pausing the connection
+    through `PostState.pauseInput()` and `resumeInput()` while the store falls
+    behind. A store without asynchronous append (mbox) refuses the post.
   - AUTHINFO SASL (RFC 4643 section 2.4): the server offers PLAIN, LOGIN and
     EXTERNAL (secure connections only) and SCRAM-SHA-256 from the realm's
     mechanisms; the client
@@ -49,8 +52,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     a `UuScanner.Handler`. `UuScanner` and its `Handler` are now public API in
     `org.bluezoo.gumdrop.mime`; the NNTP module requires the MIME module.
     `NntpSession.postWithAttachments` posts files the same way, uuencoding
-    each `NntpAttachment` (name, mode, content) into the body after the text;
-    `UuEncoder` is public too.
+    each `NntpAttachment` into the body after the text; `UuEncoder` is public
+    too. Uploads are streamed in constant memory: `NntpSession.post(NntpPoster,
+    callback)` gives the poster an `NntpPostStream` to write the article to a
+    chunk at a time, each only once the connection has taken the last, and an
+    attachment (a `Path`, an `NntpAttachment.Source` of your own, or bytes) is read without
+    blocking the event loop, encoded and written a chunk at a time.
   - Reader mode: no IHAVE or NEWNEWS.
   - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
     STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,

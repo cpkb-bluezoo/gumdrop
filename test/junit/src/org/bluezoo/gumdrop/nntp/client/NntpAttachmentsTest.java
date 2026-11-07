@@ -450,8 +450,20 @@ public class NntpAttachmentsTest {
             }
         }
         try {
-            new NntpAttachment("f", 0644, null);
+            new NntpAttachment("f", 0644, (byte[]) null);
             org.junit.Assert.fail("accepted no content");
+        } catch (IllegalArgumentException expected) {
+            // good
+        }
+        try {
+            new NntpAttachment("f", 0644, (java.nio.file.Path) null);
+            org.junit.Assert.fail("accepted no file");
+        } catch (IllegalArgumentException expected) {
+            // good
+        }
+        try {
+            new NntpAttachment("f", 0644, (NntpAttachment.Source) null);
+            org.junit.Assert.fail("accepted no source");
         } catch (IllegalArgumentException expected) {
             // good
         }
@@ -465,6 +477,5 @@ public class NntpAttachmentsTest {
         NntpAttachment a = new NntpAttachment("f.txt", 0600, latin1("x"));
         assertEquals("f.txt", a.getName());
         assertEquals(0600, a.getMode());
-        assertEquals(1, a.getData().length);
     }
 }

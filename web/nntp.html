@@ -96,10 +96,15 @@ body, by number, by message-id, or (with no argument) the current article</li>
 <ul>
 <li><b>POST</b> - accepts an article from a client when posting is allowed
 (<code>postingAllowed</code>); otherwise it is refused with 440. The article is
-read dot-unstuffed and handed to the handler. The stock handler holds a posted
-article in memory (up to 1 MiB, larger ones get 441), requires the
-<code>From</code>, <code>Subject</code> and <code>Newsgroups</code> headers, and
-appends it to the mailbox of each listed newsgroup that exists</li>
+read dot-unstuffed and handed to the handler as it arrives. The stock handler
+stores it as it arrives, in constant memory: it holds only the header block (up to
+64 KiB) until that says where the article goes, then streams the rest to the
+asynchronous writer of each listed newsgroup that exists, and tells the connection to
+stop reading while the store falls behind. It requires the <code>From</code>,
+<code>Subject</code> and <code>Newsgroups</code> headers. There is no limit on the
+size of an article; limit what a user may store with the mailbox quota. A store
+that cannot write a message as it arrives (the mbox store, whose append
+buffers a whole message) refuses the post with 441 rather than buffering it</li>
 <li><b>STARTTLS</b> (RFC 4642) - upgrades a plain connection to TLS. It is
 advertised only on a listener with TLS configured and only before TLS is in use.
 After the upgrade the client starts again: the selected newsgroup and any login
@@ -483,12 +488,40 @@ already have.
 To post files, give <code>postWithAttachments</code> the article (headers, an empty
 line and the text) and a list of <code>NntpAttachment</code> (name, mode, content).
 Each file is uuencoded and appended to the body after the text, as news readers do,
-and a final line ending is supplied if the text lacks one. The files are encoded a
-line at a time into the post; the encoder is public as <code>UuEncoder</code> in the
-MIME package for other uses. A post goes as one POST, so very large files are better
-split into parts, as is the custom on binary newsgroups; the stock server handler
-accepts articles of up to 1 MiB.
+and a final line ending is supplied if the text lacks one. The content of an
+attachment is a file (<code>Path</code>, read without blocking the event loop), any
+<code>NntpAttachment.Source</code> of your own (an asynchronous, callback-based reader), or bytes in memory. It is read, encoded and
+written out a chunk at a time, each chunk only once the connection has taken the last,
+so a file of any size is posted in constant memory. The encoder is public as
+<code>UuEncoder</code> in the MIME package for other uses.
 </p>
+
+<h4>Streaming posts</h4>
+
+<p>
+<code>postWithAttachments</code> and <code>post(byte[], callback)</code> are built on
+<code>post(NntpPoster, callback)</code>, which you can use to post anything that you
+produce as you go. When the server has agreed to take the article, your
+<code>NntpPoster</code> is given an <code>NntpPostStream</code>. Write the article to
+it in chunks of any size with <code>write(data, written)</code>, and write the next
+chunk when <code>written</code> is called, which is when the connection has taken the
+last; only one write may be outstanding. The stream turns line endings into CRLF and
+doubles dots at the starts of lines, and <code>finish()</code> ends the article with
+the line of a single dot; the outcome goes to the callback of the post. A POST cannot
+be cancelled once the server has been told to expect the article, so
+<code>abort(reason)</code> closes the connection.
+</p>
+
+<pre>
+session.post(new NntpPoster() {
+    public void ready(final NntpPostStream stream) {
+        // write a chunk; when it has gone, write the next, then finish
+        stream.write(ByteBuffer.wrap(headersAndFirstPart), new Runnable() {
+            public void run() { stream.finish(); }
+        });
+    }
+}, new NntpCallback&lt;Void&gt;() { /* completed, or failed */ });
+</pre>
 
 <pre>
 session.articleWithAttachments(number, new UuScanner.Handler() {
@@ -507,9 +540,10 @@ servers (IHAVE) and has no NEWNEWS. AUTHINFO SASL offers PLAIN, LOGIN, SCRAM-SHA
 <li>The client does not do GSSAPI or LOGIN for AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
 LIST ACTIVE or OVER entry is delivered once the line after it has begun to
 arrive (or the list ends), and an entry line over 64 KiB is skipped</li>
-<li>The stock handler's POST keeps the whole article in memory while it is
-received, so it limits articles to 1 MiB; a handler of your own can write the
-article out as it arrives (<code>PostSink</code>)</li>
+<li>The stock handler can post only to a store with asynchronous append (Maildir
+has it; mbox does not, because mbox's append buffers a message whole), and
+posts to each newsgroup of a cross-posting separately: if one fails after another
+has been stored, the article stays in the first</li>
 <li>With the stock handler, looking up an article by message-id searches the
 current group only, because a mailbox store has no index of message-ids; a
 lookup with no group selected finds nothing</li>

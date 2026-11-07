@@ -21,11 +21,9 @@
 
 package org.bluezoo.gumdrop.nntp.client;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
 
-import org.bluezoo.gumdrop.mime.UuEncoder;
 import org.bluezoo.gumdrop.mime.UuScanner;
 import org.bluezoo.gumdrop.nntp.client.NntpCommand.Block;
 
@@ -275,65 +273,60 @@ public final class NntpSession {
     }
 
     /**
-     * POST (RFC 3977 section 6.3.1). The article is given whole, with any
-     * line endings; dot-stuffing and the terminator are added.
+     * POST (RFC 3977 section 6.3.1), streaming. When the server has agreed to
+     * take an article (340), the poster is called to write it to an
+     * {@link NntpPostStream}, which can be done in chunks of any size, so an
+     * article of any size is posted in constant memory. The callback gets the
+     * server's verdict once the poster has finished the article.
      *
-     * @param article the headers, an empty line and the body
+     * @param poster supplies the article
      * @param done called with the outcome
      */
-    public void post(byte[] article, NntpCallback<Void> done) {
+    public void post(NntpPoster poster, NntpCallback<Void> done) {
         connection.submit(new NntpCommand("POST", Block.NONE, null, null, null,
                 new Expect<Void>("POST", 240, done) {
                     @Override
                     Void convert(NntpStatus status) {
                         return null;
                     }
-                }, 340, dotStuff(article), false));
+                }, 340, poster, false));
+    }
+
+    /**
+     * POST an article held in memory. It is written out in chunks, as the
+     * connection takes them; the article is not copied, and line endings,
+     * dot-stuffing and the terminator are dealt with as for any post.
+     *
+     * @param article the headers, an empty line and the body, with any line
+     * endings
+     * @param done called with the outcome
+     */
+    public void post(byte[] article, NntpCallback<Void> done) {
+        post(new AttachmentPoster(article, java.util.Collections.<NntpAttachment>emptyList()), done);
     }
 
     /**
      * POST an article with files attached, in the way news readers do: each
-     * file is uuencoded and appended to the body, after the text. The article
-     * is given whole, as for {@link #post}; the files are encoded one line at
-     * a time into the post, so the only copy of a file is the encoded one.
+     * file is uuencoded and appended to the body, after the text. The files
+     * are read as the post is written, a chunk at a time and without blocking
+     * the event loop, and encoded and sent before the next chunk is read, so
+     * a file of any size is posted in constant memory.
      *
      * @param article the headers, an empty line and the body text, to which
      * the files are added; a final line ending is supplied if it lacks one
      * @param attachments the files, in the order they should appear
-     * @param done called with the outcome
+     * @param done called with the outcome; a file that cannot be read fails
+     * the post and closes the connection, since a POST cannot be cancelled
      * @throws IllegalArgumentException if an attachment is null
      */
     public void postWithAttachments(byte[] article, List<NntpAttachment> attachments,
                                     NntpCallback<Void> done) {
-        long encoded = article.length;
         for (int i = 0; i < attachments.size(); i++) {
             if (attachments.get(i) == null) {
                 throw new IllegalArgumentException("null attachment");
             }
-            encoded += attachments.get(i).getData().length / 45L * 62 + 128;
         }
-        if (encoded > Integer.MAX_VALUE - 16) {
-            throw new IllegalArgumentException("the post would be too large");
-        }
-        ByteArrayOutputStream out = new ByteArrayOutputStream((int) encoded);
-        out.write(article, 0, article.length);
-        if (article.length > 0 && article[article.length - 1] != '\n' && article[article.length - 1] != '\r') {
-            out.write('\n');
-        }
-        ByteBuffer dst = ByteBuffer.allocate(8192);
-        for (int i = 0; i < attachments.size(); i++) {
-            NntpAttachment a = attachments.get(i);
-            UuEncoder encoder = new UuEncoder(a.getName(), a.getMode());
-            ByteBuffer src = ByteBuffer.wrap(a.getData());
-            boolean finished;
-            do {
-                finished = encoder.encode(src, dst, true);
-                dst.flip();
-                out.write(dst.array(), 0, dst.limit());
-                dst.clear();
-            } while (!finished);
-        }
-        post(out.toByteArray(), done);
+        post(new AttachmentPoster(article, attachments), done);
     }
 
     /**
@@ -441,45 +434,4 @@ public final class NntpSession {
             out.failed(error);
         }
     }
-
-    /**
-     * Prepares an article for the wire (RFC 3977 section 3.1.1): line endings
-     * become CRLF, a line that starts with a dot gets another, the last line
-     * is ended, and the terminating dot line is added.
-     */
-    static byte[] dotStuff(byte[] article) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream(article.length + 16);
-        boolean lineStart = true;
-        int i = 0;
-        int n = article.length;
-        while (i < n) {
-            byte b = article[i++];
-            if (b == '\r') {
-                if (i < n && article[i] == '\n') {
-                    i++;
-                }
-                b = '\n';
-            }
-            if (b == '\n') {
-                out.write('\r');
-                out.write('\n');
-                lineStart = true;
-                continue;
-            }
-            if (lineStart && b == '.') {
-                out.write('.');
-            }
-            out.write(b);
-            lineStart = false;
-        }
-        if (!lineStart) {
-            out.write('\r');
-            out.write('\n');
-        }
-        out.write('.');
-        out.write('\r');
-        out.write('\n');
-        return out.toByteArray();
-    }
-
 }

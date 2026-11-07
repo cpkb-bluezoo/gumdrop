@@ -39,14 +39,14 @@ final class NntpCommand {
     final NntpConsumer<NewsgroupEntry> groupSink;
     final NntpConsumer<OverviewEntry> overviewSink;
     final NntpCallback<NntpStatus> done;
-    /** When the first reply has this code, {@link #payload} is sent (0: never). */
+    /** When the first reply has this code, the {@link #poster} writes the article (0: never). */
     final int continuationCode;
-    final byte[] payload;
+    final NntpPoster poster;
     final boolean quit;
 
     NntpCommand(String line, Block block, NntpConsumer<ByteBuffer> contentSink,
                 NntpConsumer<NewsgroupEntry> groupSink, NntpConsumer<OverviewEntry> overviewSink,
-                NntpCallback<NntpStatus> done, int continuationCode, byte[] payload,
+                NntpCallback<NntpStatus> done, int continuationCode, NntpPoster poster,
                 boolean quit) {
         this.line = line;
         this.block = block;
@@ -55,7 +55,7 @@ final class NntpCommand {
         this.overviewSink = overviewSink;
         this.done = done;
         this.continuationCode = continuationCode;
-        this.payload = payload;
+        this.poster = poster;
         this.quit = quit;
     }
 

@@ -602,6 +602,95 @@ public class NntpClientEndToEndTest {
         assertEquals(text, body.toString());
     }
 
+    @Test
+    public void testLargeFileIsPostedFromDiskAndReadBackStreaming() throws Exception {
+        startServer(false);
+        // a file much larger than anything is meant to hold: written, posted, stored and read
+        // back a chunk at a time, with the checksums worked out on the way
+        final java.nio.file.Path file = Files.createTempFile("nntp-e2e-upload", ".bin");
+        final java.util.zip.CRC32 expected = new java.util.zip.CRC32();
+        final long size = 24L * 1024 * 1024 + 5;
+        try {
+            java.util.Random random = new java.util.Random(42);
+            byte[] chunk = new byte[1024 * 1024];
+            try (java.io.OutputStream out = Files.newOutputStream(file)) {
+                long written = 0;
+                while (written < size) {
+                    random.nextBytes(chunk);
+                    int n = (int) Math.min(chunk.length, size - written);
+                    out.write(chunk, 0, n);
+                    expected.update(chunk, 0, n);
+                    written += n;
+                }
+            }
+            final java.util.zip.CRC32 received = new java.util.zip.CRC32();
+            final long[] receivedBytes = {0};
+            final String text = "From: cat@example.com\r\nSubject: A big file\r\nNewsgroups: " + GROUP
+                    + "\r\n\r\nHere it is.\r\n";
+            Script s = run(new Script() {
+                @Override
+                void run(final NntpSession session) {
+                    final Script self = this;
+                    session.postWithAttachments(text.getBytes(StandardCharsets.ISO_8859_1),
+                            java.util.Collections.singletonList(new NntpAttachment("big.bin", 0644, file)),
+                            self.<Void>record("post", new Runnable() {
+                                @Override
+                                public void run() {
+                                    session.group(GROUP, self.<GroupResult>record("regroup", new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            read(session);
+                                        }
+                                    }));
+                                }
+                            }));
+                }
+
+                void read(final NntpSession session) {
+                    final Script self = this;
+                    session.articleWithAttachments(3, new org.bluezoo.gumdrop.mime.UuScanner.Handler() {
+                        @Override
+                        public void text(ByteBuffer data) {
+                            data.position(data.limit());
+                        }
+
+                        @Override
+                        public void begin(int mode, String name) {
+                            log.add("begin " + Integer.toOctalString(mode) + " " + name);
+                        }
+
+                        @Override
+                        public void content(ByteBuffer data) {
+                            receivedBytes[0] += data.remaining();
+                            byte[] b = new byte[data.remaining()];
+                            data.get(b);
+                            received.update(b, 0, b.length);
+                        }
+
+                        @Override
+                        public void end(boolean complete) {
+                            log.add(complete ? "end" : "cut off");
+                        }
+                    }, self.<Void>record("read", new Runnable() {
+                        @Override
+                        public void run() {
+                            session.quit();
+                        }
+                    }));
+                }
+            });
+            String log = s.log.toString();
+            assertTrue(log, s.log.contains("post ok"));
+            assertTrue(log, s.log.contains("regroup ok 3 1 3 " + GROUP));
+            assertTrue(log, s.log.contains("begin 644 big.bin"));
+            assertTrue(log, s.log.contains("end"));
+            assertEquals(size, receivedBytes[0]);
+            assertEquals(expected.getValue(), received.getValue());
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
     // ── TLS ──
 
     /** Trusts the test CA, whatever else is configured. */

@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.nntp.server;
 
+import java.util.concurrent.Callable;
+
+import org.bluezoo.gumdrop.StorageExecutor;
+
 /**
  * Responses to POST (RFC 3977 section 6.3.1). The handler first accepts
  * the post, giving the sink that will receive the article, or refuses it.
@@ -32,6 +36,30 @@ package org.bluezoo.gumdrop.nntp.server;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface PostState {
+
+    /**
+     * Stops the connection delivering more of the article until
+     * {@link #resumeInput()}: the sink's means of not being handed more than
+     * it can store. Takes effect for what has not yet been read; a network
+     * read already made is still delivered.
+     */
+    void pauseInput();
+
+    /**
+     * Lets the connection go on delivering the article after
+     * {@link #pauseInput()}. Does nothing if input is not paused.
+     */
+    void resumeInput();
+
+    /**
+     * Runs blocking work (opening a mailbox, say) off the event loop. The
+     * callback is called on the event loop with its result.
+     *
+     * @param <T> the type of result
+     * @param work the work
+     * @param callback receives the outcome
+     */
+    <T> void offload(Callable<T> work, StorageExecutor.Callback<T> callback);
 
     /**
      * Posting may go ahead (340). The client sends the article next.

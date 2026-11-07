@@ -1477,7 +1477,7 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 | LAST, NEXT | 3977 §6.1.3, §6.1.4 | Compliant | Skip articles marked deleted |
 | ARTICLE, HEAD, BODY, STAT | 3977 §6.2 | Compliant | By number, message-id or current article |
 | Article number 0 for a message-id | 3977 §6.2 | Compliant | Current article is not changed |
-| POST | 3977 §6.3.1 | Compliant | Stock handler holds the article in memory (1 MiB limit); `PostSink` streams for other handlers |
+| POST | 3977 §6.3.1 | Compliant | Streamed to the newsgroups' asynchronous writers in constant memory (header block held, 64 KiB at most); refused (441) by a store without asynchronous append, such as mbox |
 | IHAVE | 3977 §6.3.2 | Not implemented | Reader mode only |
 | DATE | 3977 §7.1 | Compliant | UTC, yyyymmddhhmmss |
 | HELP | 3977 §7.2 | Compliant | |

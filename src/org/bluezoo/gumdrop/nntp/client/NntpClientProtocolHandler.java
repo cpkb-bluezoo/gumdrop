@@ -90,6 +90,7 @@ final class NntpClientProtocolHandler
     private final ArrayDeque<NntpCommand> queue = new ArrayDeque<NntpCommand>();
     private NntpCommand inflight;
     private boolean awaitingFinal;
+    private NntpPostStream postStream;
     private NntpStatus blockStatus;
     private String closedReason;
     private TimerHandle timer;
@@ -506,10 +507,16 @@ final class NntpClientProtocolHandler
             finish(c, s);
             return;
         }
-        if (c.continuationCode != 0 && s.getCode() == c.continuationCode) {
-            awaitingFinal = true;
-            endpoint.send(ByteBuffer.wrap(c.payload));
-            armTimer();
+        if (c.continuationCode != 0 && s.getCode() == c.continuationCode && postStream == null) {
+            // the server is ready for the article: the poster writes it, and the
+            // final status is awaited once it has finished it
+            postStream = new NntpPostStream(this, endpoint);
+            try {
+                c.poster.ready(postStream);
+            } catch (RuntimeException e) {
+                events().warn("warn.nntp_client_callback_failed").thrown(e).emit();
+                postAborted("the poster failed");
+            }
             return;
         }
         if (c.block != Block.NONE && announcesBlock(s.getCode())) {
@@ -531,9 +538,30 @@ final class NntpClientProtocolHandler
         }
     }
 
+    /** The poster has written the end of the article: the server's verdict is next. */
+    void postFinished() {
+        awaitingFinal = true;
+        armTimer();
+    }
+
+    /**
+     * The poster gives up. A POST cannot be cancelled once the server has
+     * been told to expect the article, so the connection goes.
+     */
+    void postAborted(String reason) {
+        if (postStream != null) {
+            postStream.close();
+        }
+        fail(new IOException(reason));
+    }
+
     private void finish(NntpCommand c, NntpStatus s) {
         inflight = null;
         blockStatus = null;
+        if (postStream != null) {
+            postStream.close(); // answered early, or after the article: nothing more is wanted
+            postStream = null;
+        }
         try {
             c.done.completed(s);
         } catch (RuntimeException e) {
@@ -558,6 +586,10 @@ final class NntpClientProtocolHandler
     private void failCommands(String reason) {
         if (closedReason == null) {
             closedReason = reason;
+        }
+        if (postStream != null) {
+            postStream.close();
+            postStream = null;
         }
         NntpCommand c = inflight;
         inflight = null;
