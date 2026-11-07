@@ -68,7 +68,7 @@ This is gumdrop, a multipurpose Java networking framework for servers, clients, 
     - optional client certificate authentication built-in
     - rate limiting, quotas, IAM
 - production ready
-    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT, AMQP, SOCKS)
+    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, NNTP, FTP, DNS, MQTT, AMQP, SOCKS)
     - security hardening (rate limiting, filtering, attack prevention)
     - enterprise observability via OpenTelemetry integration
 
@@ -311,6 +311,12 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - COMPRESS=DEFLATE (RFC 4978) - `compress()` on authenticated sessions
         - UTF8=ACCEPT (RFC 6855) - `enable(new String[]{"UTF8=ACCEPT"}, …)` for UTF-8 on the wire
         - QUOTA commands (RFC 9208) - GETQUOTA/GETQUOTAROOT
+- NNTP
+    - news reader server (RFC 3977) over a mailbox store, with streaming articles
+    - NNTPS (implicit TLS on port 563)
+    - POST, STARTTLS (RFC 4642) and AUTHINFO USER/PASS (RFC 4643)
+    - NNTP client: streaming article, LIST ACTIVE and OVER results, POST, STARTTLS and AUTHINFO
+    - uuencoded attachments in articles (the Usenet convention): decoded as the article arrives, and encoded when posting, with uploads streamed in constant memory
 - POP3
     - complete POP3 implementation (RFC 1939)
     - POP3S (implicit TLS on port 995)

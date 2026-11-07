@@ -1459,6 +1459,66 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 
 ---
 
+## NNTP Server — RFC 3977
+
+Reader mode only. Streaming of articles and the line-oriented command channel
+follow the other mail protocols; see `NntpProtocolHandler`.
+
+### Commands
+
+| Requirement | RFC Section | Status | Notes |
+|---|---|---|---|
+| Greeting 200 / 201 | 3977 §5.1 | Compliant | 200 if posting is advertised, else 201 |
+| CAPABILITIES | 3977 §5.2 | Compliant | VERSION 2 first; READER, LIST, OVER, HDR |
+| MODE READER | 3977 §5.3 | Compliant | Always in reader mode |
+| QUIT | 3977 §5.4 | Compliant | 205 |
+| GROUP | 3977 §6.1.1 | Compliant | Count is the mailbox's message count (an estimate) |
+| LISTGROUP | 3977 §6.1.2 | Compliant | Optional group and range; selects the group |
+| LAST, NEXT | 3977 §6.1.3, §6.1.4 | Compliant | Skip articles marked deleted |
+| ARTICLE, HEAD, BODY, STAT | 3977 §6.2 | Compliant | By number, message-id or current article |
+| Article number 0 for a message-id | 3977 §6.2 | Compliant | Current article is not changed |
+| POST | 3977 §6.3.1 | Compliant | Streamed to the newsgroups' asynchronous writers in constant memory (header block held, 64 KiB at most); refused (441) by a store without asynchronous append, such as mbox |
+| IHAVE | 3977 §6.3.2 | Not implemented | Reader mode only |
+| DATE | 3977 §7.1 | Compliant | UTC, yyyymmddhhmmss |
+| HELP | 3977 §7.2 | Compliant | |
+| NEWGROUPS | 3977 §7.3 | Partial | Mailboxes have no creation time, so no group is new |
+| NEWNEWS | 3977 §7.4 | Not implemented | Optional |
+| LIST ACTIVE | 3977 §7.6.3 | Compliant | Wildmat argument |
+| LIST NEWSGROUPS | 3977 §7.6.6 | Partial | Descriptions are empty |
+| LIST OVERVIEW.FMT | 3977 §8.4 | Compliant | |
+| OVER | 3977 §8.3 | Compliant | Range, message-id or current article; XOVER accepted |
+| HDR | 3977 §8.5 | Compliant | Any header field and `:bytes`; XHDR accepted |
+| Command line at most 512 octets | 3977 §3.1 | Compliant | Longer lines are refused and discarded unbuffered |
+| Multi-line responses dot-stuffed, ended by "." | 3977 §3.1.1 | Compliant | |
+| Lines end in CRLF | 3977 §3.1.1 | Compliant | Article line endings are normalised |
+| Wildmat | 3977 §4.2 | Compliant | `Wildmat` |
+| Message-ID syntax | 3977 §3.6 | Compliant | 3 to 250 octets, angle brackets, no spaces |
+| Overview fields unfolded, tab and line breaks replaced | 3977 §8.3.2 | Compliant | |
+| STARTTLS | 4642 | Compliant | 382, then `startTLS()`; state is reset; 502 if already secure, 580 if unavailable |
+| AUTHINFO USER/PASS | 4643 §2.3 | Compliant | 381, 281, 481, 482, 483 (encryption required), 480 when authentication is required |
+| AUTHINFO SASL | 4643 §2.4 | Partial | PLAIN, LOGIN and EXTERNAL (secure connections only) and SCRAM-SHA-256; 383 challenges, `=` and `*`, 283 with final data, 504, 483 |
+| Implicit TLS (NNTPS, port 563) | 8143 | Compliant | `NntpListener` secure mode |
+
+## NNTP Client — RFC 3977
+
+`NntpClient` and `NntpSession`: one command at a time, in the order issued.
+
+| Feature | RFC | Status | Notes |
+|---------|-----|--------|-------|
+| Greeting 200 / 201 | 3977 §5.1 | Compliant | Other codes fail the connection |
+| CAPABILITIES | 3977 §5.2 | Compliant | Read before and after STARTTLS; a server without it is tolerated |
+| STARTTLS | 4642 | Compliant | `NEVER`, `IF_OFFERED` or `REQUIRED`; capabilities re-read afterwards |
+| AUTHINFO USER/PASS | 4643 §2.3 | Compliant | 381 then 281, or 281 at once |
+| AUTHINFO SASL | 4643 §2.4 | Partial | SCRAM-SHA-256, PLAIN, EXTERNAL, OAUTHBEARER and XOAUTH2 through `saslMechanism()`; no GSSAPI |
+| GROUP, STAT | 3977 §6.1.1, §6.2.4 | Compliant | Typed results |
+| ARTICLE, HEAD, BODY | 3977 §6.2 | Compliant | Dot-unstuffed, streamed in chunks |
+| LIST ACTIVE | 3977 §7.6.3 | Compliant | One callback per newsgroup |
+| OVER | 3977 §8.3 | Compliant | One callback per article; standard fields |
+| POST | 3977 §6.3.1 | Compliant | Dot-stuffing and CRLF added by the client |
+| Attachments as uuencoded blocks in the body | de facto (Usenet) | Supported | `articleWithAttachments()` decodes as the article arrives (a block cut short is reported as incomplete); `postWithAttachments()` encodes |
+| Any other command | 3977 | Compliant | `command()`, with an optional multi-line block |
+| Implicit TLS (NNTPS, port 563) | 8143 | Compliant | `NntpClient.secure(true)` |
+
 ## LDAP Client — RFC 4511
 
 ### Connection and Message Envelope

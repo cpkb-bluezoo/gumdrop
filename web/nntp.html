@@ -1,0 +1,570 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 3 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>NNTP Server - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop NNTP Server</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides an NNTP (Network News Transfer Protocol) news reader server
+following RFC 3977. It serves newsgroups to news readers such as Thunderbird,
+slrn, tin and pan, and to any other client of the protocol. Newsgroups are
+kept in a <a href="mailbox.html">mailbox store</a>, so the same Maildir or mbox
+storage used by the <a href="imap.html">IMAP</a> and <a href="pop3.html">POP3</a>
+servers can be read as news. Like all Gumdrop protocol implementations, the
+NNTP server uses the event-driven, non-blocking architecture, and articles are
+streamed to the client in constant memory however large they are. An NNTP
+<a href="#client">client</a> is also provided.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#protocol">Protocol Support</a></li>
+<li><a href="#newsgroups">Newsgroups and Articles</a></li>
+<li><a href="#handlers">Handlers</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#telemetry">Telemetry</a></li>
+<li><a href="#client">Client</a></li>
+<li><a href="#limits">Limitations</a></li>
+</ul>
+
+<h3 id="protocol">Protocol Support</h3>
+
+<p>
+The server runs in reader mode: it implements the commands a news reader
+uses to browse and read news, as defined in RFC 3977. Commands are case
+insensitive and are limited to 512 octets, as the RFC requires. The server
+answers one command at a time, in order, so clients may pipeline their
+commands.
+</p>
+
+<h4>Session commands</h4>
+
+<ul>
+<li><b>CAPABILITIES</b> - lists what the server supports (VERSION 2, READER,
+LIST, OVER, HDR)</li>
+<li><b>MODE READER</b> - accepted; the server is always in reader mode</li>
+<li><b>DATE</b> - the server's time in UTC</li>
+<li><b>HELP</b> - a list of commands</li>
+<li><b>QUIT</b> - ends the session</li>
+</ul>
+
+<h4>Selecting and reading articles</h4>
+
+<ul>
+<li><b>GROUP</b> - selects a newsgroup and returns the estimated article count
+and the first and last article numbers</li>
+<li><b>LISTGROUP</b> - as GROUP, and lists the article numbers in the group,
+optionally only those in a range</li>
+<li><b>ARTICLE</b>, <b>HEAD</b>, <b>BODY</b> - an article, its headers, or its
+body, by number, by message-id, or (with no argument) the current article</li>
+<li><b>STAT</b> - whether an article exists, without sending it</li>
+<li><b>LAST</b>, <b>NEXT</b> - move the current article back or forward</li>
+</ul>
+
+<h4>Posting, TLS and authentication</h4>
+
+<ul>
+<li><b>POST</b> - accepts an article from a client when posting is allowed
+(<code>postingAllowed</code>); otherwise it is refused with 440. The article is
+read dot-unstuffed and handed to the handler as it arrives. The stock handler
+stores it as it arrives, in constant memory: it holds only the header block (up to
+64 KiB) until that says where the article goes, then streams the rest to the
+asynchronous writer of each listed newsgroup that exists, and tells the connection to
+stop reading while the store falls behind. It requires the <code>From</code>,
+<code>Subject</code> and <code>Newsgroups</code> headers. There is no limit on the
+size of an article; limit what a user may store with the mailbox quota. A store
+that cannot write a message as it arrives (the mbox store, whose append
+buffers a whole message) refuses the post with 441 rather than buffering it</li>
+<li><b>STARTTLS</b> (RFC 4642) - upgrades a plain connection to TLS. It is
+advertised only on a listener with TLS configured and only before TLS is in use.
+After the upgrade the client starts again: the selected newsgroup and any login
+are forgotten</li>
+<li><b>AUTHINFO USER</b> and <b>AUTHINFO PASS</b> (RFC 4643) - log in against the
+listener's realm. The command is available when a realm is set. Where TLS can be
+had, passwords are refused (483) until the connection is secure. After a login
+the newsgroup store is opened for that user, and the selected newsgroup is
+forgotten. Failed logins count towards the listener's lockout
+(<code>maxAuthFailures</code>)</li>
+</ul>
+
+<h4>AUTHINFO SASL</h4>
+
+<p>
+<b>AUTHINFO SASL</b> (RFC 4643 section 2.4) offers <b>PLAIN</b>, <b>LOGIN</b>,
+<b>SCRAM-SHA-256</b> and <b>EXTERNAL</b> to the extent that the listener's realm supports them
+(<code>getSupportedSASLMechanisms()</code>; SCRAM needs
+<code>getScramCredentials</code>). They are advertised in CAPABILITIES as
+<code>AUTHINFO USER SASL</code> and <code>SASL PLAIN LOGIN SCRAM-SHA-256 EXTERNAL</code>. PLAIN, LOGIN and
+EXTERNAL are offered, and accepted, only on a secure connection (483 otherwise);
+EXTERNAL takes the identity from the TLS client certificate through the realm's
+<code>authenticateCertificate</code>, and an optional authorization identity must
+be allowed by <code>authorizeAs</code>. An initial
+response may follow the mechanism name, <code>=</code> stands for an empty one, and
+the client cancels with <code>*</code>. A successful SCRAM exchange ends with 283 and
+the server's signature. Failures count towards the listener's lockout.
+</p>
+
+<h4>Listings</h4>
+
+<ul>
+<li><b>LIST ACTIVE</b> [wildmat] - newsgroups with their highest and lowest
+article numbers and posting status. A plain <b>LIST</b> means LIST ACTIVE</li>
+<li><b>LIST NEWSGROUPS</b> [wildmat] - newsgroups with descriptions</li>
+<li><b>LIST OVERVIEW.FMT</b> - the fields of the overview database</li>
+<li><b>NEWGROUPS</b> - newsgroups created since a date and time</li>
+<li><b>OVER</b> (and the older <b>XOVER</b>) - overview information (subject,
+author, date, message-id, references, size) for a range of articles, one
+article by message-id, or the current article. News readers use this to build
+their thread lists</li>
+<li><b>HDR</b> (and the older <b>XHDR</b>) - one header field for a range of
+articles, or the <code>:bytes</code> metadata item</li>
+</ul>
+
+<p>
+Wildmats follow RFC 3977 section 4.2: <code>*</code> and <code>?</code> match
+any run of characters and any one character, <code>[...]</code> matches a set,
+and a comma separated list may exclude names with a leading <code>!</code>
+(<code>comp.*,!comp.lang.misc</code>). The class
+<code>org.bluezoo.gumdrop.nntp.Wildmat</code> is available to your own handlers.
+</p>
+
+<h4>Response codes</h4>
+
+<p>
+Responses use the codes of RFC 3977: for example 211 (group selected),
+220 to 223 (article follows or exists), 224 (overview follows), 411 (no such
+newsgroup), 412 (no newsgroup selected), 420 to 423 (no current, next,
+previous or numbered article), 430 (no article with that message-id) and 500
+or 501 (unknown command or bad syntax). A multi-line response is sent
+dot-stuffed and ends with a line containing only a dot. Article lines always
+end in CRLF whatever line endings the stored message has.
+</p>
+
+<h3 id="newsgroups">Newsgroups and Articles</h3>
+
+<p>
+The stock handler, <code>DefaultNntpHandler</code>, serves the mailboxes of a
+<code>MailboxStore</code> as newsgroups. The mapping is:
+</p>
+
+<ul>
+<li><b>Newsgroup names</b> - a mailbox is a newsgroup. The store's hierarchy
+delimiter is shown as a dot, so the mailbox <code>comp/lang/java</code> of a
+Maildir store is the newsgroup <code>comp.lang.java</code></li>
+<li><b>Article numbers</b> - an article's number is its message number in the
+mailbox. The first article is number 1. A message marked deleted is not an
+article</li>
+<li><b>Message-IDs</b> - the article's <code>Message-ID</code> header. A
+message without one is given a message-id made from its unique id, so that every
+article has one</li>
+<li><b>Overview</b> - read from the raw headers at the start of each message
+(folded headers are unfolded), not from the message body, so a listing of a
+large group does not read the articles themselves</li>
+<li><b>Whose store</b> - the store is opened for the
+<code>anonymousUser</code> of the listener (default <code>news</code>) the first
+time a command needs it, and closed when the connection ends</li>
+</ul>
+
+<p>
+To make a group, create a mailbox with that name in the store of the
+anonymous user. Deliver articles to it as you would deliver mail, for example
+with the <a href="smtp.html">SMTP</a> server's mailbox delivery.
+</p>
+
+<h4>Streaming</h4>
+
+<p>
+ARTICLE, HEAD and BODY read the message in chunks from the mailbox's
+asynchronous content interface, convert line endings, dot-stuff, and wait for
+the connection to drain before reading the next chunk. Nothing is read off the
+I/O thread, and an article of any size takes the same small amount of memory.
+(Mailbox backends without asynchronous reads, such as mbox, load the message
+first.)
+</p>
+
+<h3 id="handlers">Handlers</h3>
+
+<p>
+The protocol work (CAPABILITIES, DATE, HELP, MODE, QUIT, LIST OVERVIEW.FMT,
+argument parsing, current group and article tracking, article streaming) is
+handled for you. Your code decides policy through a staged handler, in the same
+style as the <a href="smtp.html#handler">SMTP</a>, <a href="imap.html#handlers">IMAP</a>
+and <a href="pop3.html#handlers">POP3</a> servers:
+</p>
+
+<ol>
+<li>A <code>ClientConnected</code> handler is called for each new
+connection, and accepts it (or rejects it) through its
+<code>ConnectedState</code>, supplying the greeting and a
+<code>ReaderHandler</code></li>
+<li>The <code>ReaderHandler</code> answers the reader commands: it is
+called to select a group, list groups or articles, retrieve an article, and
+produce overview and header listings, and replies through the
+<code>GroupState</code>, <code>ListState</code>, <code>ArticleState</code> and
+<code>OverState</code> it is given</li>
+</ol>
+
+<p>
+The reader handler is called off the I/O thread, so it may block on storage.
+Lists are written an entry at a time, so a handler can list any number of
+groups or articles without holding them in memory. To serve news from something
+other than a mailbox store, implement <code>ReaderHandler</code> and supply it
+through your own <code>NntpServerSessionProvider</code>.
+</p>
+
+<pre>
+public class MyHandler implements ClientConnected, ReaderHandler {
+
+    public void connected(ConnectedState state, Endpoint endpoint) {
+        state.acceptConnection("My news server", false, this);
+    }
+
+    public void selectGroup(GroupState state, MailboxStore store, String group) {
+        ...
+        state.selected(mailbox, group, count, low, high, this);
+    }
+
+    ...
+}
+</pre>
+
+<h3 id="configuration">Configuration</h3>
+
+<p>
+News servers are configured in Java. The composer holds the settings shared by
+every listener, and each <code>NntpListener</code> holds its own transport
+settings.
+</p>
+
+<h4>NntpServer.compose() settings</h4>
+
+<ul>
+<li><code>listener(NntpListener)</code> - add a listener; at least one is required</li>
+<li><code>sessionProvider(NntpServerSessionProvider)</code> - the handler factory;
+use <code>MailboxStoreNntpSessionProvider</code> to serve a mailbox store</li>
+<li><code>realm(Realm)</code> - the authentication realm</li>
+<li><code>anonymousUser(String)</code> - the user whose store serves readers
+(default: <code>news</code>)</li>
+<li><code>postingAllowed(boolean)</code> - whether readers are told they may
+post (default: false)</li>
+<li><code>authenticationRequired(boolean)</code> - whether clients must log in
+(AUTHINFO) before they can read or post; until then other commands get 480
+(default: false; needs a realm)</li>
+</ul>
+
+<h4>MailboxStoreNntpSessionProvider settings</h4>
+
+<ul>
+<li><code>mailboxFactory(MailboxFactory)</code> - where the newsgroups are
+kept (<a href="mailbox.html">Maildir or mbox</a>)</li>
+<li><code>greeting(String)</code> - the text of the greeting
+(default: <code>NNTP server ready</code>)</li>
+</ul>
+
+<h4>NntpListener settings</h4>
+
+<ul>
+<li><code>port(int)</code> - listening port (default: 119, or 563 when <code>secure</code>)</li>
+<li><code>bindWildcard()</code> and <code>addresses(InetAddress...)</code> - where to bind</li>
+<li><code>secure(boolean)</code> - implicit TLS (NNTPS)</li>
+<li><code>tls(TlsConfig)</code> - certificate and key</li>
+<li><code>maxConnections(int)</code> and <code>maxConnectionsPerIP(int)</code> - connection caps</li>
+<li><code>rateLimit(String)</code>, <code>maxAuthFailures(int)</code>,
+<code>authLockoutTimeMs(long)</code> - abuse protection</li>
+<li><code>allowedNetworks</code> and <code>blockedNetworks</code> - CIDR allow and block lists</li>
+<li><code>idleTimeoutMs</code>, <code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - timeouts</li>
+<li><code>realm(Realm)</code>, <code>anonymousUser(String)</code>,
+<code>postingAllowed(boolean)</code> and <code>authenticationRequired(boolean)</code> -
+as the composer's, per listener</li>
+</ul>
+
+<h4>Example configuration</h4>
+
+<p>
+Newsgroups kept in a Maildir store, served on port 119 and, with implicit TLS,
+on port 563:
+</p>
+
+<pre>
+TlsConfig tls = TlsConfig.pem(Paths.get("cert.pem"), Paths.get("key.pem"));
+MailboxFactory spool = new MaildirMailboxFactory(Paths.get("/var/spool/news"));
+
+NntpServer server = NntpServer.compose()
+        .listener(new NntpListener().port(119))
+        .listener(new NntpListener().port(563).secure(true).tls(tls))
+        .sessionProvider(new MailboxStoreNntpSessionProvider()
+                .mailboxFactory(spool)
+                .greeting("Example news server"))
+        .anonymousUser("news")
+        .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
+</pre>
+
+<p>
+With the store above, the mailboxes of the user <code>news</code> under
+<code>/var/spool/news</code> are the newsgroups.
+</p>
+
+<h3 id="security">Security</h3>
+
+<ul>
+<li><b>NNTPS (port 563)</b> - implicit TLS; the connection is encrypted from the
+start (RFC 8143)</li>
+<li><b>Limits</b> - the listener's connection caps, rate limit, network allow
+and block lists, and timeouts apply as for the other mail protocols</li>
+<li><b>STARTTLS and AUTHINFO</b> - give a listener a <code>tls</code>
+configuration and a <code>realm</code>, and set
+<code>authenticationRequired(true)</code> for a private server. Passwords are
+not accepted in the clear when TLS is available</li>
+<li><b>Command size</b> - lines over 512 octets are refused and discarded
+without being buffered</li>
+</ul>
+
+<h3 id="telemetry">Telemetry</h3>
+
+<p>
+When the telemetry configuration has an exporter that takes traces, each
+connection produces a trace with a session span and, after a login, an
+authenticated span; with metrics enabled (the default) each listener records
+connections, session duration, commands, authentications by mechanism, articles
+read and posted, article bytes sent and STARTTLS upgrades. The names are listed
+under <a href="telemetry.html">Telemetry</a>. A listener's metrics are
+available from <code>NntpListener.getMetrics()</code>.
+</p>
+
+<h3 id="client">Client</h3>
+
+<p>
+<code>org.bluezoo.gumdrop.nntp.client.NntpClient</code> connects to a news
+server. It reads the greeting and CAPABILITIES, upgrades with STARTTLS and logs
+in with AUTHINFO USER/PASS as configured, and then gives your
+<code>NntpClientHandler</code> an <code>NntpSession</code> to issue commands on.
+</p>
+
+<h4>NntpClient settings</h4>
+
+<ul>
+<li><code>new NntpClient(host, port)</code> - the server (119, or 563 for NNTPS)</li>
+<li><code>secure(boolean)</code> and <code>tls(TlsConfig)</code> - implicit TLS
+(NNTPS) and the TLS settings, such as trust</li>
+<li><code>startTls(NntpClient.StartTls)</code> - <code>NEVER</code> (default),
+<code>IF_OFFERED</code> (upgrade when the server offers it, otherwise carry on in
+the clear) or <code>REQUIRED</code> (fail if it is not offered)</li>
+<li><code>credentials(user, password)</code> - log in with AUTHINFO USER/PASS once
+TLS is set up as configured. With <code>IF_OFFERED</code> and a server that does
+not offer STARTTLS, the password is sent in the clear</li>
+<li><code>saslMechanism(String)</code> - log in with AUTHINFO SASL instead of USER/PASS:
+SCRAM-SHA-256, PLAIN, EXTERNAL, OAUTHBEARER (the password is the access token) or
+XOAUTH2. The server must offer the mechanism. SCRAM-SHA-256 is the choice for a
+connection without TLS; use PLAIN only under TLS</li>
+<li><code>commandTimeoutMs(long)</code> - how long to wait for an answer
+(default 60 seconds; 0 waits for ever)</li>
+<li><code>selectorLoop</code> and <code>dnsResolver</code> - where to run and how to
+resolve the host</li>
+</ul>
+
+<h4>Session commands</h4>
+
+<p>
+Commands may be issued from any thread. They are sent one at a time, in the
+order issued, and each reports to a callback on the connection's event loop.
+</p>
+
+<ul>
+<li><code>group(name, callback)</code> - the group's count and article range</li>
+<li><code>stat(number, callback)</code> and <code>stat(messageId, callback)</code></li>
+<li><code>listActive(wildmat, entries, callback)</code> - one
+<code>NewsgroupEntry</code> per newsgroup as its line is read</li>
+<li><code>over(first, last, entries, callback)</code> - one
+<code>OverviewEntry</code> per article as its line is read</li>
+<li><code>article</code>, <code>head</code> and <code>body</code> - the text is
+passed to your <code>NntpConsumer&lt;ByteBuffer&gt;</code> dot-unstuffed, with line
+endings kept, in pieces of whatever size the connection delivers; the buffer is
+valid only during the call</li>
+<li><code>articleWithAttachments(number, handler, callback)</code> (also by
+message-id) - an article with its attachments taken out, see below</li>
+<li><code>postWithAttachments(article, attachments, callback)</code> - POST with
+files attached, see below</li>
+<li><code>post(article, callback)</code> - the article with any line endings;
+dot-stuffing and the terminator are added</li>
+<li><code>command(line, multiline, content, callback)</code> - any other command;
+the callback gets the status whatever its code</li>
+<li><code>quit()</code> - the session takes no more commands and the connection
+is closed when the server has answered</li>
+</ul>
+
+<p>
+A command that the server refuses fails with an <code>NntpException</code>
+carrying the response code (0 if the connection itself failed).
+</p>
+
+<pre>
+new NntpClient("news.example.com", 119)
+        .startTls(NntpClient.StartTls.REQUIRED)
+        .credentials("alice", "secret")
+        .connect(gumdrop, new NntpClientHandler() {
+            public void connected(final NntpSession session, NntpGreeting greeting) {
+                session.listActive("comp.*", new NntpConsumer&lt;NewsgroupEntry&gt;() {
+                    public void accept(NewsgroupEntry group) {
+                        System.out.println(group.getName() + " " + group.getLow()
+                                + "-" + group.getHigh());
+                    }
+                }, new NntpCallback&lt;Void&gt;() {
+                    public void completed(Void result) {
+                        session.quit();
+                    }
+                    public void failed(NntpException error) {
+                        session.quit();
+                    }
+                });
+            }
+            public void error(Exception cause) { cause.printStackTrace(); }
+            public void disconnected() { }
+        });
+</pre>
+
+<h4>Attachments</h4>
+
+<p>
+News readers do not use MIME multiparts for files. They put them in the body of
+the article as uuencoded blocks, from a line <code>begin 644 name</code> to an
+<code>end</code> line, and that is how files travel on Usenet.
+<code>articleWithAttachments</code> finds those blocks as the article arrives and
+decodes them, in constant memory however the article is split on the wire. Your
+<code>org.bluezoo.gumdrop.mime.UuScanner.Handler</code> is given:
+</p>
+
+<ul>
+<li><code>text(data)</code> - the article text outside the files, headers included,
+in order and in pieces of any size</li>
+<li><code>begin(mode, name)</code> - a file starts, with the permissions and name
+from the begin line</li>
+<li><code>content(data)</code> - decoded bytes of the file, in pieces of any size</li>
+<li><code>end(complete)</code> - the file ends; <code>false</code> if the article
+(or the connection) ended before the <code>end</code> line</li>
+</ul>
+
+<p>
+Buffers are valid only during the call. Lines that merely look like a begin line
+are text, and a begin line split across network reads is found all the same. The same
+scanner is public as <code>UuScanner</code> in the MIME package, for articles you
+already have.
+</p>
+
+<p>
+To post files, give <code>postWithAttachments</code> the article (headers, an empty
+line and the text) and a list of <code>NntpAttachment</code> (name, mode, content).
+Each file is uuencoded and appended to the body after the text, as news readers do,
+and a final line ending is supplied if the text lacks one. The content of an
+attachment is a file (<code>Path</code>, read without blocking the event loop), any
+<code>NntpAttachment.Source</code> of your own (an asynchronous, callback-based reader), or bytes in memory. It is read, encoded and
+written out a chunk at a time, each chunk only once the connection has taken the last,
+so a file of any size is posted in constant memory. The encoder is public as
+<code>UuEncoder</code> in the MIME package for other uses.
+</p>
+
+<h4>Streaming posts</h4>
+
+<p>
+<code>postWithAttachments</code> and <code>post(byte[], callback)</code> are built on
+<code>post(NntpPoster, callback)</code>, which you can use to post anything that you
+produce as you go. When the server has agreed to take the article, your
+<code>NntpPoster</code> is given an <code>NntpPostStream</code>. Write the article to
+it in chunks of any size with <code>write(data, written)</code>, and write the next
+chunk when <code>written</code> is called, which is when the connection has taken the
+last; only one write may be outstanding. The stream turns line endings into CRLF and
+doubles dots at the starts of lines, and <code>finish()</code> ends the article with
+the line of a single dot; the outcome goes to the callback of the post. A POST cannot
+be cancelled once the server has been told to expect the article, so
+<code>abort(reason)</code> closes the connection.
+</p>
+
+<pre>
+session.post(new NntpPoster() {
+    public void ready(final NntpPostStream stream) {
+        // write a chunk; when it has gone, write the next, then finish
+        stream.write(ByteBuffer.wrap(headersAndFirstPart), new Runnable() {
+            public void run() { stream.finish(); }
+        });
+    }
+}, new NntpCallback&lt;Void&gt;() { /* completed, or failed */ });
+</pre>
+
+<pre>
+session.articleWithAttachments(number, new UuScanner.Handler() {
+    public void text(ByteBuffer data) { /* the message */ }
+    public void begin(int mode, String name) { out = new FileOutputStream(name); }
+    public void content(ByteBuffer data) { /* write data to out */ }
+    public void end(boolean complete) { out.close(); }
+}, new NntpCallback&lt;Void&gt;() { /* completed, or failed */ });
+</pre>
+
+<h3 id="limits">Limitations</h3>
+
+<ul>
+<li>The server is a reader server. It does not accept articles from other
+servers (IHAVE) and has no NEWNEWS. AUTHINFO SASL offers PLAIN, LOGIN, SCRAM-SHA-256 and EXTERNAL (not OAUTHBEARER or GSSAPI)</li>
+<li>The client does not do GSSAPI or LOGIN for AUTHINFO SASL, IHAVE, NEWNEWS or compression. A
+LIST ACTIVE or OVER entry is delivered once the line after it has begun to
+arrive (or the list ends), and an entry line over 64 KiB is skipped</li>
+<li>The stock handler can post only to a store with asynchronous append (Maildir
+has it; mbox does not, because mbox's append buffers a message whole), and
+posts to each newsgroup of a cross-posting separately: if one fails after another
+has been stored, the article stays in the first</li>
+<li>With the stock handler, looking up an article by message-id searches the
+current group only, because a mailbox store has no index of message-ids; a
+lookup with no group selected finds nothing</li>
+<li>Mailboxes record no creation time, so NEWGROUPS reports no new groups</li>
+<li>LIST ACTIVE opens each mailbox to count its messages, and LIST NEWSGROUPS
+gives empty descriptions</li>
+<li>The line count of the overview (<code>:lines</code>) is left empty</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="mailbox.html">Mailbox API</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop NNTP Server</p>
+
+</body>
+</html>

@@ -491,12 +491,13 @@ public final class SaslUtils {
      * exchange with a remote server.
      *
      * <p>All implementations except GSSAPI are non-blocking and safe for
-     * the NIO event loop. GSSAPI may block on the first call to
+     * the NIO event loop (SCRAM-SHA-256 does CPU-bound key derivation, of the
+     * server's chosen cost, in its second step). GSSAPI may block on the first call to
      * {@code evaluateChallenge()} due to KDC contact; callers must
      * offload to a worker thread.
      *
-     * @param mechanism the SASL mechanism name (PLAIN, EXTERNAL, GSSAPI,
-     *        OAUTHBEARER, XOAUTH2)
+     * @param mechanism the SASL mechanism name (PLAIN, SCRAM-SHA-256, EXTERNAL,
+     *        GSSAPI, OAUTHBEARER, XOAUTH2)
      * @param username the authentication identity (the account for
      *        OAUTHBEARER and XOAUTH2)
      * @param password the password (may be null for EXTERNAL/GSSAPI); the
@@ -518,6 +519,11 @@ public final class SaslUtils {
         switch (mechanism.toUpperCase()) {
             case "PLAIN":
                 return new PlainClient(username, password);
+            case "SCRAM-SHA-256":
+                if (username == null || password == null) {
+                    return null;
+                }
+                return new ScramSha256Client(username, password);
             case "EXTERNAL":
                 return new ExternalClient();
             case "OAUTHBEARER":

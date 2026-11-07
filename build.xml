@@ -66,6 +66,7 @@
   <property name='build.imap' location='${build.dir}/imap'/>
   <property name='build.smtp' location='${build.dir}/smtp'/>
   <property name='build.pop3' location='${build.dir}/pop3'/>
+  <property name='build.nntp' location='${build.dir}/nntp'/>
   <property name='build.ftp' location='${build.dir}/ftp'/>
   <property name='build.amqp' location='${build.dir}/amqp'/>
   <property name='build.amqp1' location='${build.dir}/amqp1'/>
@@ -112,6 +113,7 @@
   <property name='gumdrop.imap.jar' location='${dist}/gumdrop-imap.jar'/>
   <property name='gumdrop.smtp.jar' location='${dist}/gumdrop-smtp.jar'/>
   <property name='gumdrop.pop3.jar' location='${dist}/gumdrop-pop3.jar'/>
+  <property name='gumdrop.nntp.jar' location='${dist}/gumdrop-nntp.jar'/>
   <property name='gumdrop.ftp.jar' location='${dist}/gumdrop-ftp.jar'/>
   <property name='gumdrop.amqp.jar' location='${dist}/gumdrop-amqp.jar'/>
   <property name='gumdrop.amqp1.jar' location='${dist}/gumdrop-amqp1.jar'/>
@@ -160,6 +162,7 @@
     <delete dir='build-imap' quiet='true'/>
     <delete dir='build-smtp' quiet='true'/>
     <delete dir='build-pop3' quiet='true'/>
+    <delete dir='build-nntp' quiet='true'/>
     <delete dir='build-ftp' quiet='true'/>
     <delete dir='build-amqp' quiet='true'/>
     <delete dir='build-amqp1' quiet='true'/>
@@ -408,6 +411,7 @@
     <jar destfile='${gumdrop.imap.jar}' basedir='${build.imap}'/>
     <jar destfile='${gumdrop.smtp.jar}' basedir='${build.smtp}'/>
     <jar destfile='${gumdrop.pop3.jar}' basedir='${build.pop3}'/>
+    <jar destfile='${gumdrop.nntp.jar}' basedir='${build.nntp}'/>
     <jar destfile='${gumdrop.ftp.jar}' basedir='${build.ftp}'/>
     <jar destfile='${gumdrop.amqp.jar}' basedir='${build.amqp}'/>
     <jar destfile='${gumdrop.amqp1.jar}' basedir='${build.amqp1}'/>
@@ -455,6 +459,7 @@
       <fileset dir='${build.imap}' excludes='module-info.class'/>
       <fileset dir='${build.smtp}' excludes='module-info.class'/>
       <fileset dir='${build.pop3}' excludes='module-info.class'/>
+      <fileset dir='${build.nntp}' excludes='module-info.class'/>
       <fileset dir='${build.ftp}' excludes='module-info.class'/>
       <fileset dir='${build.amqp}' excludes='module-info.class'/>
       <fileset dir='${build.amqp1}' excludes='module-info.class'/>
@@ -658,6 +663,7 @@
     <copy file='${gumdrop.imap.jar}' tofile='${dist}/gumdrop-imap-${version}.jar'/>
     <copy file='${gumdrop.smtp.jar}' tofile='${dist}/gumdrop-smtp-${version}.jar'/>
     <copy file='${gumdrop.pop3.jar}' tofile='${dist}/gumdrop-pop3-${version}.jar'/>
+    <copy file='${gumdrop.nntp.jar}' tofile='${dist}/gumdrop-nntp-${version}.jar'/>
     <copy file='${gumdrop.ftp.jar}' tofile='${dist}/gumdrop-ftp-${version}.jar'/>
     <copy file='${gumdrop.amqp.jar}' tofile='${dist}/gumdrop-amqp-${version}.jar'/>
     <copy file='${gumdrop.amqp1.jar}' tofile='${dist}/gumdrop-amqp1-${version}.jar'/>
@@ -1170,6 +1176,12 @@
   <target name='integration-test-pop3' depends='integration-build'
           description='Run POP3 server integration tests'>
     <integration-junit includes='**/pop3/*IntegrationTest.java'/>
+  </target>
+
+  <!-- Run NNTP integration tests -->
+  <target name='integration-test-nntp' depends='integration-setup'
+          description='Run NNTP client and server integration tests'>
+    <integration-junit includes='**/nntp/**/*EndToEndTest.java'/>
   </target>
 
   <!-- Run IMAP integration tests -->

@@ -56,6 +56,7 @@ public class ListenerFluentSettersTest {
         "org.bluezoo.gumdrop.http.h3.Http3Listener",
         "org.bluezoo.gumdrop.smtp.SmtpListener",
         "org.bluezoo.gumdrop.pop3.Pop3Listener",
+        "org.bluezoo.gumdrop.nntp.NntpListener",
         "org.bluezoo.gumdrop.socks.SocksListener",
         "org.bluezoo.gumdrop.mqtt.MqttListener",
         "org.bluezoo.gumdrop.dns.DnsListener",

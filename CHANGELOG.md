@@ -8,6 +8,70 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
+  `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit
+  TLS) serves the mailboxes of a mailbox store as newsgroups, through the
+  stock `DefaultNntpHandler` or an application `ReaderHandler`, in the staged
+  handler style of the POP3 and IMAP servers.
+  - Commands: CAPABILITIES, MODE READER, DATE, HELP, QUIT, GROUP, LISTGROUP,
+    LAST, NEXT, ARTICLE, HEAD, BODY, STAT, LIST (ACTIVE, NEWSGROUPS,
+    OVERVIEW.FMT), NEWGROUPS, OVER and HDR (and XOVER and XHDR). Wildmats are
+    supported (`Wildmat`).
+  - Commands are read by a streaming lexer and answered one at a time, so
+    clients may pipeline; articles are streamed in chunks, dot-stuffed with
+    CRLF line endings, in constant memory. OVER reads only the raw headers.
+  - POST, STARTTLS (RFC 4642) and AUTHINFO USER/PASS (RFC 4643), with
+    `NntpListener.authenticationRequired`. A posted article reaches a
+    `PostSink` dot-unstuffed, in chunks, and is never held whole: the stock
+    handler keeps only the header block (up to 64 KiB), then streams the rest to
+    the asynchronous writer of each newsgroup it names, pausing the connection
+    through `PostState.pauseInput()` and `resumeInput()` while the store falls
+    behind. A store without asynchronous append (mbox) refuses the post.
+  - AUTHINFO SASL (RFC 4643 section 2.4): the server offers PLAIN, LOGIN and
+    EXTERNAL (secure connections only) and SCRAM-SHA-256 from the realm's
+    mechanisms; the client
+    drives SCRAM-SHA-256, PLAIN, EXTERNAL, OAUTHBEARER and XOAUTH2 with
+    `NntpClient.saslMechanism`.
+- **SCRAM-SHA-256 client mechanism (RFC 5802, RFC 7677).**
+  `SaslUtils.createClient("SCRAM-SHA-256", user, password, host)` now returns
+  a client mechanism (no channel binding), checked against the RFC 7677 test
+  vector and the server-side helpers. It verifies the server's signature,
+  checks that the server's nonce extends its own and refuses more than a
+  million PBKDF2 iterations. Available to every client that drives SASL
+  through `SaslUtils.createClient`.
+  - Telemetry: a trace per connection (session span, authenticated span,
+    events for STARTTLS, login, articles sent and posted) and metrics under
+    `org.bluezoo.gumdrop.nntp` (`NntpServerMetrics`, from
+    `NntpListener.getMetrics()`): connections, session duration, commands,
+    authentications by mechanism, articles retrieved and posted, bytes sent and
+    STARTTLS upgrades.
+  - Usenet attachments: `NntpSession.articleWithAttachments` finds the
+    uuencoded blocks that news readers put in article bodies and decodes
+    them as the article arrives, in constant memory, handing the text around
+    them and each file (mode, name, decoded content, complete or cut off) to
+    a `UuScanner.Handler`. `UuScanner` and its `Handler` are now public API in
+    `org.bluezoo.gumdrop.mime`; the NNTP module requires the MIME module.
+    `NntpSession.postWithAttachments` posts files the same way, uuencoding
+    each `NntpAttachment` into the body after the text; `UuEncoder` is public
+    too. Uploads are streamed in constant memory: `NntpSession.post(NntpPoster,
+    callback)` gives the poster an `NntpPostStream` to write the article to a
+    chunk at a time, each only once the connection has taken the last, and an
+    attachment (a `Path`, an `NntpAttachment.Source` of your own, or bytes) is read without
+    blocking the event loop, encoded and written a chunk at a time.
+  - Reader mode: no IHAVE or NEWNEWS.
+  - NNTP client (`NntpClient`, `NntpSession`): greeting, CAPABILITIES,
+    STARTTLS (never, if offered, or required), AUTHINFO USER/PASS, GROUP,
+    STAT, ARTICLE, HEAD, BODY, LIST ACTIVE, OVER, POST and any other
+    command. Commands are queued from any thread and sent one at a time;
+    article text is delivered dot-unstuffed as it arrives, and LIST ACTIVE
+    and OVER results as parsed entries, so nothing is held whole.
+  - Documented in `web/nntp.html`.
+- **uuencode in the MIME layer.** `MimeParser` decodes bodies sent with
+  `Content-Transfer-Encoding: x-uuencode` (also `uuencode`, `x-uue`) as they
+  arrive, in any chunking, in constant memory. New `UuDecoder`, `UuEncoder`
+  and `UuScanner` (which finds `begin`/`end` blocks inline in text, as in
+  Usenet articles) are push codecs that hold only the position in the
+  current line between calls.
 - **PROXY protocol (v1 and v2) on TCP listeners.** `TcpListener.proxyProtocol(true)`
   (config `proxy-protocol`) requires every connection to begin with a
   HAProxy PROXY header, as sent by an AWS Network Load Balancer or haproxy
@@ -34,6 +98,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `DotUnstuffer` moved from `pop3.client` (package-private) to
+  `org.bluezoo.gumdrop.util` (public) so the NNTP server shares it with the
+  POP3 client.
 - **jsonparser 2.0.0.** Gumdrop now builds against jsonparser 2.0.0 (was
   1.3), whose content handler and `receive()` contract changed.
   - OAuth token introspection and JWT validation read JSON strings as they

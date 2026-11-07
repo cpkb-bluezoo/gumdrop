@@ -32,6 +32,7 @@
     <pathelement location='${build.imap}'/>
     <pathelement location='${build.smtp}'/>
     <pathelement location='${build.pop3}'/>
+    <pathelement location='${build.nntp}'/>
     <pathelement location='${build.ftp}'/>
     <pathelement location='${build.amqp}'/>
     <pathelement location='${build.amqp1}'/>
@@ -162,6 +163,7 @@
       <exclude name='org/bluezoo/gumdrop/mdns/**'/>
       <exclude name='org/bluezoo/gumdrop/mqtt/**'/>
       <exclude name='org/bluezoo/gumdrop/pop3/**'/>
+      <exclude name='org/bluezoo/gumdrop/nntp/**'/>
       <exclude name='org/bluezoo/gumdrop/redis/**'/>
       <exclude name='org/bluezoo/gumdrop/smtp/**'/>
       <exclude name='org/bluezoo/gumdrop/socks/**'/>
@@ -199,6 +201,7 @@
         <exclude name='org/bluezoo/gumdrop/mdns/**'/>
         <exclude name='org/bluezoo/gumdrop/mqtt/**'/>
         <exclude name='org/bluezoo/gumdrop/pop3/**'/>
+        <exclude name='org/bluezoo/gumdrop/nntp/**'/>
         <exclude name='org/bluezoo/gumdrop/redis/**'/>
         <exclude name='org/bluezoo/gumdrop/smtp/**'/>
         <exclude name='org/bluezoo/gumdrop/socks/**'/>

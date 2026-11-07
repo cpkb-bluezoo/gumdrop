@@ -51,6 +51,12 @@
                              classpath-ref='mail.protocol.compile.classpath'/>
   </target>
 
+  <target name='build-nntp-module' depends='build-mailbox-module'>
+    <compile-protocol-module destdir='${build.nntp}'
+                             package='org/bluezoo/gumdrop/nntp'
+                             classpath-ref='mail.protocol.compile.classpath'/>
+  </target>
+
   <target name='build-ftp-module' depends='build-http-module'>
     <compile-protocol-module destdir='${build.ftp}'
                              package='org/bluezoo/gumdrop/ftp'/>
@@ -97,6 +103,6 @@
   </target>
 
   <target name='build-protocol-modules'
-          depends='build-imap-module,build-smtp-module,build-pop3-module,build-ftp-module,build-amqp-module,build-amqp1-module,build-mqtt-module,build-redis-module,build-grpc-module,build-socks-module,build-webdav-module,build-mdns-module'/>
+          depends='build-imap-module,build-smtp-module,build-pop3-module,build-nntp-module,build-ftp-module,build-amqp-module,build-amqp1-module,build-mqtt-module,build-redis-module,build-grpc-module,build-socks-module,build-webdav-module,build-mdns-module'/>
 
 </project>

@@ -184,7 +184,8 @@ public class MimeParser {
 	enum TransferEncoding {
 		BINARY,
 		BASE64,
-		QUOTED_PRINTABLE;
+		QUOTED_PRINTABLE,
+		UUENCODE;
 	}
 
 	/** Where the body scanner is within a line (multipart states only). */
@@ -320,6 +321,7 @@ public class MimeParser {
 	private int b64LineLen; // length of the base64 line being read
 	private final byte[] qpCarry = new byte[2]; // an escape in quoted-printable that is not complete
 	private int qpCarryLen;
+	private UuDecoder uuDecoder; // allocated when a uuencoded body is first seen
 	private TransferEncoding transferEncoding = TransferEncoding.BINARY;
 	private boolean allowCRLineEnd = false;
 	private boolean underflow = false; // true if last receive() had unconsumed data
@@ -1075,6 +1077,13 @@ public class MimeParser {
 				transferEncoding = TransferEncoding.QUOTED_PRINTABLE;
 				handler.contentTransferEncoding(valueStr);
 				break;
+			case "x-uuencode":
+			case "uuencode":
+			case "x-uue":
+				// not in RFC 2045, but common in old mail and news
+				transferEncoding = TransferEncoding.UUENCODE;
+				handler.contentTransferEncoding(valueStr);
+				break;
 			case "7bit":
 			case "8bit":
 			case "binary":
@@ -1193,6 +1202,9 @@ public class MimeParser {
 		b64CarryLen = 0;
 		b64LineLen = 0;
 		qpCarryLen = 0;
+		if (uuDecoder != null) {
+			uuDecoder.reset();
+		}
 	}
 
 	/** The longest line that could be a boundary delimiter line. */
@@ -1481,6 +1493,9 @@ public class MimeParser {
 			case QUOTED_PRINTABLE:
 				decodeQuotedPrintableStream(data, from, to);
 				break;
+			case UUENCODE:
+				decodeUuencodeStream(data, from, to);
+				break;
 			default:
 				// Pass through as-is for binary, 7bit, 8bit, x-token encodings
 				for (int p = from; p < to; p += maxBufferSize) {
@@ -1553,6 +1568,28 @@ public class MimeParser {
 		if (src.hasRemaining()) {
 			saveBase64Carry(src); // the carry was decoded, if there was one
 		}
+	}
+
+	/**
+	 * Decodes uuencode as it arrives. The decoder keeps its own position in
+	 * the line, so it takes all of the input and nothing is carried here.
+	 */
+	private void decodeUuencodeStream(ByteBuffer data, int from, int to) throws MimeParseException {
+		ensureDecodeBuffer();
+		decodeBuffer.clear();
+		if (uuDecoder == null) {
+			uuDecoder = new UuDecoder();
+		}
+		ByteBuffer src = window(data, from, to);
+		while (src.hasRemaining() && !uuDecoder.isDone()) {
+			int before = src.position();
+			uuDecoder.decode(src, decodeBuffer);
+			deliverDecoded();
+			if (src.position() == before) {
+				break;
+			}
+		}
+		// after the end line, the rest of the body is ignored
 	}
 
 	/** RFC 2045 section 6.8: base64 lines are at most 76 characters. */
@@ -1702,6 +1739,13 @@ public class MimeParser {
 			int n = qpCarryLen;
 			qpCarryLen = 0;
 			QuotedPrintableDecoder.decode(ByteBuffer.wrap(qpCarry, 0, n), decodeBuffer, 4, true);
+			deliverDecoded();
+		}
+		if (uuDecoder != null && !uuDecoder.isDone()) {
+			// a last line cut short of its line feed
+			ensureDecodeBuffer();
+			decodeBuffer.clear();
+			uuDecoder.finish(decodeBuffer);
 			deliverDecoded();
 		}
 	}

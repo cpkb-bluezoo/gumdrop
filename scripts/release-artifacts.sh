@@ -23,6 +23,7 @@ ARTIFACTS=(
     "gumdrop-imap:central/gumdrop-imap-pom.xml:jar:shared"
     "gumdrop-smtp:central/gumdrop-smtp-pom.xml:jar:shared"
     "gumdrop-pop3:central/gumdrop-pop3-pom.xml:jar:shared"
+    "gumdrop-nntp:central/gumdrop-nntp-pom.xml:jar:shared"
     "gumdrop-ftp:central/gumdrop-ftp-pom.xml:jar:shared"
     "gumdrop-amqp:central/gumdrop-amqp-pom.xml:jar:shared"
     "gumdrop-amqp1:central/gumdrop-amqp1-pom.xml:jar:shared"

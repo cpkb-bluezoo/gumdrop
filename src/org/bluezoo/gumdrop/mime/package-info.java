@@ -21,13 +21,16 @@
 
 /**
  * MIME parsing: multipart content, content-type/content-disposition
- * headers, and Base64/quoted-printable transfer encodings.
+ * headers, and Base64/quoted-printable/uuencode transfer encodings.
  *
  * <p>{@link org.bluezoo.gumdrop.mime.MimeParser} is a streaming parser
  * delivering parsed parts to a {@link org.bluezoo.gumdrop.mime.MimeHandler};
  * {@link org.bluezoo.gumdrop.mime.ContentType} and {@link
  * org.bluezoo.gumdrop.mime.ContentDisposition} parse and represent those
- * headers; {@link org.bluezoo.gumdrop.mime.Base64Decoder} and {@link
+ * headers; {@link org.bluezoo.gumdrop.mime.UuScanner} finds and decodes
+ * uuencoded files inline in text, as news readers write them, and
+ * {@link org.bluezoo.gumdrop.mime.UuEncoder} writes them;
+ * {@link org.bluezoo.gumdrop.mime.Base64Decoder} and {@link
  * org.bluezoo.gumdrop.mime.QuotedPrintableDecoder} handle the two
  * standard transfer encodings.
  *
