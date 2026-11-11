@@ -241,4 +241,39 @@ public class DoQClientTransportTest {
         assertEquals(1, delivered.errors.size());
         assertSame(cause, delivered.errors.get(0));
     }
+
+    /** Counts {@link DnsClientTransportHandler#onConnected()} calls. */
+    private static final class ConnectedCounter implements DnsClientTransportHandler {
+        int connected;
+
+        @Override
+        public void onConnected() {
+            connected++;
+        }
+
+        @Override
+        public void onReceive(ByteBuffer data) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+        }
+    }
+
+    @Test
+    public void testHandlerIsToldOnceWhenTheConnectionBecomesUsable() throws Exception {
+        DoQClientTransport transport = new DoQClientTransport();
+        ConnectedCounter counter = new ConnectedCounter();
+        Field handler = DoQClientTransport.class.getDeclaredField("handler");
+        handler.setAccessible(true);
+        handler.set(transport, counter);
+        java.lang.reflect.Method mark = DoQClientTransport.class.getDeclaredMethod(
+                "markConnected", org.bluezoo.gumdrop.quic.QuicConnection.class, boolean.class);
+        mark.setAccessible(true);
+        // 0-RTT keys ready first, then the handshake completes
+        mark.invoke(transport, null, Boolean.FALSE);
+        mark.invoke(transport, null, Boolean.TRUE);
+        assertEquals(1, counter.connected);
+    }
+
 }

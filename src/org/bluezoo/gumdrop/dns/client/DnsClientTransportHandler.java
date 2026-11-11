@@ -36,6 +36,17 @@ import java.util.List;
 public interface DnsClientTransportHandler {
 
     /**
+     * Called when the transport is ready to carry queries: for a plain TCP
+     * transport once the connection is established, for DNS over TLS once
+     * the handshake has completed, and for DNS over QUIC once the connection
+     * is usable. A caller that keeps a connection open and pipelines queries
+     * over it should hold queries back until this is called. The default
+     * does nothing, for callers that send straight after {@code open}.
+     */
+    default void onConnected() {
+    }
+
+    /**
      * Called when DNS response data is received from the server.
      *
      * @param data the received data

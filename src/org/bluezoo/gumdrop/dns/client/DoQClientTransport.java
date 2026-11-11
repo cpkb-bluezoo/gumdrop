@@ -94,10 +94,14 @@ public class DoQClientTransport implements DnsClientTransport {
 
     private void markConnected(QuicConnection conn, boolean drainDeferred) {
         quicConnection = conn;
+        boolean first = !connected;
         connected = true;
         Runnable observer = connectedObserver;
         if (observer != null) {
             observer.run();
+        }
+        if (first && handler != null) {
+            handler.onConnected();
         }
         if (drainDeferred) {
             runDeferredSends();

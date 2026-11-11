@@ -417,4 +417,50 @@ public class TCPDNSClientTransportTest {
         }
     }
 
+
+    private static final class ConnectedCounter implements DnsClientTransportHandler {
+        int connected;
+
+        @Override
+        public void onConnected() {
+            connected++;
+        }
+
+        @Override
+        public void onReceive(ByteBuffer data) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+        }
+    }
+
+    private static ProtocolHandler tcpHandler(DnsClientTransportHandler handler) throws Exception {
+        Class<?> type = Class.forName(TcpDnsClientTransport.class.getName() + "$TcpProtocolHandler");
+        Constructor<?> ctor = type.getDeclaredConstructor(DnsClientTransportHandler.class);
+        ctor.setAccessible(true);
+        return (ProtocolHandler) ctor.newInstance(handler);
+    }
+
+    @Test
+    public void testPlainConnectionIsReadyOnceConnected() throws Exception {
+        ConnectedCounter counter = new ConnectedCounter();
+        ProtocolHandler h = tcpHandler(counter);
+        h.connected(new org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint());
+        assertEquals(1, counter.connected);
+    }
+
+    @Test
+    public void testSecureConnectionIsReadyOnlyAfterTheTlsHandshake() throws Exception {
+        ConnectedCounter counter = new ConnectedCounter();
+        org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint ep =
+                new org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint();
+        ep.setSecure(true);
+        ProtocolHandler h = tcpHandler(counter);
+        h.connected(ep);
+        assertEquals("not ready before the handshake", 0, counter.connected);
+        h.securityEstablished(null);
+        assertEquals(1, counter.connected);
+    }
+
 }

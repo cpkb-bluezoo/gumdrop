@@ -423,7 +423,9 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - DoH: DNS over HTTPS
     - EDNS0 support with DNS cookies (RFC 7873)
     - DNS message compression (RFC 1035 section 4.1.4)
-    - upstream proxying with response ID validation and TCP fallback
+    - upstream proxying with response ID validation and TCP fallback, or
+      over a persistent, pipelined DNS-over-TLS (RFC 7858) or DNS-over-QUIC
+      (RFC 9250) connection per upstream
     - caching forwarder (`UpstreamRelayHandler`) with TTL cache, RFC 8767
       serve-stale, RFC 8020 NXDOMAIN cut, and RFC 8198 aggressive use of
       DNSSEC-validated NSEC/NSEC3 proofs when DNSSEC validation is enabled

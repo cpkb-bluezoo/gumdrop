@@ -34,7 +34,10 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
+import org.bluezoo.gumdrop.dns.client.TcpDnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnssecChainValidator;
 import org.bluezoo.gumdrop.dns.client.DnssecTrustAnchor;
 import org.bluezoo.gumdrop.dns.client.DnssecValidationCallback;
@@ -68,6 +71,7 @@ import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * Caching DNS forwarder — proxies queries to configured upstream resolvers.
@@ -90,6 +94,8 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private static final int DEFAULT_PORT = 53;
+    // RFC 7858 section 3.1, RFC 9250 section 4.1.1
+    private static final int DEFAULT_ENCRYPTED_PORT = 853;
     private static final long UPSTREAM_TIMEOUT_MS = 5000;
     private static final int MAX_DNS_MESSAGE_SIZE =
             DnsMessage.DEFAULT_EDNS_UDP_SIZE;
@@ -117,6 +123,25 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private DnssecChainValidator chainValidator;
     private DnssecTrustAnchor trustAnchor;
 
+    /** How the relay talks to its upstream servers. */
+    public enum Transport {
+        /** RFC 1035 plain UDP with TCP retry on truncation (the default). */
+        UDP,
+        /** RFC 7858 DNS over TLS, one persistent connection per upstream. */
+        DOT,
+        /** RFC 9250 DNS over QUIC, one persistent connection per upstream. */
+        DOQ
+    }
+
+    private Transport transport = Transport.UDP;
+    private TlsConfig tls;
+    private EncryptedUpstream.TransportSource encryptedTransportSource;
+    private EncryptedUpstream.Clock clock;
+    private final java.util.Map<Integer, EncryptedUpstream> encryptedUpstreams =
+            new java.util.HashMap<Integer, EncryptedUpstream>();
+    private final java.util.Set<InetSocketAddress> implicitPorts =
+            new java.util.HashSet<InetSocketAddress>();
+
     private UdpTransportFactory upstreamUdpFactory;
     private TcpTransportFactory upstreamTcpFactory;
     private Gumdrop gumdrop;
@@ -137,13 +162,25 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         while (st.hasMoreTokens()) {
             String server = st.nextToken();
             try {
-                upstreamServers.add(parseAddress(server, DEFAULT_PORT));
+                InetSocketAddress addr = parseAddress(server, DEFAULT_PORT);
+                upstreamServers.add(addr);
+                if (!hasExplicitPort(server)) {
+                    implicitPorts.add(addr);
+                }
             } catch (Exception e) {
                 events().warn("err.invalid_upstream_server")
                         .attr("server", server)
                         .thrown(e).emit();
             }
         }
+    }
+
+    void setTransport(Transport transport) {
+        this.transport = transport != null ? transport : Transport.UDP;
+    }
+
+    void setTls(TlsConfig tls) {
+        this.tls = tls;
     }
 
     void setUseSystemResolvers(boolean useSystemResolvers) {
@@ -270,6 +307,12 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             validationResolver = null;
         }
         chainValidator = null;
+        synchronized (encryptedUpstreams) {
+            for (EncryptedUpstream upstream : encryptedUpstreams.values()) {
+                upstream.close();
+            }
+            encryptedUpstreams.clear();
+        }
         upstreamUdpFactory = null;
         upstreamTcpFactory = null;
     }
@@ -603,6 +646,41 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 effectiveLoop, callback);
     }
 
+    private EncryptedUpstream encryptedUpstream(int index, SelectorLoop loop) {
+        synchronized (encryptedUpstreams) {
+            EncryptedUpstream upstream =
+                    encryptedUpstreams.get(Integer.valueOf(index));
+            if (upstream == null) {
+                InetSocketAddress addr = upstreamServers.get(index);
+                final TlsConfig config = tls;
+                EncryptedUpstream.TransportSource source =
+                        encryptedTransportSource != null
+                        ? encryptedTransportSource
+                        : new EncryptedUpstream.TransportSource() {
+                            @Override
+                            public DnsClientTransport create(Transport kind) {
+                                if (kind == Transport.DOQ) {
+                                    return new DoQClientTransport().tls(config);
+                                }
+                                return TcpDnsClientTransport.createDoT().tls(config);
+                            }
+                        };
+                EncryptedUpstream.Clock time = clock != null ? clock
+                        : new EncryptedUpstream.Clock() {
+                            @Override
+                            public long millis() {
+                                return System.currentTimeMillis();
+                            }
+                        };
+                upstream = new EncryptedUpstream(transport, addr,
+                        upstreamPort(addr), loop, source, time,
+                        UPSTREAM_TIMEOUT_MS);
+                encryptedUpstreams.put(Integer.valueOf(index), upstream);
+            }
+            return upstream;
+        }
+    }
+
     private void tryUpstreamServer(int index, DnsMessage originalQuery,
                                    DnsMessage upstreamQuery, byte[] queryData,
                                    int upstreamId, SelectorLoop loop,
@@ -654,6 +732,25 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         }
 
         void start() {
+            if (transport != Transport.UDP) {
+                encryptedUpstream(index, loop).query(queryData, upstreamId,
+                        upstreamQuery.getQuestions(),
+                        new EncryptedUpstream.Result() {
+                            @Override
+                            public void onResult(DnsMessage response) {
+                                if (done) {
+                                    return;
+                                }
+                                if (response == null) {
+                                    fail("err.upstream", null);
+                                    return;
+                                }
+                                done = true;
+                                succeed(response);
+                            }
+                        });
+                return;
+            }
             try {
                 upstreamUdpFactory.connect(
                         gumdrop, upstream.getAddress(), upstream.getPort(), this, loop);
@@ -973,6 +1070,26 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         }
     }
 
+    private static boolean hasExplicitPort(String address) {
+        if (address.startsWith("[")) {
+            int bracketEnd = address.indexOf(']');
+            return bracketEnd > 0 && address.length() > bracketEnd + 2
+                    && address.charAt(bracketEnd + 1) == ':';
+        }
+        return address.indexOf(':') >= 0 && address.indexOf("::") < 0;
+    }
+
+    /**
+     * The port to use for an upstream: as configured, or for an upstream
+     * given without one, 53 for plain DNS and 853 for DoT and DoQ.
+     */
+    private int upstreamPort(InetSocketAddress addr) {
+        if (transport != Transport.UDP && implicitPorts.contains(addr)) {
+            return DEFAULT_ENCRYPTED_PORT;
+        }
+        return addr.getPort();
+    }
+
     private static InetSocketAddress parseAddress(String address,
                                                   int defaultPort)
             throws Exception {
@@ -1109,6 +1226,27 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         public Builder trustAnchor(DnssecTrustAnchor trustAnchor) {
             handler.setTrustAnchor(trustAnchor);
+            return this;
+        }
+
+        /**
+         * Selects the transport used to reach the upstream servers. The
+         * default is {@link Transport#UDP}. With {@link Transport#DOT} or
+         * {@link Transport#DOQ} an upstream configured without a port is
+         * reached on port 853.
+         */
+        public Builder transport(Transport transport) {
+            handler.setTransport(transport);
+            return this;
+        }
+
+        /**
+         * Sets the TLS settings (trust material, client identity) for
+         * {@link Transport#DOT} and {@link Transport#DOQ} upstreams, or
+         * {@code null} for the JVM defaults.
+         */
+        public Builder tls(TlsConfig tls) {
+            handler.setTls(tls);
             return this;
         }
 

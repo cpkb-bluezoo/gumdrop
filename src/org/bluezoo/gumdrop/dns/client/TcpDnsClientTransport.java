@@ -301,6 +301,9 @@ public class TcpDnsClientTransport implements DnsClientTransport {
         public void connected(Endpoint ep) {
             this.endpoint = ep;
             sendFirstOutboundIfPlaintext();
+            if (!ep.isSecure()) {
+                handler.onConnected();
+            }
         }
 
         @Override
@@ -343,6 +346,7 @@ public class TcpDnsClientTransport implements DnsClientTransport {
         @Override
         public void securityEstablished(SecurityInfo info) {
             sendFirstOutboundAfterTls();
+            handler.onConnected();
         }
 
         private void sendFirstOutboundIfPlaintext() {
