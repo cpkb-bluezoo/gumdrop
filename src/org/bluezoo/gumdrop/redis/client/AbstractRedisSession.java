@@ -67,6 +67,30 @@ abstract class AbstractRedisSession implements RedisSession {
      */
     abstract void sendCommand(Object callback, String command, byte[][] args);
 
+    /**
+     * Tells a command's result handler that it failed, whatever kind of
+     * handler it is. Does nothing for a null callback.
+     *
+     * @param callback the result handler
+     * @param error the error message
+     * @param session the session to pass to the handler
+     */
+    static void deliverError(Object callback, String error, RedisSession session) {
+        if (callback instanceof ScanResultHandler) {
+            ((ScanResultHandler) callback).handleError(error, session);
+        } else if (callback instanceof StringResultHandler) {
+            ((StringResultHandler) callback).handleError(error, session);
+        } else if (callback instanceof BulkResultHandler) {
+            ((BulkResultHandler) callback).handleError(error, session);
+        } else if (callback instanceof IntegerResultHandler) {
+            ((IntegerResultHandler) callback).handleError(error, session);
+        } else if (callback instanceof BooleanResultHandler) {
+            ((BooleanResultHandler) callback).handleError(error, session);
+        } else if (callback instanceof ArrayResultHandler) {
+            ((ArrayResultHandler) callback).handleError(error, session);
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // RedisSession — Connection commands
     // ─────────────────────────────────────────────────────────────────────────

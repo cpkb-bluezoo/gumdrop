@@ -33,12 +33,65 @@ final class SentCommand {
     private final String command;
     private final String[] textArgs;
     private final byte[][] binaryArgs;
+    private final int redirects;
+    private final boolean asking;
+    private final boolean pinned;
 
     SentCommand(Object callback, String command, String[] textArgs, byte[][] binaryArgs) {
+        this(callback, command, textArgs, binaryArgs, 0, false, false);
+    }
+
+    private SentCommand(Object callback, String command, String[] textArgs,
+                        byte[][] binaryArgs, int redirects, boolean asking, boolean pinned) {
         this.callback = callback;
         this.command = command;
         this.textArgs = textArgs;
         this.binaryArgs = binaryArgs;
+        this.redirects = redirects;
+        this.asking = asking;
+        this.pinned = pinned;
+    }
+
+    /** How many times this command has already been redirected to another node. */
+    int getRedirects() {
+        return redirects;
+    }
+
+    /** True if {@code ASKING} must be sent on the connection just before this command. */
+    boolean isAsking() {
+        return asking;
+    }
+
+    /** True if the command must stay on its connection, so redirects are not followed. */
+    boolean isPinned() {
+        return pinned;
+    }
+
+    /** This command after one more redirect, to be preceded by {@code ASKING} if {@code asking}. */
+    SentCommand redirected(boolean asking) {
+        return new SentCommand(callback, command, textArgs, binaryArgs,
+                redirects + 1, asking, pinned);
+    }
+
+    /** This command marked as one that must not be redirected. */
+    SentCommand pinned() {
+        return new SentCommand(callback, command, textArgs, binaryArgs,
+                redirects, asking, true);
+    }
+
+    /** The arguments as bytes (text in UTF-8); empty if there are none. */
+    byte[][] toBinaryArgs() {
+        if (binaryArgs != null) {
+            return binaryArgs;
+        }
+        if (textArgs == null) {
+            return new byte[0][];
+        }
+        byte[][] out = new byte[textArgs.length][];
+        for (int i = 0; i < textArgs.length; i++) {
+            out[i] = textArgs[i].getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        }
+        return out;
     }
 
     /** The result handler the command was sent with, possibly null. */

@@ -100,6 +100,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // Connection state
     private boolean closed = false;
 
+    // The session handed to result handlers: this connection, unless a
+    // cluster session owns it and wants its own passed back.
+    private RedisSession resultSession = this;
+
     // Offered every error reply; while set, sent commands are remembered
     // so that the listener can send them again. Null for a plain connection.
     private RedirectListener redirectListener;
@@ -187,6 +191,36 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
      */
     void setRedirectListener(RedirectListener listener) {
         this.redirectListener = listener;
+    }
+
+    /**
+     * Sets the session passed to result handlers in place of this
+     * connection, so that follow-up commands go through its owner.
+     */
+    void setResultSession(RedisSession session) {
+        this.resultSession = session != null ? session : this;
+    }
+
+    /**
+     * Sends an already-built command on this connection, remembering that
+     * very object (with its redirect count) while a listener is installed.
+     */
+    void send(SentCommand command) {
+        if (endpoint == null || closed) {
+            deliverError(command.getCallback(), L10N.getString("err.not_connected"), resultSession);
+            return;
+        }
+        ByteBuffer buf;
+        if (command.getBinaryArgs() != null) {
+            buf = encoder.encodeCommand(command.getCommand(), command.getBinaryArgs());
+        } else if (command.getTextArgs() != null) {
+            buf = encoder.encodeCommand(command.getCommand(), command.getTextArgs());
+        } else {
+            buf = encoder.encodeCommand(command.getCommand());
+        }
+        pendingCommands.add(new PendingCommand(command.getCallback(),
+                redirectListener != null ? command : null));
+        endpoint.send(buf);
     }
 
     /** Test seam: attaches an endpoint without the connect handshake. */
@@ -336,15 +370,15 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if (callback instanceof ScanResultHandler) {
             ScanResultHandler h = (ScanResultHandler) callback;
             if (response.isNull()) {
-                h.handleError("null response", this);
+                h.handleError("null response", resultSession);
             } else {
                 List<RespValue> result = response.asArray();
                 if (result != null && result.size() >= 2) {
                     String cursor = result.get(0).asString();
                     List<RespValue> elements = result.get(1).asArray();
-                    h.handleResult(cursor, elements, this);
+                    h.handleResult(cursor, elements, resultSession);
                 } else {
-                    h.handleError("Invalid scan response", this);
+                    h.handleError("Invalid scan response", resultSession);
                 }
             }
             return;
@@ -354,30 +388,30 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if (callback instanceof StringResultHandler) {
             StringResultHandler h = (StringResultHandler) callback;
             String result = response.asString();
-            h.handleResult(result, this);
+            h.handleResult(result, resultSession);
         } else if (callback instanceof BulkResultHandler) {
             BulkResultHandler h = (BulkResultHandler) callback;
             if (response.isNull()) {
-                h.handleNull(this);
+                h.handleNull(resultSession);
             } else {
                 byte[] result = response.asBytes();
-                h.handleResult(result, this);
+                h.handleResult(result, resultSession);
             }
         } else if (callback instanceof IntegerResultHandler) {
             IntegerResultHandler h = (IntegerResultHandler) callback;
             long result = response.asLong();
-            h.handleResult(result, this);
+            h.handleResult(result, resultSession);
         } else if (callback instanceof BooleanResultHandler) {
             BooleanResultHandler h = (BooleanResultHandler) callback;
             boolean result = response.asLong() != 0;
-            h.handleResult(result, this);
+            h.handleResult(result, resultSession);
         } else if (callback instanceof ArrayResultHandler) {
             ArrayResultHandler h = (ArrayResultHandler) callback;
             if (response.isNull()) {
-                h.handleNull(this);
+                h.handleNull(resultSession);
             } else if (response.isArray()) {
                 List<RespValue> result = response.asArray();
-                h.handleResult(result, this);
+                h.handleResult(result, resultSession);
             } else if (response.isMap()) {
                 // RESP3 Map — flatten to alternating key/value array for compatibility
                 Map<RespValue, RespValue> map = response.asMap();
@@ -386,31 +420,19 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                     flat.add(entry.getKey());
                     flat.add(entry.getValue());
                 }
-                h.handleResult(flat, this);
+                h.handleResult(flat, resultSession);
             } else {
                 // For other RESP3 types received by ArrayResultHandler,
                 // wrap in a single-element array
                 List<RespValue> wrapped = new ArrayList<RespValue>(1);
                 wrapped.add(response);
-                h.handleResult(wrapped, this);
+                h.handleResult(wrapped, resultSession);
             }
         }
     }
 
     private void dispatchError(Object callback, String error) {
-        if (callback instanceof ScanResultHandler) {
-            ((ScanResultHandler) callback).handleError(error, this);
-        } else if (callback instanceof StringResultHandler) {
-            ((StringResultHandler) callback).handleError(error, this);
-        } else if (callback instanceof BulkResultHandler) {
-            ((BulkResultHandler) callback).handleError(error, this);
-        } else if (callback instanceof IntegerResultHandler) {
-            ((IntegerResultHandler) callback).handleError(error, this);
-        } else if (callback instanceof BooleanResultHandler) {
-            ((BooleanResultHandler) callback).handleError(error, this);
-        } else if (callback instanceof ArrayResultHandler) {
-            ((ArrayResultHandler) callback).handleError(error, this);
-        }
+        deliverError(callback, error, resultSession);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
