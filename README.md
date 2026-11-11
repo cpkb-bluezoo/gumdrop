@@ -536,6 +536,9 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - SCAN/HSCAN/SSCAN/ZSCAN cursor-based iteration
     - blocking commands (BLPOP, BRPOP, BLMOVE)
     - Redis Streams (XADD, XREAD, XRANGE, XLEN, XTRIM, XACK, XGROUP, XPENDING)
+    - Redis Cluster and Valkey Cluster via `RedisClusterClient`: slot routing,
+      MOVED/ASK redirects, topology refresh, single-node transactions, failure
+      backoff, and ordinary and sharded Pub/Sub (SSUBSCRIBE, SPUBLISH)
     - TLS support, fully async, pipelining
 - gRPC service and client
     - efficient event based processing of .proto definitions, using

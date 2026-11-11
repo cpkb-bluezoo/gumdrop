@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Redis Cluster client.** `RedisClusterClient` connects to a Redis or Valkey
+  Cluster from one or more seed nodes and gives a `RedisSession` that sends
+  each command to the node serving its key's hash slot.
+  - Slot map from `CLUSTER SLOTS`, kept current by following MOVED and ASK
+    replies and by refreshing the topology when a node fails; commands naming
+    keys in different slots are refused before reaching the server.
+  - MULTI/EXEC and WATCH are pinned to one node; TRYAGAIN and CLUSTERDOWN are
+    retried; a node that cannot be reached is retried with backoff.
+  - Pub/Sub: ordinary subscriptions share a connection that is restored after a
+    loss; sharded subscriptions (SSUBSCRIBE, SPUBLISH, Redis 7 and later) follow
+    their slot between nodes. `RedisSession` gains `ssubscribe`, `sunsubscribe`
+    and `spublish`, and `MessageHandler` gains default shard callbacks.
+  - Replica reads are not supported. Closes #586.
+
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit
   TLS) serves the mailboxes of a mailbox store as newsgroups, through the
