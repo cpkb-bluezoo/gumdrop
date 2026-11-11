@@ -190,6 +190,33 @@ public interface RedisSession {
     void set(String key, byte[] value, StringResultHandler handler);
 
     /**
+     * Sets the value of a key with {@code SET} options: a condition
+     * ({@code NX}/{@code XX}), an expiry, and/or {@code GET}.
+     *
+     * <p>The result is {@code "OK"} when the value was set, or null when a
+     * condition was not met. With {@link SetOptions#get()} it is instead the
+     * previous value, or null if there was none.
+     *
+     * @param key the key
+     * @param value the value
+     * @param options the options
+     * @param handler receives the outcome; {@code handleNull} when a
+     *                condition was not met or there was no previous value
+     */
+    void set(String key, String value, SetOptions options, BulkResultHandler handler);
+
+    /**
+     * As {@link #set(String, String, SetOptions, BulkResultHandler)} with a
+     * binary value.
+     *
+     * @param key the key
+     * @param value the value
+     * @param options the options
+     * @param handler receives the outcome
+     */
+    void set(String key, byte[] value, SetOptions options, BulkResultHandler handler);
+
+    /**
      * Sets a key with expiration in seconds.
      *
      * @param key the key
