@@ -169,34 +169,53 @@ public class RespEncoder {
     }
 
     /**
-     * Encodes an array of bulk strings.
+     * Encodes an array of bulk strings. The length prefixes are written as
+     * decimal digits straight into the buffer, so no per-argument
+     * {@code String} or {@code byte[]} is allocated.
      */
     private ByteBuffer encodeArray(byte[][] parts) {
         // Calculate total size
-        int size = 0;
-        String countStr = Integer.toString(parts.length);
-        size += 1 + countStr.length() + 2; // *count\r\n
+        int size = 1 + digitCount(parts.length) + 2; // *count\r\n
         for (byte[] part : parts) {
-            String lenStr = Integer.toString(part.length);
-            size += 1 + lenStr.length() + 2; // $length\r\n
+            size += 1 + digitCount(part.length) + 2; // $length\r\n
             size += part.length + 2; // data\r\n
         }
         ByteBuffer buffer = ByteBuffer.allocate(size);
         // Write array header
         buffer.put((byte) '*');
-        buffer.put(countStr.getBytes(UTF_8));
+        putDecimal(buffer, parts.length);
         buffer.put(CRLF);
         // Write each bulk string
         for (byte[] part : parts) {
             buffer.put((byte) '$');
-            String lenStr = Integer.toString(part.length);
-            buffer.put(lenStr.getBytes(UTF_8));
+            putDecimal(buffer, part.length);
             buffer.put(CRLF);
             buffer.put(part);
             buffer.put(CRLF);
         }
         buffer.flip();
         return buffer;
+    }
+
+    /** Number of decimal digits in a non-negative {@code value}. */
+    private static int digitCount(int value) {
+        int digits = 1;
+        while (value >= 10) {
+            value /= 10;
+            digits++;
+        }
+        return digits;
+    }
+
+    /** Writes a non-negative {@code value} as ASCII decimal digits. */
+    private static void putDecimal(ByteBuffer buffer, int value) {
+        int start = buffer.position();
+        int digits = digitCount(value);
+        for (int i = digits - 1; i >= 0; i--) {
+            buffer.put(start + i, (byte) ('0' + value % 10));
+            value /= 10;
+        }
+        buffer.position(start + digits);
     }
 
     /**

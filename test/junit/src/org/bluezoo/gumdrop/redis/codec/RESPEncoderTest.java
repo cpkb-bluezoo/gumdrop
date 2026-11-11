@@ -237,4 +237,58 @@ public class RESPEncoderTest {
     public void testBulkStringRejectsEmbeddedCrlf() {
         encoder.encode("SET", "key", "value\r\nINJECT");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Length prefixes across digit-count boundaries
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static String repeat(char c, int n) {
+        StringBuilder sb = new StringBuilder(n);
+        for (int i = 0; i < n; i++) {
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    @Test
+    public void testBulkLengthPrefixAcrossDigitBoundaries() {
+        int[] lengths = { 0, 1, 9, 10, 99, 100, 999, 1000, 65536 };
+        for (int i = 0; i < lengths.length; i++) {
+            int n = lengths[i];
+            String arg = repeat('x', n);
+            ByteBuffer result = encoder.encodeCommand("SET", new String[] { arg });
+            assertEquals("length " + n, "*2\r\n$3\r\nSET\r\n$" + n + "\r\n" + arg + "\r\n",
+                    bufferToString(result));
+        }
+    }
+
+    @Test
+    public void testArrayCountAcrossDigitBoundaries() {
+        int[] counts = { 8, 9, 99, 100 };
+        for (int i = 0; i < counts.length; i++) {
+            int n = counts[i];
+            String[] args = new String[n];
+            StringBuilder expected = new StringBuilder();
+            expected.append('*').append(n + 1).append("\r\n$3\r\nDEL\r\n");
+            for (int j = 0; j < n; j++) {
+                args[j] = "k" + j;
+                expected.append('$').append(args[j].length()).append("\r\n")
+                        .append(args[j]).append("\r\n");
+            }
+            assertEquals("count " + n, expected.toString(),
+                    bufferToString(encoder.encodeCommand("DEL", args)));
+        }
+    }
+
+    @Test
+    public void testBinaryArgumentLengthIsInBytesNotCharacters() {
+        byte[] utf8 = "h\u00e9llo".getBytes(StandardCharsets.UTF_8);
+        ByteBuffer result = encoder.encodeCommand("SET", new byte[][] { utf8 });
+        byte[] out = new byte[result.remaining()];
+        result.get(out);
+        String text = new String(out, StandardCharsets.ISO_8859_1);
+        assertTrue(text, text.startsWith("*2\r\n$3\r\nSET\r\n$6\r\n"));
+        assertEquals(out.length, "*2\r\n$3\r\nSET\r\n$6\r\n".length() + 6 + 2);
+    }
+
 }
