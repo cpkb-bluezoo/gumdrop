@@ -24,11 +24,13 @@ package org.bluezoo.gumdrop.redis.client;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -69,6 +71,9 @@ final class RedisClusterSession extends AbstractRedisSession {
     private static final String SLOT_NOT_SERVED = "CLUSTERDOWN Hash slot not served";
     private static final String NO_NODES = "CLUSTERDOWN No cluster nodes are known";
 
+    private static final String TOO_MANY_MOVES =
+            "ERR Too many redirects for a sharded subscription";
+
     private SlotMap map;
     private final NodeConnector connector;
     private final Map<ClusterNode, NodeConnection> connections =
@@ -97,6 +102,13 @@ final class RedisClusterSession extends AbstractRedisSession {
     private ClusterNode transactionNode;
     private int transactionSlot = ClusterCommandKeys.NO_KEY;
     private ClusterNode watchNode;
+
+    // Subscribed connections cannot carry other commands, so Pub/Sub has
+    // connections of its own: one for ordinary channels and patterns, and
+    // one per node for the sharded channels that node owns.
+    private Subscriber plain;
+    private final Map<ClusterNode, Subscriber> shardSubscribers =
+            new HashMap<ClusterNode, Subscriber>();
 
     RedisClusterSession(SlotMap map, NodeConnector connector) {
         this.map = map;
@@ -203,6 +215,15 @@ final class RedisClusterSession extends AbstractRedisSession {
         }
         if (watchNode != null && !keep.contains(watchNode)) {
             watchNode = null;
+        }
+        if (plain != null && plain.node != null && !keep.contains(plain.node)) {
+            plain.nodeGone();
+        }
+        for (Subscriber sub : new ArrayList<Subscriber>(shardSubscribers.values())) {
+            if (!keep.contains(sub.node)) {
+                shardSubscribers.remove(sub.node);
+                sub.retire();
+            }
         }
     }
 
@@ -464,6 +485,14 @@ final class RedisClusterSession extends AbstractRedisSession {
             c.shutdown();
         }
         connections.clear();
+        if (plain != null) {
+            plain.shutdown();
+            plain = null;
+        }
+        for (Subscriber sub : new ArrayList<Subscriber>(shardSubscribers.values())) {
+            sub.shutdown();
+        }
+        shardSubscribers.clear();
     }
 
     @Override
@@ -471,24 +500,519 @@ final class RedisClusterSession extends AbstractRedisSession {
         deliverError(handler, "ERR RESET is not supported by a cluster session", this);
     }
 
-    @Override
-    public void ssubscribe(MessageHandler handler, String... channels) {
-        throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
+    // ── Pub/Sub ──
+
+    /** The wait after the given number of failures in a row. */
+    static long backoffFor(int failures) {
+        long delay = INITIAL_BACKOFF_MS;
+        for (int i = 1; i < failures && delay < MAX_BACKOFF_MS; i++) {
+            delay *= 2;
+        }
+        return Math.min(delay, MAX_BACKOFF_MS);
     }
 
-    @Override
-    public void sunsubscribe(String... channels) {
-        throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
+    /** A subscription, and how many times it has been moved since it was last confirmed. */
+    private static final class Registration {
+        final MessageHandler handler;
+        int moves;
+
+        Registration(MessageHandler handler) {
+            this.handler = handler;
+        }
+    }
+
+    // Reports to the handler that the session cannot take the subscription.
+    private boolean refuseIfClosed(MessageHandler handler) {
+        if (closed) {
+            handler.handleError(RedisClientProtocolHandler.L10N.getString("err.not_connected"));
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void subscribe(MessageHandler handler, String... channels) {
-        throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
+        if (refuseIfClosed(handler)) {
+            return;
+        }
+        if (plain == null) {
+            plain = new Subscriber(false);
+        }
+        plain.add(handler, channels, false);
     }
 
     @Override
     public void psubscribe(MessageHandler handler, String... patterns) {
-        throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
+        if (refuseIfClosed(handler)) {
+            return;
+        }
+        if (plain == null) {
+            plain = new Subscriber(false);
+        }
+        plain.add(handler, patterns, true);
+    }
+
+    @Override
+    public void unsubscribe(String... channels) {
+        if (plain != null) {
+            plain.remove(channels, false);
+        }
+    }
+
+    @Override
+    public void punsubscribe(String... patterns) {
+        if (plain != null) {
+            plain.remove(patterns, true);
+        }
+    }
+
+    @Override
+    public void ssubscribe(MessageHandler handler, String... channels) {
+        if (refuseIfClosed(handler)) {
+            return;
+        }
+        for (String[] group : bySlot(Arrays.asList(channels))) {
+            ClusterNode node = map.nodeFor(ClusterSlots.slot(group[0].getBytes(UTF_8)));
+            if (node == null) {
+                handler.handleError(SLOT_NOT_SERVED);
+            } else {
+                shardSubscriber(node).add(handler, group, false);
+            }
+        }
+    }
+
+    @Override
+    public void sunsubscribe(String... channels) {
+        for (Subscriber sub : new ArrayList<Subscriber>(shardSubscribers.values())) {
+            sub.remove(channels, false);
+        }
+    }
+
+    private Subscriber shardSubscriber(ClusterNode node) {
+        Subscriber sub = shardSubscribers.get(node);
+        if (sub == null) {
+            sub = new Subscriber(true);
+            sub.node = node;
+            shardSubscribers.put(node, sub);
+        }
+        return sub;
+    }
+
+    // A sharded subscription must name channels of one slot only, so
+    // channels are grouped by slot.
+    private static List<String[]> bySlot(Collection<String> channels) {
+        Map<Integer, List<String>> groups = new LinkedHashMap<Integer, List<String>>();
+        for (String channel : channels) {
+            Integer slot = Integer.valueOf(ClusterSlots.slot(channel.getBytes(UTF_8)));
+            List<String> group = groups.get(slot);
+            if (group == null) {
+                group = new ArrayList<String>();
+                groups.put(slot, group);
+            }
+            group.add(channel);
+        }
+        List<String[]> out = new ArrayList<String[]>();
+        for (List<String> group : groups.values()) {
+            out.add(group.toArray(new String[group.size()]));
+        }
+        return out;
+    }
+
+    // Puts a sharded subscription whose slot has moved on the node that now
+    // owns the slot, or gives up on it after too many moves.
+    private void placeShard(String channel, Registration reg) {
+        if (closed) {
+            return;
+        }
+        if (++reg.moves > MAX_REDIRECTS) {
+            reg.handler.handleError(TOO_MANY_MOVES);
+            return;
+        }
+        ClusterNode node = map.nodeFor(ClusterSlots.slot(channel.getBytes(UTF_8)));
+        if (node == null) {
+            reg.handler.handleError(SLOT_NOT_SERVED);
+            return;
+        }
+        shardSubscriber(node).add(channel, reg);
+    }
+
+    /**
+     * A connection that holds subscriptions: kept open, restored with its
+     * subscriptions after it is lost, until the session closes.
+     */
+    private final class Subscriber implements NodeListener {
+
+        private final boolean shard;
+        private ClusterNode node;
+        private final Map<String, Registration> channels = new LinkedHashMap<String, Registration>();
+        private final Map<String, Registration> patterns = new LinkedHashMap<String, Registration>();
+        // unsubscribes sent, awaiting their acknowledgement
+        private final Map<String, MessageHandler> leavingChannels = new HashMap<String, MessageHandler>();
+        private final Map<String, MessageHandler> leavingPatterns = new HashMap<String, MessageHandler>();
+        private final MessageHandler relay = new Relay();
+        private RedisClientProtocolHandler handler;
+        private boolean ready;
+        private boolean connecting;
+        private boolean retryScheduled;
+        private boolean stopped;
+        private int failures;
+
+        Subscriber(boolean shard) {
+            this.shard = shard;
+        }
+
+        boolean hasSubscriptions() {
+            return !channels.isEmpty() || !patterns.isEmpty();
+        }
+
+        void add(MessageHandler h, String[] names, boolean pattern) {
+            Map<String, Registration> regs = pattern ? patterns : channels;
+            for (String name : names) {
+                regs.put(name, new Registration(h));
+            }
+            if (ready) {
+                send(names, pattern);
+            } else {
+                open();
+            }
+        }
+
+        void add(String channel, Registration reg) {
+            channels.put(channel, reg);
+            if (ready) {
+                send(new String[] { channel }, false);
+            } else {
+                open();
+            }
+        }
+
+        private void send(String[] names, boolean pattern) {
+            if (pattern) {
+                handler.psubscribe(relay, names);
+            } else if (shard) {
+                handler.ssubscribe(relay, names);
+            } else {
+                handler.subscribe(relay, names);
+            }
+        }
+
+        // Everything subscribed, on a new connection.
+        private void restore() {
+            if (!channels.isEmpty()) {
+                for (String[] group : groups(channels.keySet())) {
+                    send(group, false);
+                }
+            }
+            if (!patterns.isEmpty()) {
+                send(patterns.keySet().toArray(new String[patterns.size()]), true);
+            }
+        }
+
+        private List<String[]> groups(Collection<String> names) {
+            if (shard) {
+                return bySlot(names);
+            }
+            List<String[]> one = new ArrayList<String[]>();
+            one.add(names.toArray(new String[names.size()]));
+            return one;
+        }
+
+        /** Unsubscribes the named channels or patterns, or all of them if none is named. */
+        void remove(String[] names, boolean pattern) {
+            Map<String, Registration> regs = pattern ? patterns : channels;
+            Map<String, MessageHandler> leaving = pattern ? leavingPatterns : leavingChannels;
+            List<String> gone = new ArrayList<String>();
+            if (names.length == 0) {
+                gone.addAll(regs.keySet());
+            } else {
+                for (String name : names) {
+                    if (regs.containsKey(name)) {
+                        gone.add(name);
+                    }
+                }
+            }
+            for (String name : gone) {
+                Registration reg = regs.remove(name);
+                if (ready) {
+                    leaving.put(name, reg.handler);
+                } else {
+                    // nothing was subscribed on a connection that is down
+                    notifyUnsubscribed(reg.handler, name, pattern, regs.size());
+                }
+            }
+            if (ready) {
+                for (String[] group : groups(gone)) {
+                    if (pattern) {
+                        handler.punsubscribe(group);
+                    } else if (shard) {
+                        handler.sunsubscribe(group);
+                    } else {
+                        handler.unsubscribe(group);
+                    }
+                }
+            }
+        }
+
+        private void notifyUnsubscribed(MessageHandler h, String name, boolean pattern, int count) {
+            if (pattern) {
+                h.handlePatternUnsubscribed(name, count);
+            } else if (shard) {
+                h.handleShardUnsubscribed(name, count);
+            } else {
+                h.handleUnsubscribed(name, count);
+            }
+        }
+
+        void open() {
+            if (ready || connecting || retryScheduled || stopped || closed) {
+                return;
+            }
+            if (!shard && (node == null || !map.nodes().contains(node))) {
+                node = anyNode();
+                if (node == null) {
+                    failAll(NO_NODES);
+                    return;
+                }
+            }
+            connecting = true;
+            connector.connect(node, this);
+        }
+
+        // Without a way to wait, a lost connection cannot be restored.
+        private void scheduleRetry() {
+            if (retryScheduled || stopped || closed || !hasSubscriptions()) {
+                return;
+            }
+            if (scheduler == null) {
+                failAll(RedisClientProtocolHandler.L10N.getString("err.not_connected"));
+                return;
+            }
+            failures++;
+            retryScheduled = true;
+            scheduler.schedule(backoffFor(failures), new Runnable() {
+                @Override
+                public void run() {
+                    retryScheduled = false;
+                    if (!stopped && !closed && hasSubscriptions()) {
+                        open();
+                    }
+                }
+            });
+        }
+
+        private void failAll(String error) {
+            Set<MessageHandler> told = Collections.newSetFromMap(
+                    new java.util.IdentityHashMap<MessageHandler, Boolean>());
+            for (Registration reg : channels.values()) {
+                if (told.add(reg.handler)) {
+                    reg.handler.handleError(error);
+                }
+            }
+            for (Registration reg : patterns.values()) {
+                if (told.add(reg.handler)) {
+                    reg.handler.handleError(error);
+                }
+            }
+            channels.clear();
+            patterns.clear();
+        }
+
+        @Override
+        public void ready(RedisClientProtocolHandler connection) {
+            connecting = false;
+            if (stopped || closed) {
+                connection.close();
+                return;
+            }
+            failures = 0;
+            handler = connection;
+            handler.setRedirectListener(new SubscriptionErrors());
+            ready = true;
+            restore();
+        }
+
+        @Override
+        public void failed(Exception cause) {
+            connecting = false;
+            ready = false;
+            requestRefresh();
+            scheduleRetry();
+        }
+
+        @Override
+        public void closed() {
+            ready = false;
+            connecting = false;
+            handler = null;
+            // acknowledgements will not come now
+            for (Map.Entry<String, MessageHandler> e : leavingChannels.entrySet()) {
+                notifyUnsubscribed(e.getValue(), e.getKey(), false, channels.size());
+            }
+            for (Map.Entry<String, MessageHandler> e : leavingPatterns.entrySet()) {
+                notifyUnsubscribed(e.getValue(), e.getKey(), true, patterns.size());
+            }
+            leavingChannels.clear();
+            leavingPatterns.clear();
+            scheduleRetry();
+        }
+
+        /** The node this connection goes to has left the cluster; go to another. */
+        void nodeGone() {
+            node = null;
+            if (handler != null) {
+                handler.close();
+            }
+        }
+
+        /** Gives up the connection and hands its sharded subscriptions to the nodes that own them now. */
+        void retire() {
+            stopped = true;
+            Map<String, Registration> moving = new LinkedHashMap<String, Registration>(channels);
+            channels.clear();
+            if (handler != null) {
+                handler.close();
+            }
+            ready = false;
+            for (Map.Entry<String, Registration> e : moving.entrySet()) {
+                placeShard(e.getKey(), e.getValue());
+            }
+        }
+
+        void shutdown() {
+            stopped = true;
+            ready = false;
+            if (handler != null) {
+                handler.close();
+            }
+        }
+
+        /** Routes what the connection receives to the handler of the subscription concerned. */
+        private final class Relay implements MessageHandler {
+
+            @Override
+            public void handleMessage(String channel, byte[] message) {
+                Registration reg = channels.get(channel);
+                if (reg != null) {
+                    reg.handler.handleMessage(channel, message);
+                }
+            }
+
+            @Override
+            public void handlePatternMessage(String pattern, String channel, byte[] message) {
+                Registration reg = patterns.get(pattern);
+                if (reg != null) {
+                    reg.handler.handlePatternMessage(pattern, channel, message);
+                }
+            }
+
+            @Override
+            public void handleShardMessage(String channel, byte[] message) {
+                Registration reg = channels.get(channel);
+                if (reg != null) {
+                    reg.handler.handleShardMessage(channel, message);
+                }
+            }
+
+            @Override
+            public void handleSubscribed(String channel, int count) {
+                Registration reg = channels.get(channel);
+                if (reg != null) {
+                    reg.handler.handleSubscribed(channel, count);
+                }
+            }
+
+            @Override
+            public void handlePatternSubscribed(String pattern, int count) {
+                Registration reg = patterns.get(pattern);
+                if (reg != null) {
+                    reg.handler.handlePatternSubscribed(pattern, count);
+                }
+            }
+
+            @Override
+            public void handleShardSubscribed(String channel, int count) {
+                Registration reg = channels.get(channel);
+                if (reg != null) {
+                    reg.moves = 0;
+                    reg.handler.handleShardSubscribed(channel, count);
+                }
+            }
+
+            @Override
+            public void handleUnsubscribed(String channel, int count) {
+                MessageHandler h = leavingChannels.remove(channel);
+                if (h != null) {
+                    h.handleUnsubscribed(channel, count);
+                }
+            }
+
+            @Override
+            public void handlePatternUnsubscribed(String pattern, int count) {
+                MessageHandler h = leavingPatterns.remove(pattern);
+                if (h != null) {
+                    h.handlePatternUnsubscribed(pattern, count);
+                }
+            }
+
+            @Override
+            public void handleShardUnsubscribed(String channel, int count) {
+                MessageHandler h = leavingChannels.remove(channel);
+                if (h != null) {
+                    h.handleShardUnsubscribed(channel, count);
+                    return;
+                }
+                // not asked for: the server drops a subscription when it gives
+                // the slot away, so follow the slot
+                Registration reg = channels.remove(channel);
+                if (reg != null) {
+                    requestRefresh();
+                    placeShard(channel, reg);
+                }
+            }
+
+            @Override
+            public void handleError(String error) {
+                failAll(error);
+            }
+        }
+
+        /** Errors answering a subscribe: a redirect moves the subscription, anything else ends it. */
+        private final class SubscriptionErrors implements RedirectListener {
+
+            @Override
+            public boolean handleError(SentCommand command, String error) {
+                String name = command.getCommand().toUpperCase(Locale.ROOT);
+                boolean pattern = name.equals("PSUBSCRIBE");
+                if (!pattern && !name.equals("SUBSCRIBE") && !name.equals("SSUBSCRIBE")) {
+                    return false;
+                }
+                ClusterRedirect redirect = name.equals("SSUBSCRIBE") ? ClusterRedirect.parse(error) : null;
+                boolean moved = redirect != null && !redirect.isAsk();
+                if (moved) {
+                    String host = redirect.getHost() != null ? redirect.getHost() : node.getHost();
+                    map.set(redirect.getSlot(), map.node(host, redirect.getPort()));
+                    requestRefresh();
+                }
+                for (byte[] arg : command.toBinaryArgs()) {
+                    String channel = new String(arg, UTF_8);
+                    Registration reg = (pattern ? patterns : channels).remove(channel);
+                    if (reg == null) {
+                        continue;
+                    }
+                    if (moved) {
+                        placeShard(channel, reg);
+                    } else {
+                        reg.handler.handleError(error);
+                    }
+                }
+                return true;
+            }
+
+            @Override
+            public void connectionLost(List<SentCommand> unanswered) {
+                // the subscriptions are restored when the connection is
+            }
+        }
     }
 
     // ── one node ──
@@ -580,11 +1104,7 @@ final class RedisClusterSession extends AbstractRedisSession {
          */
         void backOff(String why) {
             failures++;
-            long delay = INITIAL_BACKOFF_MS;
-            for (int i = 1; i < failures && delay < MAX_BACKOFF_MS; i++) {
-                delay *= 2;
-            }
-            retryNotBefore = clock.millis() + Math.min(delay, MAX_BACKOFF_MS);
+            retryNotBefore = clock.millis() + backoffFor(failures);
             lastFailure = why;
         }
 

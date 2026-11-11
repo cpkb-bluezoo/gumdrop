@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -442,5 +443,143 @@ public class RedisClusterIntegrationTest {
             assertTrue(outcomes.toString(), outcomes.contains("refused"));
         }
         assertEquals("first", get(key));
+    }
+
+    // ── Pub/Sub ──
+
+    private static final class Events implements MessageHandler {
+        final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<String>();
+
+        private static String text(byte[] b) {
+            return new String(b, StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public void handleMessage(String channel, byte[] message) {
+            queue.add("message:" + channel + ":" + text(message));
+        }
+
+        @Override
+        public void handlePatternMessage(String pattern, String channel, byte[] message) {
+            queue.add("pmessage:" + pattern + ":" + channel + ":" + text(message));
+        }
+
+        @Override
+        public void handleSubscribed(String channel, int count) {
+            queue.add("subscribed:" + channel);
+        }
+
+        @Override
+        public void handleUnsubscribed(String channel, int count) {
+            queue.add("unsubscribed:" + channel);
+        }
+
+        @Override
+        public void handlePatternSubscribed(String pattern, int count) {
+            queue.add("psubscribed:" + pattern);
+        }
+
+        @Override
+        public void handlePatternUnsubscribed(String pattern, int count) {
+            queue.add("punsubscribed:" + pattern);
+        }
+
+        @Override
+        public void handleShardMessage(String channel, byte[] message) {
+            queue.add("smessage:" + channel + ":" + text(message));
+        }
+
+        @Override
+        public void handleShardSubscribed(String channel, int count) {
+            queue.add("ssubscribed:" + channel);
+        }
+
+        @Override
+        public void handleShardUnsubscribed(String channel, int count) {
+            queue.add("sunsubscribed:" + channel);
+        }
+
+        @Override
+        public void handleError(String error) {
+            queue.add("error:" + error);
+        }
+
+        String next() throws InterruptedException {
+            return queue.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+    }
+
+    private static final class Ignored implements IntegerResultHandler {
+        @Override
+        public void handleResult(long value, RedisSession s) {
+        }
+
+        @Override
+        public void handleError(String error, RedisSession s) {
+        }
+    }
+
+    @Test
+    public void ordinaryPubSubReachesSubscribersOnAnyNode() throws Exception {
+        final String channel = prefix + "news";
+        final Events events = new Events();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.subscribe(events, channel);
+                session.psubscribe(events, prefix + "n*");
+            }
+        });
+        assertEquals("subscribed:" + channel, events.next());
+        assertEquals("psubscribed:" + prefix + "n*", events.next());
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.publish(channel, "hello", new Ignored());
+            }
+        });
+        // one for the channel, one for the pattern; either order
+        Set<String> got = new HashSet<String>();
+        got.add(events.next());
+        got.add(events.next());
+        assertTrue(got.toString(), got.contains("message:" + channel + ":hello"));
+        assertTrue(got.toString(), got.contains(
+                "pmessage:" + prefix + "n*:" + channel + ":hello"));
+    }
+
+    @Test
+    public void shardedPubSubFollowsEachChannelToItsNode() throws Exception {
+        final Events events = new Events();
+        final String[] channels = new String[8];
+        for (int i = 0; i < channels.length; i++) {
+            channels[i] = prefix + "shard" + i;
+        }
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.ssubscribe(events, channels);
+            }
+        });
+        for (int i = 0; i < channels.length; i++) {
+            String event = events.next();
+            assertTrue(String.valueOf(event), event != null && event.startsWith("ssubscribed:"));
+        }
+        // the channels are spread over the shards, so several nodes hold some
+        assertTrue(session.connectionCount() >= 1);
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                for (String channel : channels) {
+                    session.spublish(channel, "m-" + channel, new Ignored());
+                }
+            }
+        });
+        Set<String> got = new HashSet<String>();
+        for (int i = 0; i < channels.length; i++) {
+            got.add(events.next());
+        }
+        for (String channel : channels) {
+            assertTrue(got.toString(), got.contains("smessage:" + channel + ":m-" + channel));
+        }
     }
 }
