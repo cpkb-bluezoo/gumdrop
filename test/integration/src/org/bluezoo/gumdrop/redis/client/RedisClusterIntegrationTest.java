@@ -1,0 +1,446 @@
+/*
+ * RedisClusterIntegrationTest.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.redis.client;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.redis.codec.RespValue;
+
+import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
+
+/**
+ * {@link RedisClusterClient} against a real Redis or Valkey Cluster.
+ *
+ * <p>Not part of the normal integration run: it needs a cluster listening
+ * locally, by default with a node on 127.0.0.1:7100 that announces
+ * 127.0.0.1 addresses. Override with {@code -Dredis.cluster.host} and
+ * {@code -Dredis.cluster.port}. The tests are skipped if nothing answers.
+ *
+ * <p>A suitable cluster of six Valkey nodes in one podman pod:
+ * <pre>
+ * podman pod create --name gd-valkey-cluster -p 7100-7105:7100-7105
+ * for p in 7100 7101 7102 7103 7104 7105; do
+ *   podman run -d --pod gd-valkey-cluster --name gd-valkey-$p docker.io/valkey/valkey:8 \
+ *     valkey-server --port $p --cluster-enabled yes --cluster-config-file /tmp/nodes-$p.conf \
+ *     --cluster-node-timeout 5000 --appendonly no --save ""
+ * done
+ * podman exec gd-valkey-7100 valkey-cli --cluster create 127.0.0.1:7100 127.0.0.1:7101 \
+ *   127.0.0.1:7102 127.0.0.1:7103 127.0.0.1:7104 127.0.0.1:7105 --cluster-replicas 1 --cluster-yes
+ * </pre>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class RedisClusterIntegrationTest {
+
+    private static final String HOST = System.getProperty("redis.cluster.host", "127.0.0.1");
+    private static final int PORT = Integer.getInteger("redis.cluster.port", 7100);
+    private static final long TIMEOUT_SECONDS = 10;
+
+    private Gumdrop gumdrop;
+    private SelectorLoop loop;
+    private RedisClusterClient client;
+    private RedisClusterSession session;
+    private final String prefix = "gd-cluster-" + System.nanoTime() + "-";
+
+    @Before
+    public void connect() throws Exception {
+        assumeTrue("no cluster node answering at " + HOST + ":" + PORT, reachable());
+        gumdrop = Gumdrop.boot();
+        loop = gumdrop.nextWorkerLoop();
+        client = new RedisClusterClient().seed(HOST, PORT).selectorLoop(loop);
+        final CountDownLatch ready = new CountDownLatch(1);
+        final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+        client.connect(gumdrop, new RedisClusterReady() {
+            @Override
+            public void handleReady(RedisSession s) {
+                session = (RedisClusterSession) s;
+                ready.countDown();
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                failure.set(cause);
+                ready.countDown();
+            }
+        });
+        assertTrue("cluster not ready in time", ready.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        if (failure.get() != null) {
+            throw failure.get();
+        }
+    }
+
+    @After
+    public void tearDown() {
+        if (client != null) {
+            client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
+    }
+
+    private static boolean reachable() {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(HOST, PORT), 500);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    // ── blocking helpers: run on the loop, wait on the test thread ──
+
+    private void onLoop(Runnable task) {
+        loop.invokeLater(task);
+    }
+
+    private String set(final String key, final String value) throws Exception {
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<String> out = new AtomicReference<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.set(key, value, new StringResultHandler() {
+                    @Override
+                    public void handleResult(String result, RedisSession s) {
+                        out.set(result);
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleError(String error, RedisSession s) {
+                        out.set("error:" + error);
+                        done.countDown();
+                    }
+                });
+            }
+        });
+        assertTrue("SET timed out", done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        return out.get();
+    }
+
+    private String get(final String key) throws Exception {
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<String> out = new AtomicReference<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.get(key, new BulkResultHandler() {
+                    @Override
+                    public void handleResult(byte[] value, RedisSession s) {
+                        out.set(new String(value, StandardCharsets.UTF_8));
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleNull(RedisSession s) {
+                        out.set(null);
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleError(String error, RedisSession s) {
+                        out.set("error:" + error);
+                        done.countDown();
+                    }
+                });
+            }
+        });
+        assertTrue("GET timed out", done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        return out.get();
+    }
+
+    /** Runs a generic command and returns the array reply (or "error:..." as one element). */
+    private List<RespValue> command(final String name, final String... args) throws Exception {
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<List<RespValue>> out = new AtomicReference<List<RespValue>>();
+        final AtomicReference<String> error = new AtomicReference<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.command(new ArrayResultHandler() {
+                    @Override
+                    public void handleResult(List<RespValue> values, RedisSession s) {
+                        out.set(values);
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleNull(RedisSession s) {
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleError(String message, RedisSession s) {
+                        error.set(message);
+                        done.countDown();
+                    }
+                }, name, args);
+            }
+        });
+        assertTrue(name + " timed out", done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        if (error.get() != null) {
+            fail(name + " failed: " + error.get());
+        }
+        return out.get();
+    }
+
+    // ── tests ──
+
+    @Test
+    public void keysSpreadAcrossTheNodesAndReadBackCorrectly() throws Exception {
+        for (int i = 0; i < 60; i++) {
+            assertEquals("OK", set(prefix + i, "value-" + i));
+        }
+        for (int i = 0; i < 60; i++) {
+            assertEquals("value-" + i, get(prefix + i));
+        }
+        assertTrue("several nodes were used: " + session.connectionCount(),
+                session.connectionCount() >= 3);
+    }
+
+    @Test
+    public void anAbsentKeyIsNull() throws Exception {
+        assertNull(get(prefix + "absent"));
+    }
+
+    @Test
+    public void keysSharingAHashTagCanBeReadTogether() throws Exception {
+        String tag = "{" + prefix + "tag}";
+        assertEquals("OK", set(tag + ".a", "1"));
+        assertEquals("OK", set(tag + ".b", "2"));
+        List<RespValue> values = command("MGET", tag + ".a", tag + ".b");
+        assertEquals(2, values.size());
+        assertEquals("1", values.get(0).asString());
+        assertEquals("2", values.get(1).asString());
+    }
+
+    @Test
+    public void keysInDifferentSlotsAreRefusedBeforeReachingTheServer() throws Exception {
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<String> error = new AtomicReference<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.del(new IntegerResultHandler() {
+                    @Override
+                    public void handleResult(long result, RedisSession s) {
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleError(String message, RedisSession s) {
+                        error.set(message);
+                        done.countDown();
+                    }
+                }, prefix + "x", prefix + "y");
+            }
+        });
+        assertTrue(done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertNotNull(error.get());
+        assertTrue(error.get(), error.get().startsWith("CROSSSLOT"));
+    }
+
+    @Test
+    public void aStaleSlotMapIsCorrectedByFollowingMoved() throws Exception {
+        final String key = prefix + "moved";
+        assertEquals("OK", set(key, "found"));
+        final int slot = ClusterSlots.slot(key.getBytes(StandardCharsets.UTF_8));
+        final AtomicReference<ClusterNode> correct = new AtomicReference<ClusterNode>();
+        final CountDownLatch swapped = new CountDownLatch(1);
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                SlotMap map = session.slotMap();
+                ClusterNode owner = map.nodeFor(slot);
+                correct.set(owner);
+                // point the slot at some other master, as a stale map would
+                for (ClusterNode other : map.nodes()) {
+                    if (!other.equals(owner)) {
+                        map.set(slot, other);
+                        break;
+                    }
+                }
+                swapped.countDown();
+            }
+        });
+        assertTrue(swapped.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("found", get(key));
+        final AtomicReference<ClusterNode> now = new AtomicReference<ClusterNode>();
+        final CountDownLatch read = new CountDownLatch(1);
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                now.set(session.slotMap().nodeFor(slot));
+                read.countDown();
+            }
+        });
+        assertTrue(read.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("MOVED corrected the map", correct.get(), now.get());
+    }
+
+    @Test
+    public void aTransactionRunsOnOneNode() throws Exception {
+        final String tag = "{" + prefix + "tx}";
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<String> outcome = new AtomicReference<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                final StringResultHandler ignore = new StringResultHandler() {
+                    @Override
+                    public void handleResult(String result, RedisSession s) {
+                    }
+
+                    @Override
+                    public void handleError(String error, RedisSession s) {
+                        outcome.set("queue error:" + error);
+                    }
+                };
+                session.multi(ignore);
+                session.set(tag + ".a", "1", ignore);
+                session.set(tag + ".b", "2", ignore);
+                session.exec(new ArrayResultHandler() {
+                    @Override
+                    public void handleResult(List<RespValue> values, RedisSession s) {
+                        if (outcome.get() == null) {
+                            outcome.set("exec:" + values.size());
+                        }
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleNull(RedisSession s) {
+                        outcome.set("aborted");
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleError(String error, RedisSession s) {
+                        outcome.set("exec error:" + error);
+                        done.countDown();
+                    }
+                });
+            }
+        });
+        assertTrue("EXEC timed out", done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("exec:2", outcome.get());
+        assertEquals("1", get(tag + ".a"));
+        assertEquals("2", get(tag + ".b"));
+    }
+
+    @Test
+    public void aScriptRunsOnTheNodeOfItsKey() throws Exception {
+        final String key = prefix + "script";
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<String> outcome = new AtomicReference<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.eval("return redis.call('set', KEYS[1], ARGV[1])", 1,
+                        new String[] { key }, new String[] { "from-lua" }, new ArrayResultHandler() {
+                            @Override
+                            public void handleResult(List<RespValue> values, RedisSession s) {
+                                outcome.set("array");
+                                done.countDown();
+                            }
+
+                            @Override
+                            public void handleNull(RedisSession s) {
+                                outcome.set("null");
+                                done.countDown();
+                            }
+
+                            @Override
+                            public void handleError(String error, RedisSession s) {
+                                outcome.set("error:" + error);
+                                done.countDown();
+                            }
+                        });
+            }
+        });
+        assertTrue(done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertFalse(outcome.get(), outcome.get().startsWith("error:"));
+        assertEquals("from-lua", get(key));
+    }
+
+    @Test
+    public void setWithOptionsWorksThroughTheCluster() throws Exception {
+        final String key = prefix + "nx";
+        final CountDownLatch done = new CountDownLatch(2);
+        final Set<String> outcomes = new HashSet<String>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                BulkResultHandler record = new BulkResultHandler() {
+                    @Override
+                    public void handleResult(byte[] value, RedisSession s) {
+                        synchronized (outcomes) {
+                            outcomes.add("set");
+                        }
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleNull(RedisSession s) {
+                        synchronized (outcomes) {
+                            outcomes.add("refused");
+                        }
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void handleError(String error, RedisSession s) {
+                        synchronized (outcomes) {
+                            outcomes.add("error:" + error);
+                        }
+                        done.countDown();
+                    }
+                };
+                session.set(key, "first", new SetOptions().nx().px(60000), record);
+                session.set(key, "second", new SetOptions().nx().px(60000), record);
+            }
+        });
+        assertTrue(done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        synchronized (outcomes) {
+            assertTrue(outcomes.toString(), outcomes.contains("set"));
+            assertTrue(outcomes.toString(), outcomes.contains("refused"));
+        }
+        assertEquals("first", get(key));
+    }
+}

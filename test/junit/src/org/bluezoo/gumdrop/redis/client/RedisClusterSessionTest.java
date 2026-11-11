@@ -476,6 +476,65 @@ public class RedisClusterSessionTest {
         assertEquals(1, connector.requests.size());
     }
 
+    // ── connecting ahead of commands ──
+
+    @Test
+    public void connectAllOpensAConnectionToEveryMaster() {
+        session.connectAll(null);
+        assertEquals(3, connector.requests.size());
+        assertEquals(1, connector.forAddress(A).size());
+        assertEquals(1, connector.forAddress(B).size());
+        assertEquals(1, connector.forAddress(C).size());
+    }
+
+    @Test
+    public void commandsUseTheConnectionsOpenedAhead() {
+        session.connectAll(null);
+        Request c = up(C);
+        session.get("foo", new Bulk());
+        assertEquals(3, connector.requests.size());
+        assertEquals(resp("GET", "foo"), written(c));
+    }
+
+    @Test
+    public void aCommandBeforeTheConnectionIsUpWaitsForIt() {
+        session.connectAll(null);
+        session.get("foo", new Bulk());
+        assertEquals("no second connection", 3, connector.requests.size());
+        Request c = up(C);
+        assertEquals(resp("GET", "foo"), written(c));
+    }
+
+    @Test
+    public void connectAllReportsTheFirstConnectionToSettleOnce() {
+        final int[] settled = new int[1];
+        session.connectAll(new Runnable() {
+            @Override
+            public void run() {
+                settled[0]++;
+            }
+        });
+        assertEquals(0, settled[0]);
+        up(B);
+        assertEquals(1, settled[0]);
+        up(A);
+        connector.forAddress(C).get(0).listener.failed(new java.io.IOException("refused"));
+        assertEquals(1, settled[0]);
+    }
+
+    @Test
+    public void aFailedConnectionAlsoSettles() {
+        final int[] settled = new int[1];
+        session.connectAll(new Runnable() {
+            @Override
+            public void run() {
+                settled[0]++;
+            }
+        });
+        connector.forAddress(A).get(0).listener.failed(new java.io.IOException("refused"));
+        assertEquals(1, settled[0]);
+    }
+
     // ── closing ──
 
     @Test

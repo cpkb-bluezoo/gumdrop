@@ -25,8 +25,10 @@ import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -55,10 +57,59 @@ final class RedisClusterSession extends AbstractRedisSession {
             new HashMap<ClusterNode, NodeConnection>();
     private boolean closed;
     private int rotor;
+    private Runnable settledHook;
+
+    // A transaction, and a WATCH, live on one connection. MULTI is answered
+    // at once and only sent when the first command of the transaction shows
+    // which node it belongs to (unless a WATCH already says).
+    private boolean inTransaction;
+    private boolean multiPending;
+    private ClusterNode transactionNode;
+    private int transactionSlot = ClusterCommandKeys.NO_KEY;
+    private ClusterNode watchNode;
 
     RedisClusterSession(SlotMap map, NodeConnector connector) {
         this.map = map;
         this.connector = connector;
+    }
+
+    /**
+     * Opens a connection to every master now, rather than on first use, so
+     * the first command does not wait for one and unreachable nodes show up
+     * at once.
+     *
+     * @param onSettled run once, when the first of those connections is
+     *                  either up or has failed; may be null
+     */
+    void connectAll(Runnable onSettled) {
+        settledHook = onSettled;
+        for (ClusterNode node : new ArrayList<ClusterNode>(map.nodes())) {
+            connection(node).open();
+        }
+    }
+
+    private void settled() {
+        Runnable hook = settledHook;
+        settledHook = null;
+        if (hook != null) {
+            hook.run();
+        }
+    }
+
+    /** The slot map in use; for tests. */
+    SlotMap slotMap() {
+        return map;
+    }
+
+    /** How many node connections are up; for tests. */
+    int connectionCount() {
+        int count = 0;
+        for (NodeConnection c : connections.values()) {
+            if (c.ready) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // ── sending ──
@@ -87,6 +138,26 @@ final class RedisClusterSession extends AbstractRedisSession {
             fail(command, RedisClientProtocolHandler.L10N.getString("err.not_connected"));
             return;
         }
+        String name = command.getCommand().toUpperCase(Locale.ROOT);
+        if (name.equals("MULTI")) {
+            multi(command);
+            return;
+        } else if (name.equals("EXEC")) {
+            endTransaction(command, true);
+            return;
+        } else if (name.equals("DISCARD")) {
+            endTransaction(command, false);
+            return;
+        } else if (name.equals("WATCH")) {
+            watch(command);
+            return;
+        } else if (name.equals("UNWATCH")) {
+            unwatch(command);
+            return;
+        } else if (inTransaction) {
+            routeInTransaction(command);
+            return;
+        }
         int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
         ClusterNode node;
         if (slot == ClusterCommandKeys.CROSS_SLOT) {
@@ -106,6 +177,127 @@ final class RedisClusterSession extends AbstractRedisSession {
             }
         }
         connection(node).submit(command);
+    }
+
+    // ── transactions and watches ──
+
+    private void multi(SentCommand command) {
+        if (inTransaction) {
+            fail(command, "ERR MULTI calls can not be nested");
+            return;
+        }
+        inTransaction = true;
+        transactionNode = watchNode;
+        transactionSlot = ClusterCommandKeys.NO_KEY;
+        multiPending = true;
+        answerOk(command.getCallback());
+        if (transactionNode != null) {
+            sendMulti();
+        }
+    }
+
+    private void sendMulti() {
+        multiPending = false;
+        connection(transactionNode).submit(new SentCommand(null, "MULTI", null, null).pinned());
+    }
+
+    private void routeInTransaction(SentCommand command) {
+        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        if (slot == ClusterCommandKeys.CROSS_SLOT) {
+            fail(command, CROSS_SLOT);
+            return;
+        }
+        if (transactionNode == null) {
+            ClusterNode node = (slot == ClusterCommandKeys.NO_KEY) ? anyNode() : map.nodeFor(slot);
+            if (node == null) {
+                fail(command, slot == ClusterCommandKeys.NO_KEY ? NO_NODES : SLOT_NOT_SERVED);
+                return;
+            }
+            transactionNode = node;
+            transactionSlot = slot;
+            sendMulti();
+        } else if (slot != ClusterCommandKeys.NO_KEY) {
+            // Redis requires every key of a transaction to be in one slot
+            if (!transactionNode.equals(map.nodeFor(slot))) {
+                fail(command, CROSS_SLOT);
+                return;
+            } else if (transactionSlot == ClusterCommandKeys.NO_KEY) {
+                transactionSlot = slot;
+            } else if (slot != transactionSlot) {
+                fail(command, CROSS_SLOT);
+                return;
+            }
+        }
+        // a redirect would move one command out of its transaction
+        connection(transactionNode).submit(command.pinned());
+    }
+
+    private void endTransaction(SentCommand command, boolean exec) {
+        if (!inTransaction) {
+            fail(command, "ERR " + (exec ? "EXEC" : "DISCARD") + " without MULTI");
+            return;
+        }
+        ClusterNode node = transactionNode;
+        inTransaction = false;
+        multiPending = false;
+        transactionNode = null;
+        transactionSlot = ClusterCommandKeys.NO_KEY;
+        watchNode = null;
+        if (node == null) {
+            // nothing was queued, so no node ever saw the MULTI
+            if (exec && command.getCallback() instanceof ArrayResultHandler) {
+                ((ArrayResultHandler) command.getCallback()).handleResult(
+                        Collections.<org.bluezoo.gumdrop.redis.codec.RespValue>emptyList(), this);
+            } else if (!exec) {
+                answerOk(command.getCallback());
+            }
+            return;
+        }
+        connection(node).submit(command.pinned());
+    }
+
+    private void watch(SentCommand command) {
+        if (inTransaction) {
+            fail(command, "ERR WATCH inside MULTI is not allowed");
+            return;
+        }
+        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        if (slot == ClusterCommandKeys.CROSS_SLOT) {
+            fail(command, CROSS_SLOT);
+            return;
+        } else if (slot == ClusterCommandKeys.NO_KEY) {
+            fail(command, "ERR wrong number of arguments for 'watch' command");
+            return;
+        }
+        ClusterNode node = map.nodeFor(slot);
+        if (node == null) {
+            fail(command, SLOT_NOT_SERVED);
+            return;
+        } else if (watchNode != null && !watchNode.equals(node)) {
+            fail(command, CROSS_SLOT);
+            return;
+        }
+        watchNode = node;
+        connection(node).submit(command.pinned());
+    }
+
+    private void unwatch(SentCommand command) {
+        if (watchNode == null) {
+            answerOk(command.getCallback());
+            return;
+        }
+        ClusterNode node = watchNode;
+        watchNode = null;
+        connection(node).submit(command.pinned());
+    }
+
+    /** Answers a command locally with {@code OK}, as the server would. */
+    private void answerOk(Object callback) {
+        if (callback instanceof StringResultHandler) {
+            ((StringResultHandler) callback).handleResult("OK", this);
+        } else if (callback instanceof BulkResultHandler) {
+            ((BulkResultHandler) callback).handleResult("OK".getBytes(UTF_8), this);
+        }
     }
 
     /** A node to run a command that names no key: one already connected if possible. */
@@ -147,6 +339,9 @@ final class RedisClusterSession extends AbstractRedisSession {
             return;
         }
         closed = true;
+        inTransaction = false;
+        transactionNode = null;
+        watchNode = null;
         Collection<NodeConnection> all = new ArrayList<NodeConnection>(connections.values());
         for (NodeConnection c : all) {
             c.shutdown();
@@ -190,7 +385,12 @@ final class RedisClusterSession extends AbstractRedisSession {
                 return;
             }
             queue.add(command);
-            if (!connecting) {
+            open();
+        }
+
+        /** Starts connecting unless a connection is up or on its way. */
+        void open() {
+            if (!ready && !connecting) {
                 connecting = true;
                 connector.connect(node, this);
             }
@@ -218,6 +418,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             while ((next = queue.poll()) != null) {
                 write(next);
             }
+            settled();
         }
 
         @Override
@@ -231,6 +432,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             while ((next = queue.poll()) != null) {
                 fail(next, message);
             }
+            settled();
         }
 
         @Override

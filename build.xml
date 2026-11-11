@@ -1395,6 +1395,16 @@
     <integration-junit includes='**/redis/redis/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run the Redis Cluster client tests against a real, locally-running
+       Redis or Valkey Cluster: deliberately NOT a dependency of
+       'integration-test'. See RedisClusterIntegrationTest's class Javadoc for
+       a podman recipe; -Dredis.cluster.host / -Dredis.cluster.port point at
+       any node (default 127.0.0.1:7100). -->
+  <target name='integration-test-redis-cluster' depends='integration-build'
+          description='Run Redis Cluster client tests against a local cluster (not part of integration-test)'>
+    <integration-junit includes='**/redis/client/*IntegrationTest.java'/>
+  </target>
+
   <!-- Run MQTT client tests against a real, locally-running Eclipse
        Mosquitto instance: same rationale as the targets above, and
        likewise deliberately NOT a dependency of 'integration-test'.
