@@ -472,6 +472,16 @@ final class RedisClusterSession extends AbstractRedisSession {
     }
 
     @Override
+    public void ssubscribe(MessageHandler handler, String... channels) {
+        throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
+    }
+
+    @Override
+    public void sunsubscribe(String... channels) {
+        throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
+    }
+
+    @Override
     public void subscribe(MessageHandler handler, String... channels) {
         throw new UnsupportedOperationException("Pub/Sub on a cluster session is not yet supported");
     }

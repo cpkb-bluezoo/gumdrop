@@ -95,6 +95,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     // Pub/Sub state
     private boolean pubSubMode = false;
+    // subscriptions the server last reported: ordinary (channels and
+    // patterns together) and shard channels, which it counts separately
+    private int ordinaryCount;
+    private int shardCount;
     private MessageHandler messageHandler = null;
 
     // Connection state
@@ -334,37 +338,68 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if ("subscribe".equals(type) && array.size() >= 3) {
             String channel = array.get(1).asString();
             int count = (int) array.get(2).asLong();
+            ordinaryCount = count;
             messageHandler.handleSubscribed(channel, count);
             return true;
         }
         if ("psubscribe".equals(type) && array.size() >= 3) {
             String pattern = array.get(1).asString();
             int count = (int) array.get(2).asLong();
+            ordinaryCount = count;
             messageHandler.handlePatternSubscribed(pattern, count);
             return true;
         }
         if ("unsubscribe".equals(type) && array.size() >= 3) {
             String channel = array.get(1).asString();
             int count = (int) array.get(2).asLong();
-            messageHandler.handleUnsubscribed(channel, count);
-            if (count == 0) {
-                pubSubMode = false;
-                messageHandler = null;
-            }
+            ordinaryCount = count;
+            MessageHandler h = messageHandler;
+            leaveModeIfIdle();
+            h.handleUnsubscribed(channel, count);
             return true;
         }
         if ("punsubscribe".equals(type) && array.size() >= 3) {
             String pattern = array.get(1).asString();
             int count = (int) array.get(2).asLong();
-            messageHandler.handlePatternUnsubscribed(pattern, count);
-            if (count == 0) {
-                pubSubMode = false;
-                messageHandler = null;
-            }
+            ordinaryCount = count;
+            MessageHandler h = messageHandler;
+            leaveModeIfIdle();
+            h.handlePatternUnsubscribed(pattern, count);
+            return true;
+        }
+        if ("smessage".equals(type) && array.size() >= 3) {
+            String channel = array.get(1).asString();
+            byte[] message = array.get(2).asBytes();
+            messageHandler.handleShardMessage(channel, message);
+            return true;
+        }
+        if ("ssubscribe".equals(type) && array.size() >= 3) {
+            String channel = array.get(1).asString();
+            int count = (int) array.get(2).asLong();
+            shardCount = count;
+            messageHandler.handleShardSubscribed(channel, count);
+            return true;
+        }
+        if ("sunsubscribe".equals(type) && array.size() >= 3) {
+            String channel = array.get(1).asString();
+            int count = (int) array.get(2).asLong();
+            shardCount = count;
+            MessageHandler h = messageHandler;
+            leaveModeIfIdle();
+            h.handleShardUnsubscribed(channel, count);
             return true;
         }
 
         return false;
+    }
+
+    // The connection leaves Pub/Sub mode once nothing is subscribed, of
+    // either kind.
+    private void leaveModeIfIdle() {
+        if (ordinaryCount == 0 && shardCount == 0) {
+            pubSubMode = false;
+            messageHandler = null;
+        }
     }
 
     // Dispatch based on RESP type prefix:
@@ -372,11 +407,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // RESP3: % Map, ~ Set, , Double, # Boolean, _ Null, = Verbatim, ( Big Number
     private void dispatchResponse(PendingCommand pending, RespValue response) {
         Object callback = pending.callback;
-        if (callback == null) {
-            return;
-        }
 
-        // Handle errors for all handler types
+        // Handle errors for all handler types. A listener sees the error even
+        // when the command has no handler (the SUBSCRIBE family has none),
+        // since it may be able to act on it, as on MOVED.
         if (response.isError()) {
             String error = response.getErrorMessage();
             RedirectListener listener = redirectListener;
@@ -384,7 +418,12 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                     && listener.handleError(pending.sent, error)) {
                 return;
             }
-            dispatchError(callback, error);
+            if (callback != null) {
+                dispatchError(callback, error);
+            }
+            return;
+        }
+        if (callback == null) {
             return;
         }
 
@@ -518,6 +557,8 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     public void reset(StringResultHandler h) {
         pubSubMode = false;
         messageHandler = null;
+        ordinaryCount = 0;
+        shardCount = 0;
         sendCommand(h, "RESET");
     }
 
@@ -526,6 +567,16 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         this.messageHandler = h;
         this.pubSubMode = true;
         sendCommand(null, "SUBSCRIBE", channels);
+    }
+
+    @Override
+    public void ssubscribe(MessageHandler h, String... channels) {
+        this.messageHandler = h;
+        this.pubSubMode = true;
+        // until the server's acknowledgement gives the real count, count it
+        // as one so an ordinary unsubscribe to zero does not end the mode
+        this.shardCount = Math.max(shardCount, 1);
+        sendCommand(null, "SSUBSCRIBE", channels);
     }
 
     @Override

@@ -113,6 +113,36 @@ public interface MessageHandler {
     void handlePatternUnsubscribed(String pattern, int subscriptionCount);
 
     /**
+     * Called when a message is received on a shard channel subscribed with
+     * {@code SSUBSCRIBE} (Redis 7 and later).
+     *
+     * @param channel the shard channel the message was published to
+     * @param message the message content
+     */
+    default void handleShardMessage(String channel, byte[] message) {
+    }
+
+    /**
+     * Called when a shard channel subscription is confirmed.
+     *
+     * @param channel the shard channel subscribed to
+     * @param subscriptionCount the number of shard channels subscribed to
+     */
+    default void handleShardSubscribed(String channel, int subscriptionCount) {
+    }
+
+    /**
+     * Called when a shard channel is unsubscribed from. Besides confirming
+     * an {@code SUNSUBSCRIBE}, the server does this on its own when the
+     * channel's slot moves to another node.
+     *
+     * @param channel the shard channel
+     * @param subscriptionCount the number of shard channels still subscribed to
+     */
+    default void handleShardUnsubscribed(String channel, int subscriptionCount) {
+    }
+
+    /**
      * Called when an error occurs in Pub/Sub mode.
      *
      * @param error the error message

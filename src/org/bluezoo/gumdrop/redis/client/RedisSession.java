@@ -991,6 +991,42 @@ public interface RedisSession {
      */
     void publish(String channel, byte[] message, IntegerResultHandler handler);
 
+    /**
+     * Subscribes to shard channels ({@code SSUBSCRIBE}, Redis 7 and later).
+     * Shard channels are published only to the shard that owns the channel's
+     * hash slot. In a cluster, all the channels of one call must hash to the
+     * same slot.
+     *
+     * @param handler receives messages and subscription events
+     * @param channels the shard channels to subscribe to
+     */
+    void ssubscribe(MessageHandler handler, String... channels);
+
+    /**
+     * Unsubscribes from shard channels.
+     *
+     * @param channels the shard channels to unsubscribe from (empty = all)
+     */
+    void sunsubscribe(String... channels);
+
+    /**
+     * Publishes a message to a shard channel ({@code SPUBLISH}).
+     *
+     * @param channel the shard channel
+     * @param message the message
+     * @param handler receives the number of subscribers who received the message
+     */
+    void spublish(String channel, String message, IntegerResultHandler handler);
+
+    /**
+     * Publishes a binary message to a shard channel ({@code SPUBLISH}).
+     *
+     * @param channel the shard channel
+     * @param message the message bytes
+     * @param handler receives the number of subscribers who received the message
+     */
+    void spublish(String channel, byte[] message, IntegerResultHandler handler);
+
     // ─────────────────────────────────────────────────────────────────────────
     // Transactions
     // ─────────────────────────────────────────────────────────────────────────

@@ -321,4 +321,50 @@ public class RedisClientRedirectTest {
         handler.disconnected();
         assertTrue(r.events.isEmpty());
     }
+
+    @Test
+    public void anErrorForACommandWithNoHandlerStillReachesTheListener() {
+        Recorder rec = new Recorder();
+        handler.setRedirectListener(rec);
+        session.ssubscribe(new org.bluezoo.gumdrop.redis.client.MessageHandler() {
+            @Override
+            public void handleMessage(String channel, byte[] message) {
+            }
+
+            @Override
+            public void handlePatternMessage(String pattern, String channel, byte[] message) {
+            }
+
+            @Override
+            public void handleSubscribed(String channel, int subscriptionCount) {
+            }
+
+            @Override
+            public void handlePatternSubscribed(String pattern, int subscriptionCount) {
+            }
+
+            @Override
+            public void handleUnsubscribed(String channel, int subscriptionCount) {
+            }
+
+            @Override
+            public void handlePatternUnsubscribed(String pattern, int subscriptionCount) {
+            }
+
+            @Override
+            public void handleError(String error) {
+            }
+        }, "orders");
+        feed("-MOVED 4000 127.0.0.1:7001\r\n");
+        assertEquals(1, rec.commands.size());
+        assertEquals("SSUBSCRIBE", rec.commands.get(0).getCommand());
+        assertNull(rec.commands.get(0).getCallback());
+        assertEquals("MOVED 4000 127.0.0.1:7001", rec.errors.get(0));
+    }
+
+    @Test
+    public void anErrorForACommandWithNoHandlerAndNoListenerIsIgnored() {
+        session.unsubscribe();
+        feed("-ERR whatever\r\n"); // must not throw
+    }
 }

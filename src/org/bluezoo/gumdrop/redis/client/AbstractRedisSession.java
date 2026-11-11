@@ -702,6 +702,15 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
+    public void sunsubscribe(String... channels) {
+        if (channels.length == 0) {
+            sendCommand(null, "SUNSUBSCRIBE");
+        } else {
+            sendCommand(null, "SUNSUBSCRIBE", channels);
+        }
+    }
+
+    @Override
     public void punsubscribe(String... patterns) {
         if (patterns.length == 0) {
             sendCommand(null, "PUNSUBSCRIBE");
@@ -713,6 +722,16 @@ abstract class AbstractRedisSession implements RedisSession {
     @Override
     public void publish(String channel, String message, IntegerResultHandler h) {
         sendCommand(h, "PUBLISH", new String[] { channel, message });
+    }
+
+    @Override
+    public void spublish(String channel, String message, IntegerResultHandler h) {
+        sendCommand(h, "SPUBLISH", new String[] { channel, message });
+    }
+
+    @Override
+    public void spublish(String channel, byte[] message, IntegerResultHandler h) {
+        sendCommand(h, "SPUBLISH", new byte[][] { channel.getBytes(UTF_8), message });
     }
 
     @Override
