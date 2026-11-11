@@ -27,9 +27,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A {@link RedisSession} over a whole Redis Cluster: each command is sent to
@@ -45,19 +48,46 @@ final class RedisClusterSession extends AbstractRedisSession {
     /** Redirects followed for one command before its error is given to its handler. */
     static final int MAX_REDIRECTS = 5;
 
+    /** Times {@code TRYAGAIN} or {@code CLUSTERDOWN} is retried for one command. */
+    static final int MAX_RETRIES = 5;
+
+    /** First wait before reconnecting to a node that could not be reached. */
+    static final long INITIAL_BACKOFF_MS = 1000;
+
+    /** Longest wait before reconnecting to a node that could not be reached. */
+    static final long MAX_BACKOFF_MS = 30000;
+
+    /** Shortest time between two topology refreshes. */
+    static final long REFRESH_INTERVAL_MS = 1000;
+
+    /** Wait before the first retry; each later one waits a further multiple of it. */
+    static final long RETRY_DELAY_MS = 100;
+
     // The wording Redis itself uses for these errors.
     private static final String CROSS_SLOT =
             "CROSSSLOT Keys in request don't hash to the same slot";
     private static final String SLOT_NOT_SERVED = "CLUSTERDOWN Hash slot not served";
     private static final String NO_NODES = "CLUSTERDOWN No cluster nodes are known";
 
-    private final SlotMap map;
+    private SlotMap map;
     private final NodeConnector connector;
     private final Map<ClusterNode, NodeConnection> connections =
             new HashMap<ClusterNode, NodeConnection>();
     private boolean closed;
     private int rotor;
     private Runnable settledHook;
+
+    private Clock clock = new Clock() {
+        @Override
+        public long millis() {
+            return System.currentTimeMillis();
+        }
+    };
+    private Scheduler scheduler;
+    private TopologyRefresher refresher;
+    private boolean refreshing;
+    private boolean refreshedBefore;
+    private long lastRefresh;
 
     // A transaction, and a WATCH, live on one connection. MULTI is answered
     // at once and only sent when the first command of the transaction shows
@@ -94,6 +124,93 @@ final class RedisClusterSession extends AbstractRedisSession {
         if (hook != null) {
             hook.run();
         }
+    }
+
+    /** Wall clock for backoff and refresh throttling. */
+    interface Clock {
+        long millis();
+    }
+
+    /** Runs a task on the session's loop after a delay. */
+    interface Scheduler {
+        void schedule(long delayMs, Runnable task);
+    }
+
+    void setClock(Clock clock) {
+        this.clock = clock;
+    }
+
+    /**
+     * Sets how retries are timed. Without one, {@code TRYAGAIN} and
+     * {@code CLUSTERDOWN} are given to the command's handler at once.
+     */
+    void setScheduler(Scheduler scheduler) {
+        this.scheduler = scheduler;
+    }
+
+    /**
+     * Sets how a fresh topology is loaded. Without one, the slot map is
+     * corrected only by the {@code MOVED} replies the session sees.
+     */
+    void setRefresher(TopologyRefresher refresher) {
+        this.refresher = refresher;
+    }
+
+    // ── topology refresh ──
+
+    // Asks for a fresh topology after something suggests the map is stale.
+    // Only one runs at a time, and not more often than REFRESH_INTERVAL_MS.
+    private void requestRefresh() {
+        if (closed || refresher == null || refreshing) {
+            return;
+        }
+        long now = clock.millis();
+        if (refreshedBefore && now - lastRefresh < REFRESH_INTERVAL_MS) {
+            return;
+        }
+        refreshing = true;
+        refreshedBefore = true;
+        lastRefresh = now;
+        refresher.refresh(new TopologyRefresher.Callback() {
+            @Override
+            public void refreshed(SlotMap fresh) {
+                refreshing = false;
+                if (!closed) {
+                    applyTopology(fresh);
+                }
+            }
+
+            @Override
+            public void failed(Exception cause) {
+                refreshing = false;
+            }
+        });
+    }
+
+    private void applyTopology(SlotMap fresh) {
+        map = fresh;
+        Set<ClusterNode> keep = new HashSet<ClusterNode>(fresh.nodes());
+        Iterator<Map.Entry<ClusterNode, NodeConnection>> it = connections.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<ClusterNode, NodeConnection> entry = it.next();
+            if (!keep.contains(entry.getKey())) {
+                it.remove();
+                entry.getValue().shutdown();
+            }
+        }
+        if (transactionNode != null && !keep.contains(transactionNode)) {
+            resetTransaction();
+        }
+        if (watchNode != null && !keep.contains(watchNode)) {
+            watchNode = null;
+        }
+    }
+
+    private void resetTransaction() {
+        inTransaction = false;
+        multiPending = false;
+        transactionNode = null;
+        transactionSlot = ClusterCommandKeys.NO_KEY;
     }
 
     /** The slot map in use; for tests. */
@@ -375,6 +492,11 @@ final class RedisClusterSession extends AbstractRedisSession {
         private boolean ready;
         private boolean connecting;
 
+        // after a failed attempt, no new one until retryNotBefore
+        private int failures;
+        private long retryNotBefore;
+        private String lastFailure = "";
+
         NodeConnection(ClusterNode node) {
             this.node = node;
         }
@@ -384,13 +506,17 @@ final class RedisClusterSession extends AbstractRedisSession {
                 write(command);
                 return;
             }
+            if (!connecting && clock.millis() < retryNotBefore) {
+                fail(command, lastFailure);
+                return;
+            }
             queue.add(command);
             open();
         }
 
-        /** Starts connecting unless a connection is up or on its way. */
+        /** Starts connecting unless a connection is up, on its way, or backing off. */
         void open() {
-            if (!ready && !connecting) {
+            if (!ready && !connecting && clock.millis() >= retryNotBefore) {
                 connecting = true;
                 connector.connect(node, this);
             }
@@ -410,8 +536,10 @@ final class RedisClusterSession extends AbstractRedisSession {
                 connection.close();
                 return;
             }
+            failures = 0;
+            retryNotBefore = 0;
             handler = connection;
-            handler.setRedirectListener(new Redirects(node));
+            handler.setRedirectListener(new Redirects(this));
             handler.setResultSession(RedisClusterSession.this);
             ready = true;
             SentCommand next;
@@ -425,14 +553,29 @@ final class RedisClusterSession extends AbstractRedisSession {
         public void failed(Exception cause) {
             connecting = false;
             ready = false;
-            String message = MessageFormat.format(
+            backOff(MessageFormat.format(
                     RedisClientProtocolHandler.L10N.getString("err.cluster_connect_failed"),
-                    node.getAddress(), cause != null ? cause.getMessage() : "");
+                    node.getAddress(), cause != null ? cause.getMessage() : ""));
             SentCommand next;
             while ((next = queue.poll()) != null) {
-                fail(next, message);
+                fail(next, lastFailure);
             }
+            requestRefresh();
             settled();
+        }
+
+        /**
+         * Notes a failure and holds off new attempts for a while, longer
+         * after each one in a row, up to {@link #MAX_BACKOFF_MS}.
+         */
+        void backOff(String why) {
+            failures++;
+            long delay = INITIAL_BACKOFF_MS;
+            for (int i = 1; i < failures && delay < MAX_BACKOFF_MS; i++) {
+                delay *= 2;
+            }
+            retryNotBefore = clock.millis() + Math.min(delay, MAX_BACKOFF_MS);
+            lastFailure = why;
         }
 
         @Override
@@ -440,6 +583,13 @@ final class RedisClusterSession extends AbstractRedisSession {
             ready = false;
             connecting = false;
             handler = null;
+            // the server forgot any transaction or watch along with the connection
+            if (node.equals(transactionNode)) {
+                resetTransaction();
+            }
+            if (node.equals(watchNode)) {
+                watchNode = null;
+            }
         }
 
         void shutdown() {
@@ -455,22 +605,35 @@ final class RedisClusterSession extends AbstractRedisSession {
         }
     }
 
-    /** Follows {@code MOVED} and {@code ASK} replies from one node. */
+    /** Follows {@code MOVED} and {@code ASK} replies from one node, and retries what can be retried. */
     private final class Redirects implements RedirectListener {
 
+        private final NodeConnection owner;
         private final ClusterNode from;
 
-        Redirects(ClusterNode from) {
-            this.from = from;
+        Redirects(NodeConnection owner) {
+            this.owner = owner;
+            this.from = owner.node;
         }
 
         @Override
         public boolean handleError(SentCommand command, String error) {
-            if (closed || command.isPinned() || command.getRedirects() >= MAX_REDIRECTS) {
+            if (closed) {
                 return false;
             }
             ClusterRedirect redirect = ClusterRedirect.parse(error);
+            if (command.isPinned()) {
+                // part of a transaction or watch: it cannot move, but a MOVED
+                // still means the map is stale
+                if (redirect != null && !redirect.isAsk()) {
+                    requestRefresh();
+                }
+                return false;
+            }
             if (redirect == null) {
+                return retry(command, error);
+            }
+            if (command.getRedirects() >= MAX_REDIRECTS) {
                 return false;
             }
             String host = redirect.getHost() != null ? redirect.getHost() : from.getHost();
@@ -478,9 +641,51 @@ final class RedisClusterSession extends AbstractRedisSession {
             // MOVED is permanent; ASK is for this one command during a migration
             if (!redirect.isAsk()) {
                 map.set(redirect.getSlot(), target);
+                requestRefresh();
             }
             connection(target).submit(command.redirected(redirect.isAsk()));
             return true;
+        }
+
+        // TRYAGAIN (a multi-key command while a slot is being moved) and
+        // CLUSTERDOWN (typically a failover in progress) pass, so try again
+        // shortly, by which time the map may have been refreshed.
+        private boolean retry(SentCommand command, String error) {
+            boolean clusterDown = error.startsWith("CLUSTERDOWN");
+            if (scheduler == null || command.getRedirects() >= MAX_RETRIES
+                    || !(clusterDown || error.startsWith("TRYAGAIN"))) {
+                return false;
+            }
+            final SentCommand again = command.redirected(false);
+            scheduler.schedule(RETRY_DELAY_MS * (command.getRedirects() + 1), new Runnable() {
+                @Override
+                public void run() {
+                    if (!closed) {
+                        route(again);
+                    }
+                }
+            });
+            if (clusterDown) {
+                requestRefresh();
+            }
+            return true;
+        }
+
+        @Override
+        public void connectionLost(List<SentCommand> unanswered) {
+            String message = MessageFormat.format(
+                    RedisClientProtocolHandler.L10N.getString("err.cluster_connection_lost"),
+                    from.getAddress());
+            for (SentCommand command : unanswered) {
+                fail(command, message);
+            }
+            if (!unanswered.isEmpty()) {
+                // a connection that dies with commands unanswered is not
+                // healthy, even if it did connect: a proxy in front of a
+                // dead node accepts connections and drops them
+                owner.backOff(message);
+                requestRefresh();
+            }
         }
     }
 }

@@ -261,4 +261,80 @@ public class RedisClusterClientTest {
     public void connectingWithoutSeedsIsRejected() {
         new RedisClusterClient().connect(connector, ready);
     }
+
+    // ── keeping the topology fresh ──
+
+    @Test
+    public void aRefreshAsksAKnownMasterFirst() {
+        discover();
+        up(indexOf("127.0.0.1:7000"));
+        Request b = up(indexOf("127.0.0.1:7001"));
+        ready.session.get("foo", new Bulk());
+        int before = connector.requests.size();
+        reply(b, "-MOVED 12182 127.0.0.1:7000\r\n");
+        // the redirect itself used the existing connection to 7000, so the
+        // only new request is the refresh, asking a known master first
+        assertEquals(before + 1, connector.requests.size());
+        Request refresh = connector.requests.get(before);
+        assertEquals("127.0.0.1:7000", refresh.node.getAddress());
+    }
+
+    @Test
+    public void aRefreshedTopologyIsUsedAndItsConnectionClosed() {
+        discover();
+        up(indexOf("127.0.0.1:7000"));
+        Request b = up(indexOf("127.0.0.1:7001"));
+        ready.session.get("foo", new Bulk());
+        int before = connector.requests.size();
+        reply(b, "-MOVED 12182 127.0.0.1:7000\r\n");
+        Request refresh = up(before);
+        // everything is now on 7000
+        reply(refresh, "*1\r\n*3\r\n:0\r\n:16383\r\n*2\r\n$9\r\n127.0.0.1\r\n:7000\r\n");
+        assertFalse("the refresh connection is not kept", refresh.endpoint.isOpen());
+        Request a = connector.requests.get(indexOf("127.0.0.1:7000"));
+        int count = connector.requests.size();
+        ready.session.get("a", new Bulk());
+        assertEquals("routed to the node already connected", count, connector.requests.size());
+        assertTrue(written(a).contains("$1\r\na\r\n"));
+    }
+
+    @Test
+    public void theSeedsAreTriedWhenNoKnownMasterAnswersTheRefresh() {
+        client = new RedisClusterClient().seed("127.0.0.1", 7000).seed("10.9.9.9", 7009);
+        discover();
+        up(indexOf("127.0.0.1:7000"));
+        Request b = up(indexOf("127.0.0.1:7001"));
+        ready.session.get("foo", new Bulk());
+        int before = connector.requests.size();
+        reply(b, "-MOVED 12182 127.0.0.1:7000\r\n");
+        assertEquals("127.0.0.1:7000", connector.requests.get(before).node.getAddress());
+        connector.requests.get(before).listener.failed(new java.io.IOException("down"));
+        assertEquals("127.0.0.1:7001", connector.requests.get(before + 1).node.getAddress());
+        connector.requests.get(before + 1).listener.failed(new java.io.IOException("down"));
+        assertEquals("then the seed that is not a master", "10.9.9.9:7009",
+                connector.requests.get(before + 2).node.getAddress());
+    }
+
+    @Test
+    public void retriesUseTheSchedulerTheClientWasGiven() {
+        final List<Long> delays = new ArrayList<Long>();
+        final List<Runnable> tasks = new ArrayList<Runnable>();
+        client.scheduler(new RedisClusterSession.Scheduler() {
+            @Override
+            public void schedule(long delayMs, Runnable task) {
+                delays.add(Long.valueOf(delayMs));
+                tasks.add(task);
+            }
+        });
+        discover();
+        Bulk b = new Bulk();
+        ready.session.get("foo", b);
+        Request node = up(indexOf("127.0.0.1:7001"));
+        reply(node, "-TRYAGAIN rehashing\r\n");
+        assertTrue(b.events.isEmpty());
+        assertEquals(1, tasks.size());
+        tasks.get(0).run();
+        reply(node, "$1\r\nv\r\n");
+        assertEquals("value:v", b.events.get(0));
+    }
 }

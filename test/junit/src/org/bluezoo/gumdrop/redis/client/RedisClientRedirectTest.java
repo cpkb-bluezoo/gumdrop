@@ -43,6 +43,8 @@ public class RedisClientRedirectTest {
 
     /** Records the commands and errors it is offered. */
     private static final class Recorder implements RedirectListener {
+        final List<SentCommand> lost = new ArrayList<SentCommand>();
+        int lostCalls;
         final List<SentCommand> commands = new ArrayList<SentCommand>();
         final List<String> errors = new ArrayList<String>();
         boolean take;
@@ -52,6 +54,12 @@ public class RedisClientRedirectTest {
             commands.add(command);
             errors.add(error);
             return take;
+        }
+
+        @Override
+        public void connectionLost(List<SentCommand> unanswered) {
+            lostCalls++;
+            lost.addAll(unanswered);
         }
     }
 
@@ -260,5 +268,57 @@ public class RedisClientRedirectTest {
         feed("-MOVED 1 h:1\r\n");
         assertTrue(rec.commands.isEmpty());
         assertEquals(1, r.events.size());
+    }
+
+    // ── connection loss ──
+
+    @Test
+    public void aListenerIsGivenTheCommandsStillUnansweredWhenTheConnectionDrops() {
+        Recorder rec = new Recorder();
+        handler.setRedirectListener(rec);
+        session.get("one", new Results());
+        session.get("two", new Results());
+        session.get("three", new Results());
+        feed("$1\r\nx\r\n");
+        handler.disconnected();
+        assertEquals(1, rec.lostCalls);
+        assertEquals(2, rec.lost.size());
+        assertArrayEquals(new String[] { "two" }, rec.lost.get(0).getTextArgs());
+        assertArrayEquals(new String[] { "three" }, rec.lost.get(1).getTextArgs());
+    }
+
+    @Test
+    public void closingTheConnectionAlsoHandsOverTheUnansweredCommands() {
+        Recorder rec = new Recorder();
+        handler.setRedirectListener(rec);
+        session.get("one", new Results());
+        handler.close();
+        assertEquals(1, rec.lost.size());
+    }
+
+    @Test
+    public void theUnansweredCommandsAreHandedOverOnce() {
+        Recorder rec = new Recorder();
+        handler.setRedirectListener(rec);
+        session.get("one", new Results());
+        handler.close();
+        handler.disconnected();
+        assertEquals(1, rec.lost.size());
+    }
+
+    @Test
+    public void nothingIsHandedOverWhenNothingIsPending() {
+        Recorder rec = new Recorder();
+        handler.setRedirectListener(rec);
+        handler.disconnected();
+        assertEquals(0, rec.lostCalls);
+    }
+
+    @Test
+    public void withoutAListenerADropStillLeavesHandlersUntold() {
+        Results r = new Results();
+        session.get("one", r);
+        handler.disconnected();
+        assertTrue(r.events.isEmpty());
     }
 }

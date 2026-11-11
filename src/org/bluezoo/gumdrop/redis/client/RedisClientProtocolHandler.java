@@ -162,6 +162,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     @Override
     public void disconnected() {
         closed = true;
+        releasePending();
         handler.onDisconnected();
     }
 
@@ -183,6 +184,26 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     @Override
     public void error(Exception cause) {
         handler.onError(cause);
+    }
+
+    // Hands the commands still awaiting a reply to the listener, which is
+    // then responsible for telling their result handlers. Without a listener
+    // nothing changes: they are left as they were.
+    private void releasePending() {
+        RedirectListener listener = redirectListener;
+        if (listener == null || pendingCommands.isEmpty()) {
+            return;
+        }
+        List<SentCommand> unanswered = new ArrayList<SentCommand>(pendingCommands.size());
+        for (PendingCommand pending : pendingCommands) {
+            if (pending.sent != null) {
+                unanswered.add(pending.sent);
+            }
+        }
+        pendingCommands.clear();
+        if (!unanswered.isEmpty()) {
+            listener.connectionLost(unanswered);
+        }
     }
 
     /**
@@ -245,6 +266,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             endpoint.close();
         }
         decoder.reset();
+        releasePending();
         pendingCommands.clear();
     }
 

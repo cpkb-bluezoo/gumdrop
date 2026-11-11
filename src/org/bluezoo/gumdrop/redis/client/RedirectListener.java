@@ -39,4 +39,14 @@ interface RedirectListener {
      *         to it as usual
      */
     boolean handleError(SentCommand command, String error);
+
+    /**
+     * Called when the connection has gone, with the commands that had been
+     * sent on it and not yet answered. Their result handlers are not told
+     * by the connection; the listener is expected to tell them.
+     *
+     * @param commands the unanswered commands, oldest first
+     */
+    default void connectionLost(java.util.List<SentCommand> commands) {
+    }
 }

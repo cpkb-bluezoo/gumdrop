@@ -79,6 +79,7 @@ public class RedisClusterClient {
     private String username;
     private String password;
 
+    private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
     private RedisClientProtocolHandler seedConnection;
     private boolean closed;
@@ -179,8 +180,28 @@ public class RedisClusterClient {
      * @throws IllegalStateException if no seed was given
      */
     public void connect(Gumdrop gumdrop, RedisClusterReady handler) {
-        SelectorLoop loop = selectorLoop != null ? selectorLoop : gumdrop.nextWorkerLoop();
+        final SelectorLoop loop = selectorLoop != null ? selectorLoop : gumdrop.nextWorkerLoop();
+        final Gumdrop runtime = gumdrop;
+        if (scheduler == null) {
+            // timers fire on a timer thread; the work goes back to the loop
+            scheduler = new RedisClusterSession.Scheduler() {
+                @Override
+                public void schedule(long delayMs, final Runnable task) {
+                    runtime.scheduleTimer(null, delayMs, new Runnable() {
+                        @Override
+                        public void run() {
+                            loop.invokeLater(task);
+                        }
+                    });
+                }
+            };
+        }
         connect(new TcpNodeConnector(gumdrop, loop, dnsResolver, secure, tls, username, password), handler);
+    }
+
+    /** Sets how retries are timed; a test seam (a real client times them on its loop). */
+    void scheduler(RedisClusterSession.Scheduler scheduler) {
+        this.scheduler = scheduler;
     }
 
     /** Connects through {@code connector}; a test seam. */
@@ -200,6 +221,8 @@ public class RedisClusterClient {
                         }
                         seedConnection = seed;
                         session = new RedisClusterSession(map, nodes);
+                        session.setScheduler(scheduler);
+                        session.setRefresher(refresher(nodes));
                         // Connect to every master, and keep the seed connection
                         // until one of those has settled: Gumdrop stops a
                         // runtime with no connection at all.
@@ -233,6 +256,38 @@ public class RedisClusterClient {
             session.close();
         }
         closeSeed();
+    }
+
+    // Reloads the topology when the session suspects it is stale: asks the
+    // masters it knows first, as they are the likeliest to be up, then the
+    // seeds. The connection that answers is not needed afterwards.
+    private TopologyRefresher refresher(final NodeConnector nodes) {
+        return new TopologyRefresher() {
+            @Override
+            public void refresh(final Callback callback) {
+                List<ClusterNode> targets = new ArrayList<ClusterNode>();
+                if (session != null) {
+                    targets.addAll(session.slotMap().nodes());
+                }
+                for (ClusterNode seed : seeds) {
+                    if (!targets.contains(seed)) {
+                        targets.add(seed);
+                    }
+                }
+                ClusterDiscovery.discover(targets, nodes, new ClusterDiscovery.Callback() {
+                    @Override
+                    public void discovered(SlotMap map, RedisClientProtocolHandler answering) {
+                        answering.close();
+                        callback.refreshed(map);
+                    }
+
+                    @Override
+                    public void failed(Exception cause) {
+                        callback.failed(cause);
+                    }
+                });
+            }
+        };
     }
 
     private void closeSeed() {

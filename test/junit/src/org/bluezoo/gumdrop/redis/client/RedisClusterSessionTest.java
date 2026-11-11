@@ -352,9 +352,17 @@ public class RedisClusterSessionTest {
     }
 
     @Test
-    public void aLaterCommandTriesTheNodeAgain() {
+    public void aLaterCommandTriesTheNodeAgainOnceTheBackoffHasPassed() {
+        final long[] now = { 1000000L };
+        session.setClock(new RedisClusterSession.Clock() {
+            @Override
+            public long millis() {
+                return now[0];
+            }
+        });
         session.get("foo", new Bulk());
         connector.requests.get(0).listener.failed(new java.io.IOException("refused"));
+        now[0] += RedisClusterSession.INITIAL_BACKOFF_MS;
         session.get("foo", new Bulk());
         assertEquals(2, connector.requests.size());
         Request c = up(C, 1);
