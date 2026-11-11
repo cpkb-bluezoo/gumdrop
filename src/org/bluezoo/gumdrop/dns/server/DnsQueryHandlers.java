@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQueryContext;
 import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 
 /**
@@ -94,17 +95,17 @@ public final class DnsQueryHandlers {
 
         @Override
         public void handleQuery(final DnsMessage query, final SelectorLoop loop,
-                                final DnsQueryTransport transport,
+                                final DnsQueryContext context,
                                 final DnsQueryCallback callback) {
-            first.handleQuery(query, loop, transport, new DnsQueryCallback() {
+            first.handleQuery(query, loop, context, new DnsQueryCallback() {
                 @Override
                 public void onResponseSequence(java.util.List<DnsMessage> responses) {
                     if (responses == null || responses.isEmpty()) {
-                        second.handleQuery(query, loop, transport, callback);
+                        second.handleQuery(query, loop, context, callback);
                         return;
                     }
                     if (shouldDelegate(responses.get(0))) {
-                        second.handleQuery(query, loop, transport, callback);
+                        second.handleQuery(query, loop, context, callback);
                     } else {
                         callback.onResponseSequence(responses);
                     }
@@ -113,7 +114,7 @@ public final class DnsQueryHandlers {
                 @Override
                 public void onResponse(DnsMessage response) {
                     if (shouldDelegate(response)) {
-                        second.handleQuery(query, loop, transport, callback);
+                        second.handleQuery(query, loop, context, callback);
                     } else {
                         callback.onResponse(response);
                     }
@@ -121,9 +122,19 @@ public final class DnsQueryHandlers {
 
                 @Override
                 public void onError(String error) {
-                    second.handleQuery(query, loop, transport, callback);
+                    second.handleQuery(query, loop, context, callback);
                 }
             });
+        }
+
+        @Override
+        public void handleQuery(final DnsMessage query, final SelectorLoop loop,
+                                final DnsQueryTransport transport,
+                                final DnsQueryCallback callback) {
+            String name = (transport == DnsQueryTransport.UDP) ? "udp" : "tcp";
+            handleQuery(query, loop,
+                    DnsQueryContext.of(name, transport, null, null, null),
+                    callback);
         }
 
         @Override

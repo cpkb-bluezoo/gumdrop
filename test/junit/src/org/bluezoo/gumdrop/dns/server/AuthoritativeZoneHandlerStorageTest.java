@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsZoneClient;
@@ -123,7 +124,8 @@ public class AuthoritativeZoneHandlerStorageTest {
 
     private static int rcodeOf(AuthoritativeZoneHandler handler, String name) {
         final AtomicReference<DnsMessage> response = new AtomicReference<DnsMessage>();
-        handler.handleQuery(DnsMessage.createQuery(7, name, DnsType.A), null, null,
+        handler.handleQuery(DnsMessage.createQuery(7, name, DnsType.A), null,
+                (DnsQueryTransport) null,
                 new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage message) {

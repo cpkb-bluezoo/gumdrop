@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 
@@ -119,6 +120,32 @@ public class DnsListener extends UdpListener {
     public SelectorLoop getSelectorLoop() {
         Endpoint ep = getEndpoint();
         return (ep != null) ? ep.getSelectorLoop() : null;
+    }
+
+    /**
+     * Snapshots the context of a datagram just received from {@code source}.
+     * Must be called while the datagram is being dispatched, since the
+     * endpoint's security parameters are those of the peer that sent it.
+     * {@link SecurityInfo} is {@code null} unless the datagram arrived over
+     * DTLS.
+     *
+     * @param source the datagram's sender
+     * @return the query context
+     */
+    public DnsQueryContext queryContext(InetSocketAddress source) {
+        UdpEndpoint ep = getEndpoint();
+        SocketAddress local = null;
+        SecurityInfo security = null;
+        boolean dtls = false;
+        if (ep != null) {
+            local = ep.getLocalAddress();
+            if (ep.isSecure()) {
+                security = ep.getSecurityInfo();
+                dtls = true;
+            }
+        }
+        return DnsQueryContext.of(dtls ? "dtls" : "udp", DnsQueryTransport.UDP,
+                source, local, security);
     }
 
     @Override

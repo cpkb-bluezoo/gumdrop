@@ -100,7 +100,8 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     @Override
     public void securityEstablished(SecurityInfo info) {
-        if (LOGGER.isLoggable(Level.FINE)) {
+        // may fire before connected() for an initially-secure connection
+        if (endpoint != null && LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     DnsServer.L10N.getString("debug.dot_tls_established"),
                     endpoint.getRemoteAddress()));
@@ -192,7 +193,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
             final long startNanos = System.nanoTime();
             server.processQuery(query, endpoint.getSelectorLoop(),
-                    DnsQueryTransport.FRAMED_TCP,
+                    DnsQueryContext.of(metricsTransport, DnsQueryTransport.FRAMED_TCP,
+                            endpoint.getRemoteAddress(),
+                            endpoint.getLocalAddress(), securityOf(endpoint)),
                     framedCallback(query, startNanos));
 
         } catch (DnsFormatException e) {
@@ -204,6 +207,11 @@ final class DoTProtocolHandler implements ProtocolHandler {
                     .attr("remote_address", String.valueOf(endpoint.getRemoteAddress()))
                     .thrown(e).emit();
         }
+    }
+
+    /** Security parameters of a secure endpoint; null for plain TCP. */
+    private static SecurityInfo securityOf(Endpoint endpoint) {
+        return endpoint.isSecure() ? endpoint.getSecurityInfo() : null;
     }
 
     private DnsQueryCallback framedCallback(final DnsMessage query,

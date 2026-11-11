@@ -182,7 +182,10 @@ final class DoQStreamHandler implements ProtocolHandler {
 
             final long startNanos = System.nanoTime();
             server.processQuery(query, endpoint.getSelectorLoop(),
-                    DnsQueryTransport.FRAMED_TCP,
+                    DnsQueryContext.of("doq", DnsQueryTransport.FRAMED_TCP,
+                            endpoint.getRemoteAddress(),
+                            endpoint.getLocalAddress(),
+                            endpoint.getSecurityInfo()),
                     doqCallback(query, startNanos, metrics));
 
         } catch (DnsFormatException e) {

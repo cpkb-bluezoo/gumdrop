@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsZoneClient;
@@ -110,7 +111,7 @@ public class SecondaryZoneRefreshTest {
 
     private static int rcodeOf(AuthoritativeZoneHandler handler, DnsMessage query) {
         final AtomicReference<DnsMessage> response = new AtomicReference<DnsMessage>();
-        handler.handleQuery(query, null, null, new DnsQueryCallback() {
+        handler.handleQuery(query, null, (DnsQueryTransport) null, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage message) {
                 response.set(message);

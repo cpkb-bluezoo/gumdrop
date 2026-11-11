@@ -31,6 +31,7 @@ import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.DnsQueryContext;
 import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 import org.bluezoo.gumdrop.dns.DnsTcpListener;
 import org.bluezoo.gumdrop.dns.DoQListener;
@@ -369,7 +370,8 @@ public class DnsServer implements Server {
 
             final long startNanos = System.nanoTime();
             SelectorLoop loop = origin.getSelectorLoop();
-            processQuery(query, loop, new DnsQueryCallback() {
+            processQuery(query, loop, origin.queryContext(source),
+                    new DnsQueryCallback() {
                 @Override
                 public void onResponse(DnsMessage response) {
                     // RFC 4035 section 3.2.1: strip DNSSEC records from
@@ -445,18 +447,43 @@ public class DnsServer implements Server {
     }
 
     /**
-     * Dispatches a query to the active handler with transport context.
+     * Dispatches a query to the active handler with transport context but
+     * no client information. The context passed to the handler has no
+     * remote or local address and no security parameters; use
+     * {@link #processQuery(DnsMessage, SelectorLoop, DnsQueryContext,
+     * DnsQueryCallback)} when those are known.
      */
     public void processQuery(final DnsMessage query, final SelectorLoop loop,
                              final DnsQueryTransport transport,
                              final DnsQueryCallback callback) {
+        String name = (transport == DnsQueryTransport.UDP) ? "udp" : "tcp";
+        processQuery(query, loop,
+                DnsQueryContext.of(name, transport, null, null, null),
+                callback);
+    }
+
+    /**
+     * Dispatches a query to the active handler together with the context of
+     * the client connection it arrived on.
+     *
+     * @param query the parsed DNS query message
+     * @param loop the SelectorLoop for any upstream client connections
+     * @param context who sent the query and over which transport
+     * @param callback receives the response; see
+     *                 {@link #processQuery(DnsMessage, SelectorLoop,
+     *                 DnsQueryCallback)}
+     */
+    public void processQuery(final DnsMessage query, final SelectorLoop loop,
+                             final DnsQueryContext context,
+                             final DnsQueryCallback callback) {
         final DnsQuestion question = query.getQuestions().get(0);
         DnsQueryHandler handler = activeHandler != null
                 ? activeHandler : resolveActiveHandler();
-        handler.handleQuery(query, loop, transport, new DnsQueryCallback() {
+        handler.handleQuery(query, loop, context, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
-                withMQTypeResponse(query, question, response, loop, callback);
+                withMQTypeResponse(query, question, response, loop, context,
+                        callback);
             }
 
             @Override
@@ -503,6 +530,7 @@ public class DnsServer implements Server {
                                     final DnsQuestion primaryQuestion,
                                     final DnsMessage primaryResponse,
                                     final SelectorLoop loop,
+                                    final DnsQueryContext context,
                                     final DnsQueryCallback callback) {
         byte[] optionData = findMQTypeQueryOption(query);
         if (optionData == null) {
@@ -538,7 +566,7 @@ public class DnsServer implements Server {
         for (int idx = 0; idx < n; idx++) {
             final int i = idx;
             DnsType type = requested.get(i);
-            resolveAdditionalType(query, primaryQuestion, type, loop,
+            resolveAdditionalType(query, primaryQuestion, type, loop, context,
                     new DnsQueryCallback() {
                         @Override
                         public void onResponse(DnsMessage subResponse) {
@@ -616,6 +644,7 @@ public class DnsServer implements Server {
 
     private void resolveAdditionalType(DnsMessage query, DnsQuestion primaryQuestion,
                                        DnsType type, SelectorLoop loop,
+                                       DnsQueryContext context,
                                        DnsQueryCallback callback) {
         DnsQuestion subQuestion = new DnsQuestion(
                 primaryQuestion.getName(), type, primaryQuestion.getDNSClass());
@@ -631,7 +660,7 @@ public class DnsServer implements Server {
         DnsMessage subQuery = new DnsMessage(subId, query.getFlags(),
                 Collections.singletonList(subQuestion),
                 emptyList, emptyList, emptyList);
-        processQuery(subQuery, loop, callback);
+        processQuery(subQuery, loop, context, callback);
     }
 
     private DnsMessage buildMergedResponse(DnsMessage query, DnsMessage primaryResponse,

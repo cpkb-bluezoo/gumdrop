@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQueryContext;
 import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 
 /**
@@ -70,6 +71,20 @@ public interface DnsQueryHandler {
                              DnsQueryTransport transport,
                              DnsQueryCallback callback) {
         handleQuery(query, loop, callback);
+    }
+
+    /**
+     * Handles a query with the context of the client connection it arrived
+     * on (remote address, transport, security parameters). The server calls
+     * this overload; override it to vary answers per client. The default
+     * delegates to {@link #handleQuery(DnsMessage, SelectorLoop,
+     * DnsQueryTransport, DnsQueryCallback)} with the context's transport, so
+     * handlers that do not need the context are unaffected.
+     */
+    default void handleQuery(DnsMessage query, SelectorLoop loop,
+                             DnsQueryContext context,
+                             DnsQueryCallback callback) {
+        handleQuery(query, loop, context.getTransport(), callback);
     }
 
     /**
