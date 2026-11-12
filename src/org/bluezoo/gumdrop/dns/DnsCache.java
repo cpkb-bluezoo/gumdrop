@@ -59,12 +59,18 @@ public class DnsCache {
     public static final int DEFAULT_STALE_ANSWER_TTL = 30;
 
     private final Map<CacheKey, CacheEntry> cache;
-    // The priority queue is not thread-safe; all mutations of it (and the
-    // paired eviction index that must stay consistent with it) are guarded by
-    // expiryLock so eviction stays correct across DNS worker loops.
-    private final PriorityQueue<EvictionEntry> expiryQueue;
-    private final Map<CacheKey, EvictionEntry> keyToEvictionEntry;
-    private final Object expiryLock = new Object();
+
+    // The bound is kept with a count of live entries and eviction state
+    // split into stripes by key. Each stripe has its own lock and queue of
+    // entries by expiry time, and publishes when its head expires, so that
+    // the victim for a full cache can be chosen without taking any lock:
+    // the entry nearest its expiry across the stripes goes. Writers on
+    // different worker loops rarely meet, and a full cache gives up one
+    // entry per insert, not a tenth of itself under a process-wide lock.
+    // Lookups go straight to the map and take no lock.
+    private final Stripe[] stripes;
+    private final int stripeMask;
+    private final AtomicInteger liveCount = new AtomicInteger();
     private final int maxEntries;
     private final int negativeTTL;
     private final long staleRetentionMs;
@@ -78,7 +84,7 @@ public class DnsCache {
      */
     private static final int PURGE_THRESHOLD = 256;
 
-    private final AtomicInteger deadCount = new AtomicInteger();
+    private static final int MAX_STRIPES = 16;
 
     private static final AtomicLong TEST_CLOCK_SKEW_MS = new AtomicLong();
 
@@ -122,18 +128,16 @@ public class DnsCache {
      */
     public DnsCache(int maxEntries, int negativeTTL,
                     int staleRetentionSeconds) {
-        this.maxEntries = maxEntries;
+        this.maxEntries = Math.max(0, maxEntries);
         this.negativeTTL = negativeTTL;
         this.staleRetentionMs = staleRetentionSeconds <= 0
                 ? 0L : staleRetentionSeconds * 1000L;
         this.cache = new ConcurrentHashMap<>();
-        this.expiryQueue = new PriorityQueue<>(new Comparator<EvictionEntry>() {
-            @Override
-            public int compare(EvictionEntry a, EvictionEntry b) {
-                return Long.compare(a.entry.expiryTime, b.entry.expiryTime);
-            }
-        });
-        this.keyToEvictionEntry = new ConcurrentHashMap<>();
+        this.stripes = new Stripe[MAX_STRIPES];
+        this.stripeMask = MAX_STRIPES - 1;
+        for (int i = 0; i < MAX_STRIPES; i++) {
+            stripes[i] = new Stripe();
+        }
     }
 
     /**
@@ -360,8 +364,6 @@ public class DnsCache {
             return;
         }
 
-        evictIfNeeded();
-
         CacheKey key = new CacheKey(question);
         CacheEntry entry = new CacheEntry(records, minTTL, dnssecStatus);
         addToCache(key, entry);
@@ -378,8 +380,6 @@ public class DnsCache {
      */
     public void cacheNegative(String name,
                               List<DnsResourceRecord> authorities) {
-        evictIfNeeded();
-
         int ttl = computeNegativeTTL(authorities);
         CacheKey key = new CacheKey(name, DnsType.ANY, DnsClass.IN, true);
         CacheEntry entry = new CacheEntry(null, ttl);
@@ -434,11 +434,15 @@ public class DnsCache {
      */
     public void clear() {
         cache.clear();
-        synchronized (expiryLock) {
-            expiryQueue.clear();
-            keyToEvictionEntry.clear();
-            deadCount.set(0);
+        for (Stripe stripe : stripes) {
+            synchronized (stripe) {
+                stripe.queue.clear();
+                stripe.index.clear();
+                stripe.dead = 0;
+                stripe.publishHead();
+            }
         }
+        liveCount.set(0);
     }
 
     /**
@@ -469,89 +473,162 @@ public class DnsCache {
         return removed;
     }
 
-    private void evictIfNeeded() {
-        if (cache.size() >= maxEntries) {
-            evictExpired();
-
-            if (cache.size() >= maxEntries) {
-                int toRemove = maxEntries / 10;
-                int removed = 0;
-                synchronized (expiryLock) {
-                    purgeCancelledIfNeeded();
-                    EvictionEntry evictionEntry;
-                    while (removed < toRemove
-                            && (evictionEntry = expiryQueue.poll()) != null) {
-                        if (evictionEntry.cancelled) {
-                            continue;
-                        }
-                        // Only drop the index mapping if it still points at the
-                        // entry we polled (it may have been refreshed since).
-                        keyToEvictionEntry.remove(evictionEntry.key, evictionEntry);
-                        if (cache.remove(evictionEntry.key) != null) {
-                            removed++;
-                        }
-                    }
-                }
-            }
-        }
+    private Stripe stripeFor(CacheKey key) {
+        int h = key.hashCode();
+        return stripes[(h ^ (h >>> 16)) & stripeMask];
     }
 
     private void addToCache(CacheKey key, CacheEntry entry) {
+        if (maxEntries <= 0) {
+            return;
+        }
         EvictionEntry evictionEntry = new EvictionEntry(key, entry);
-        cache.put(key, entry);
-        synchronized (expiryLock) {
-            // Mark any prior eviction entry for this key (e.g. a TTL refresh)
-            // cancelled rather than doing a linear PriorityQueue.remove(); it
-            // is skipped lazily when polled or swept.
-            EvictionEntry prev = keyToEvictionEntry.put(key, evictionEntry);
-            if (prev != null) {
-                markCancelled(prev);
+        Stripe stripe = stripeFor(key);
+        synchronized (stripe) {
+            EvictionEntry prev = stripe.index.put(key, evictionEntry);
+            if (prev == null) {
+                liveCount.incrementAndGet();
+            } else {
+                // a refresh of the TTL: mark the prior eviction entry
+                // cancelled rather than doing a linear PriorityQueue.remove();
+                // it is skipped lazily when polled or swept.
+                markCancelled(stripe, prev);
             }
-            expiryQueue.add(evictionEntry);
+            cache.put(key, entry);
+            stripe.queue.add(evictionEntry);
+            stripe.publishHead();
+        }
+        // over the bound: the entry nearest its expiry makes way, never the
+        // one just added
+        while (liveCount.get() > maxEntries && evictNearestExpiry(evictionEntry)) {
+            // evicting
+        }
+    }
+
+    // Removes the live entry nearest its expiry, other than {@code keep}.
+    // False if there is none. Chooses the stripe by the head each publishes,
+    // which needs no lock; only the stripe chosen is locked.
+    private boolean evictNearestExpiry(EvictionEntry keep) {
+        long skipped = 0;
+        for (int attempt = 0; attempt < stripes.length; attempt++) {
+            Stripe best = null;
+            long bestExpiry = Long.MAX_VALUE;
+            for (int i = 0; i < stripes.length; i++) {
+                if ((skipped & (1L << i)) == 0 && stripes[i].headExpiry <= bestExpiry
+                        && stripes[i].headExpiry != Long.MAX_VALUE) {
+                    best = stripes[i];
+                    bestExpiry = stripes[i].headExpiry;
+                }
+            }
+            if (best == null) {
+                return false;
+            }
+            if (evictFrom(best, keep)) {
+                return true;
+            }
+            for (int i = 0; i < stripes.length; i++) {
+                if (stripes[i] == best) {
+                    skipped |= 1L << i;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean evictFrom(Stripe stripe, EvictionEntry keep) {
+        synchronized (stripe) {
+            EvictionEntry kept = null;
+            boolean evicted = false;
+            EvictionEntry evictionEntry;
+            while ((evictionEntry = stripe.queue.poll()) != null) {
+                if (evictionEntry.cancelled) {
+                    stripe.dead = Math.max(0, stripe.dead - 1);
+                    continue;
+                }
+                if (evictionEntry == keep) {
+                    kept = evictionEntry;
+                    continue;
+                }
+                stripe.index.remove(evictionEntry.key, evictionEntry);
+                cache.remove(evictionEntry.key);
+                liveCount.decrementAndGet();
+                evicted = true;
+                break;
+            }
+            if (kept != null) {
+                stripe.queue.add(kept);
+            }
+            stripe.publishHead();
+            return evicted;
         }
     }
 
     private void removeFromCache(CacheKey key) {
-        if (cache.remove(key) != null) {
-            synchronized (expiryLock) {
-                EvictionEntry evictionEntry = keyToEvictionEntry.remove(key);
+        Stripe stripe = stripeFor(key);
+        synchronized (stripe) {
+            if (cache.remove(key) != null) {
+                EvictionEntry evictionEntry = stripe.index.remove(key);
                 if (evictionEntry != null) {
-                    markCancelled(evictionEntry);
+                    markCancelled(stripe, evictionEntry);
+                    liveCount.decrementAndGet();
+                    stripe.publishHead();
                 }
             }
         }
     }
 
     /**
-     * Marks an eviction entry cancelled (lock already held) and wakes a
-     * sweep once enough tombstones have accumulated.
+     * Marks an eviction entry cancelled (the stripe's lock is held) and
+     * sweeps the stripe's queue once enough tombstones have accumulated.
      */
-    private void markCancelled(EvictionEntry evictionEntry) {
+    private void markCancelled(Stripe stripe, EvictionEntry evictionEntry) {
         evictionEntry.cancelled = true;
-        if (deadCount.incrementAndGet() >= PURGE_THRESHOLD) {
-            purgeCancelledIfNeeded();
+        if (++stripe.dead >= PURGE_THRESHOLD) {
+            purgeCancelled(stripe);
         }
     }
 
     /**
-     * Sweeps cancelled entries out of the expiry queue when enough have
-     * accumulated. Must be called with {@link #expiryLock} held. A single
-     * filter-and-rebuild pass, not repeated PriorityQueue.remove() calls
-     * (each of those is itself O(n), making a loop of them O(n^2)).
+     * Sweeps cancelled entries out of a stripe's expiry queue, with its lock
+     * held. A single filter-and-rebuild pass, not repeated
+     * PriorityQueue.remove() calls (each of those is itself O(n), making a
+     * loop of them O(n^2)).
      */
-    private void purgeCancelledIfNeeded() {
-        if (deadCount.get() >= PURGE_THRESHOLD) {
-            List<EvictionEntry> live = new ArrayList<>(expiryQueue.size());
-            for (EvictionEntry e : expiryQueue) {
-                if (!e.cancelled) {
-                    live.add(e);
-                }
+    private void purgeCancelled(Stripe stripe) {
+        List<EvictionEntry> live = new ArrayList<>(stripe.queue.size());
+        for (EvictionEntry e : stripe.queue) {
+            if (!e.cancelled) {
+                live.add(e);
             }
-            if (live.size() != expiryQueue.size()) {
-                expiryQueue.clear();
-                expiryQueue.addAll(live);
-            }
-            deadCount.set(0);
+        }
+        if (live.size() != stripe.queue.size()) {
+            stripe.queue.clear();
+            stripe.queue.addAll(live);
+        }
+        stripe.dead = 0;
+    }
+
+    /**
+     * One stripe of the eviction state: the entries of the keys that hash to
+     * it, ordered by expiry. Guarded by its own monitor, except for
+     * {@link #headExpiry}, which is published for lock-free reading.
+     */
+    private static final class Stripe {
+        final PriorityQueue<EvictionEntry> queue = new PriorityQueue<>(
+                new Comparator<EvictionEntry>() {
+                    @Override
+                    public int compare(EvictionEntry a, EvictionEntry b) {
+                        return Long.compare(a.entry.expiryTime, b.entry.expiryTime);
+                    }
+                });
+        final Map<CacheKey, EvictionEntry> index = new java.util.HashMap<>();
+        int dead;
+        // when the entry at the head of the queue expires, or MAX_VALUE if none
+        volatile long headExpiry = Long.MAX_VALUE;
+
+        void publishHead() {
+            EvictionEntry head = queue.peek();
+            headExpiry = head == null ? Long.MAX_VALUE : head.entry.expiryTime;
         }
     }
 

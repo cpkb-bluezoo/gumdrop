@@ -197,4 +197,50 @@ public class UpstreamRelayHandlerConfigTest {
         assertEquals(DnsMessage.RCODE_SERVFAIL, c.response.getRcode());
         h.stop();
     }
+
+    @Test
+    public void theCacheSizeIsConfigurable() throws Exception {
+        UpstreamRelayHandler h = UpstreamRelayHandler.builder().useSystemResolvers(false)
+                .cacheMaxEntries(3).build();
+        h.start();
+        DnsCache cache = h.getCache();
+        for (int i = 0; i < 20; i++) {
+            List<DnsResourceRecord> recs = new ArrayList<DnsResourceRecord>();
+            recs.add(DnsResourceRecord.a("n" + i + ".example.com.", 300,
+                    InetAddress.getByAddress(new byte[] {10, 0, 0, 1})));
+            cache.cache(new DnsQuestion("n" + i + ".example.com.", DnsType.A, DnsClass.IN), recs);
+        }
+        assertEquals(3, cache.size());
+        h.stop();
+    }
+
+    @Test
+    public void aCacheSizeOfZeroDisablesTheCache() {
+        UpstreamRelayHandler h = UpstreamRelayHandler.builder().useSystemResolvers(false)
+                .cacheMaxEntries(0).build();
+        h.start();
+        assertNull(h.getCache());
+        Capture c = new Capture();
+        h.handleQuery(query("a.example.com.", DnsType.A), null, c);
+        assertEquals(DnsMessage.RCODE_SERVFAIL, c.response.getRcode());
+        h.stop();
+    }
+
+    @Test
+    public void theDefaultCacheSizeIsUnchanged() {
+        UpstreamRelayHandler h = UpstreamRelayHandler.builder().useSystemResolvers(false).build();
+        h.start();
+        assertNotNull(h.getCache());
+        h.stop();
+    }
+
+    @Test
+    public void aNegativeCacheSizeIsRefused() {
+        try {
+            UpstreamRelayHandler.builder().cacheMaxEntries(-1);
+            fail();
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
 }

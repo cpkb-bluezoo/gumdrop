@@ -251,9 +251,13 @@ public class DnsCacheEdgeTest {
             c.cache(q("long" + i + ".test."), recs("long" + i + ".test.", 500));
         }
         DnsCache.testingAdvanceClock(6000L);
-        // full: expired ones are swept to make room
+        // full: the entry nearest its expiry, an expired one, makes room
         c.cache(q("new.test."), recs("new.test.", 500));
-        assertEquals(6, c.size());
+        assertEquals(10, c.size());
+        for (int i = 0; i < 5; i++) {
+            assertNotNull("live entry kept", c.lookup(q("long" + i + ".test.")));
+        }
+        assertNotNull(c.lookup(q("new.test.")));
         // fill with live entries only, forcing the oldest-first eviction
         for (int i = 0; i < 20; i++) {
             c.cache(q("fill" + i + ".test."), recs("fill" + i + ".test.", 500 + i));

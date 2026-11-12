@@ -105,6 +105,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private final List<InetSocketAddress> upstreamServers = new ArrayList<InetSocketAddress>();
     private boolean useSystemResolvers;
     private boolean cacheEnabled = true;
+    private int cacheMaxEntries = DnsCache.DEFAULT_MAX_ENTRIES;
     private boolean dnssecEnabled;
     private boolean serveStaleEnabled = true;
     private int staleRetentionSeconds = DnsCache.DEFAULT_STALE_RETENTION_SECONDS;
@@ -189,6 +190,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
     void setCacheEnabled(boolean cacheEnabled) {
         this.cacheEnabled = cacheEnabled;
+    }
+
+    void setCacheMaxEntries(int cacheMaxEntries) {
+        this.cacheMaxEntries = cacheMaxEntries;
     }
 
     void setServeStaleEnabled(boolean serveStaleEnabled) {
@@ -280,8 +285,8 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
     @Override
     public void start() {
-        if (cacheEnabled) {
-            cache = new DnsCache(DnsCache.DEFAULT_MAX_ENTRIES,
+        if (cacheEnabled && cacheMaxEntries > 0) {
+            cache = new DnsCache(cacheMaxEntries,
                     DnsCache.DEFAULT_NEGATIVE_TTL,
                     serveStaleEnabled ? staleRetentionSeconds : 0);
         }
@@ -1192,6 +1197,24 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         public Builder cacheEnabled(boolean enabled) {
             handler.setCacheEnabled(enabled);
+            return this;
+        }
+
+        /**
+         * Sets the most answers the relay's cache holds. When it is full,
+         * each new answer displaces the cached one nearest its expiry. The
+         * default is {@value DnsCache#DEFAULT_MAX_ENTRIES}; 0 disables the
+         * cache, as {@link #cacheEnabled cacheEnabled(false)} does.
+         *
+         * @param maxEntries the bound; 0 for no cache
+         * @return this builder
+         * @throws IllegalArgumentException if negative
+         */
+        public Builder cacheMaxEntries(int maxEntries) {
+            if (maxEntries < 0) {
+                throw new IllegalArgumentException("negative cache size: " + maxEntries);
+            }
+            handler.setCacheMaxEntries(maxEntries);
             return this;
         }
 
