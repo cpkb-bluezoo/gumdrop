@@ -1088,56 +1088,15 @@ public class TcpEndpointTlsPairTest {
         }
     }
 
-    // ── the peer certificate chain, without a copy per call ──
+    // ── no client certificate ──
 
     @Test
-    public void thePeerChainIsOneUnmodifiableListNotACopyPerCall() throws Exception {
-        for (int v = 0; v < VERSIONS.length; v++) {
-            TlsVersion version = VERSIONS[v];
-            TestCertificates.Identity clientId = TestCertificates.newEc256("chain-client");
-            Peer cp = new Peer();
-            Peer sp = new Peer();
-            TcpEndpoint client;
-            TcpEndpoint server;
-            if (version == TlsVersion.TLS_1_3) {
-                HandshakeConfig sc = server13();
-                sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-                sc.setClientTrustManager(clientId.trustManager());
-                HandshakeConfig cc = client13();
-                cc.setClientCredentials(clientId.credentials());
-                client = endpoint(cp, cc, null, version, true);
-                server = endpoint(sp, sc, null, version, false);
-            } else {
-                Tls12HandshakeConfig sc = server12();
-                sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
-                sc.setClientTrustManager(clientId.trustManager());
-                Tls12HandshakeConfig cc = client12();
-                cc.setClientCredentials(clientId.credentials());
-                client = endpoint(cp, null, cc, version, true);
-                server = endpoint(sp, null, sc, version, false);
-            }
-            handshake(client, server);
-            SecurityInfo info = server.getSecurityInfo();
-            java.util.List<java.security.cert.Certificate> chain = info.getPeerCertificateChain();
-            assertNotNull(version.toString(), chain);
-            assertSame(version.toString(), chain, info.getPeerCertificateChain());
-            assertEquals(java.util.Arrays.asList(info.getPeerCertificates()), chain);
-            try {
-                chain.add(chain.get(0));
-                fail("the chain can be modified");
-            } catch (UnsupportedOperationException expected) {
-                // expected
-            }
-        }
-    }
-
-    @Test
-    public void noPeerChainIsNullWhenThePeerSentNoCertificate() throws Exception {
+    public void thePeerChainIsNullWhenThePeerSentNoCertificate() throws Exception {
         Peer cp = new Peer();
         Peer sp = new Peer();
         TcpEndpoint client = endpoint(cp, client13(), null, TlsVersion.TLS_1_3, true);
         TcpEndpoint server = endpoint(sp, server13(), null, TlsVersion.TLS_1_3, false);
         handshake(client, server);
-        assertNull(server.getSecurityInfo().getPeerCertificateChain());
+        assertNull(server.getSecurityInfo().getPeerCertificates());
     }
 }

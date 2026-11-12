@@ -399,25 +399,25 @@ public class DnsQueryContextTest {
 
     // ── synchronous handlers ──
 
+    /** A synchronous handler that wants the context overrides the context overload. */
     private static final class ContextSync extends SyncDnsQueryHandler {
         DnsQueryContext context;
-        int plainCalls;
 
         @Override
         protected DnsMessage resolveQuery(DnsMessage query) {
-            plainCalls++;
             return null;
         }
 
         @Override
-        protected DnsMessage resolveQuery(DnsMessage query, DnsQueryContext ctx) {
+        public void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryContext ctx,
+                                DnsQueryCallback callback) {
             context = ctx;
-            return query.createResponse(Collections.<DnsResourceRecord>emptyList());
+            callback.onResponse(query.createResponse(Collections.<DnsResourceRecord>emptyList()));
         }
     }
 
     @Test
-    public void syncHandlerSeesTheContext() {
+    public void syncHandlerCanSeeTheContextByOverridingTheContextOverload() {
         ContextSync sync = new ContextSync();
         server.handler(sync);
         SecurityInfo info = securityInfo();
@@ -432,7 +432,6 @@ public class DnsQueryContextTest {
         assertEquals(endpoint.getRemoteAddress(), sync.context.getRemoteAddress());
         assertEquals("dot", sync.context.getTransportName());
         assertSame(info, sync.context.getSecurityInfo());
-        assertEquals(0, sync.plainCalls);
     }
 
     @Test

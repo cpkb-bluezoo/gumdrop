@@ -111,56 +111,8 @@ public class DnsTcpListener extends TcpListener {
      *
      * @return the limit; 0 for none
      */
-    public int getMaxInFlightQueries() {
+    int getMaxInFlightQueries() {
         return maxInFlightQueries;
-    }
-
-    @Override
-    public DnsTcpListener maxConnections(int max) {
-        super.maxConnections(max);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener maxConnectionsPerIP(int max) {
-        super.maxConnectionsPerIP(max);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener rateLimit(String rateLimit) {
-        super.rateLimit(rateLimit);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener idleTimeoutMs(long idleTimeoutMs) {
-        super.idleTimeoutMs(idleTimeoutMs);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener readTimeoutMs(long readTimeoutMs) {
-        super.readTimeoutMs(readTimeoutMs);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener connectionTimeoutMs(long connectionTimeoutMs) {
-        super.connectionTimeoutMs(connectionTimeoutMs);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener allowedNetworks(java.util.List<org.bluezoo.gumdrop.util.CidrNetwork> allowedNetworks) {
-        super.allowedNetworks(allowedNetworks);
-        return this;
-    }
-
-    @Override
-    public DnsTcpListener blockedNetworks(java.util.List<org.bluezoo.gumdrop.util.CidrNetwork> blockedNetworks) {
-        super.blockedNetworks(blockedNetworks);
-        return this;
     }
 
     @Override

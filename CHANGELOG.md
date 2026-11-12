@@ -31,8 +31,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `PushHandler` receives the RESP3 pushes that are not Pub/Sub deliveries,
     such as the `invalidate` push of client-side caching (`CLIENT TRACKING`),
     with the payload converted to plain Java values. Set it with
-    `RedisSession.setPushHandler` or `RedisClusterClient.pushHandler`. It is
-    called on the connection's selector loop.
+    `RedisSession.setPushHandler` (on a cluster session it applies to every
+    node connection). It is called on the connection's selector loop.
   - `RedisClusterClient.subscribeKeyspace(pattern, handler)` subscribes to
     keyspace or keyevent notifications on every primary, adds primaries found
     by a topology refresh and drops those that leave. The servers must have
@@ -44,8 +44,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     A command that has not been answered in time fails its handler with a
     `TIMEOUT` error, once, on the connection's loop; the reply that arrives
     later is discarded and the connection's replies stay paired with their
-    commands. `eval`, `evalsha` and `command` take a `Duration` to override
-    it per call. Blocking pops and blocking stream reads are given their own
+    commands. `command` takes a `Duration` to override it per call (also for
+    `EVAL` and `EVALSHA`). Blocking pops and blocking stream reads are given their own
     wait on top of the timeout.
   - `maxPendingCommands(int)` caps the commands awaiting a reply (default
     65536, on each connection and on a cluster node's queue while it
@@ -96,8 +96,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     their slot as soon as a refresh shows the slot has moved, instead of
     failing when the old node is dropped or being sent to a node that no
     longer owns the slot.
-  - `RedisClusterClient.maxReconnectBackoff(Duration)` caps the reconnect
-    wait, which starts at one second and doubles (default 30 seconds).
   - Closes #594.
 - **DNS: a limit on queries in flight per DoT or TCP connection.**
   `DoTListener.maxInFlightQueries(int)` and
@@ -108,8 +106,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the queries already read are started first when room appears, and the
   connection is not stopped and started for every query. The connection
   limits, per-address limit and idle, read and connection timeouts are
-  documented on both listeners, and `DnsTcpListener` has them as fluent
-  setters like `DoTListener`. New metrics:
+  documented on both listeners. New metrics:
   `dns.server.connection.inflight` (a histogram of the number in flight as
   each query starts) and `dns.server.connection.backpressure` (times a
   connection was stopped at its limit), labelled by transport.
@@ -126,14 +123,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   datagram has no connection, so nothing is kept and `get` returns null; in
   DoQ each query has a stream of its own, so they last for the query. Use
   them only on the connection's selector loop.
-  `SecurityInfo.getPeerCertificateChain()` returns the peer's chain as an
-  unmodifiable list built once per handshake and returned as it is, instead
-  of the fresh array `getPeerCertificates()` makes on every call.
   Closes #596.
 - **QUIC and DoQ: the client's certificate chain on the server.** A QUIC
   server that requires client certificates now reports the chain the client
-  presented from `SecurityInfo.getPeerCertificates()` (and
-  `getPeerCertificateChain()`), as a DoT server does, and the server name the
+  presented from `SecurityInfo.getPeerCertificates()`, as a DoT server does,
+  and the server name the
   client asked for from `getServerName()`. It is known when the handshake
   finishes, so it is on the connection and on every stream of it, and a DoQ
   `DnsQueryHandler` sees it in `DnsQueryContext.getSecurityInfo()` for every

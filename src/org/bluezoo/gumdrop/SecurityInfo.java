@@ -147,24 +147,6 @@ public interface SecurityInfo {
     }
 
     /**
-     * Returns the certificate chain the peer presented, leaf first, as an
-     * unmodifiable list that is built once and returned as it is on every
-     * call, or {@code null} if the peer presented none. Prefer it to
-     * {@link #getPeerCertificates()}, which returns a fresh array each
-     * time, for a handler that looks at the chain for every query on a
-     * long-lived connection. The default builds the list from
-     * {@link #getPeerCertificates()} on each call.
-     *
-     * @return the peer's chain, or null
-     */
-    default java.util.List<Certificate> getPeerCertificateChain() {
-        Certificate[] chain = getPeerCertificates();
-        return chain != null
-                ? java.util.Collections.unmodifiableList(java.util.Arrays.asList(chain))
-                : null;
-    }
-
-    /**
      * Returns the server name the client requested, from the ClientHello
      * {@code server_name} extension (SNI, RFC 6066 section 3). Lets a
      * server that answers for several names on one listener tell them

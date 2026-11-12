@@ -1109,38 +1109,6 @@ public interface RedisSession {
      */
     void evalsha(String sha1, int numKeys, String[] keys, String[] args, ArrayResultHandler handler);
 
-    /**
-     * Executes a Lua script, failing with a {@code TIMEOUT} error if no
-     * reply has arrived after {@code timeout}. A script may legitimately
-     * run longer than the connection's default command timeout.
-     *
-     * @param script the Lua script
-     * @param numKeys the number of keys
-     * @param keys the keys
-     * @param args additional arguments
-     * @param timeout how long to wait, replacing the default; zero for no
-     *                timeout
-     * @param handler receives the script result
-     * @throws IllegalArgumentException if {@code timeout} is negative
-     */
-    void eval(String script, int numKeys, String[] keys, String[] args, java.time.Duration timeout,
-              ArrayResultHandler handler);
-
-    /**
-     * Executes a cached script by SHA1 hash, with its own timeout.
-     *
-     * @param sha1 the script SHA1 hash
-     * @param numKeys the number of keys
-     * @param keys the keys
-     * @param args additional arguments
-     * @param timeout how long to wait, replacing the default; zero for no
-     *                timeout
-     * @param handler receives the script result
-     * @throws IllegalArgumentException if {@code timeout} is negative
-     */
-    void evalsha(String sha1, int numKeys, String[] keys, String[] args, java.time.Duration timeout,
-                 ArrayResultHandler handler);
-
     // ─────────────────────────────────────────────────────────────────────────
     // Server
     // ─────────────────────────────────────────────────────────────────────────

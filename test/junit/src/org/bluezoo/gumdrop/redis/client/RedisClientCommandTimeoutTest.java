@@ -321,11 +321,11 @@ public class RedisClientCommandTimeoutTest {
     }
 
     @Test
-    public void evalAndEvalshaTakeATimeoutToo() {
+    public void aScriptCommandTakesATimeoutThroughCommand() {
         Many a = new Many();
         Many b = new Many();
-        session.eval("return 1", 0, new String[0], new String[0], Duration.ofSeconds(2), a);
-        session.evalsha("abc", 0, new String[0], new String[0], Duration.ofSeconds(3), b);
+        session.command(Duration.ofSeconds(2), a, "EVAL", "return 1", "0");
+        session.command(Duration.ofSeconds(3), b, "EVALSHA", "abc", "0");
         // one timer serves both: set for the earlier, then for the later
         assertEquals(1, endpoint.live().size());
         assertEquals(2000, endpoint.live().get(0).delayMs);

@@ -168,15 +168,15 @@ public class RedisClusterClientTest {
     }
 
     @Test
-    public void thePushHandlerOptionReachesEveryConnection() {
+    public void aPushHandlerSetOnTheSessionReachesEveryConnection() {
         final List<String> kinds = new ArrayList<String>();
-        client.pushHandler(new PushHandler() {
+        discover();
+        ready.session.setPushHandler(new PushHandler() {
             @Override
             public void onPush(String kind, List<Object> payload) {
                 kinds.add(kind);
             }
         });
-        discover();
         ready.session.get("foo", new Bulk());
         Request r = connector.requests.get(indexOf("127.0.0.1:7001"));
         r = up(connector.requests.indexOf(r));

@@ -1122,7 +1122,7 @@ final class Tls12HandshakeEngine {
         return localRecordSizeLimit;
     }
 
-    public String getPeerServerName() {
+    String getPeerServerName() {
         return peerServerName;
     }
 

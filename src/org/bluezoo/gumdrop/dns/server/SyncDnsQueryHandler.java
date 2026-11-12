@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
-import org.bluezoo.gumdrop.dns.DnsQueryContext;
 
 /**
  * Base class for synchronous (non-blocking) query policy on the selector thread.
@@ -41,17 +40,7 @@ public abstract class SyncDnsQueryHandler implements DnsQueryHandler {
     @Override
     public final void handleQuery(DnsMessage query, SelectorLoop loop,
                                   DnsQueryCallback callback) {
-        respond(resolveQuery(query), query, loop, callback);
-    }
-
-    @Override
-    public void handleQuery(DnsMessage query, SelectorLoop loop,
-                            DnsQueryContext context, DnsQueryCallback callback) {
-        respond(resolveQuery(query, context), query, loop, callback);
-    }
-
-    private static void respond(DnsMessage response, DnsMessage query,
-                                SelectorLoop loop, DnsQueryCallback callback) {
+        DnsMessage response = resolveQuery(query);
         if (response != null) {
             callback.onResponse(response);
         } else {
@@ -63,17 +52,4 @@ public abstract class SyncDnsQueryHandler implements DnsQueryHandler {
      * Builds a response for {@code query}, or {@code null} for empty NOERROR.
      */
     protected abstract DnsMessage resolveQuery(DnsMessage query);
-
-    /**
-     * Builds a response for {@code query} knowing the client connection it
-     * arrived on, or {@code null} for empty NOERROR. The server calls this
-     * overload; override it to vary answers per client. The default
-     * delegates to {@link #resolveQuery(DnsMessage)}.
-     *
-     * @param query the query
-     * @param context the connection the query arrived on
-     */
-    protected DnsMessage resolveQuery(DnsMessage query, DnsQueryContext context) {
-        return resolveQuery(query);
-    }
 }

@@ -25,7 +25,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.security.cert.Certificate;
@@ -93,15 +92,6 @@ public class QuicLoopbackClientCertificateTest {
     }
 
     @Test
-    public void theChainIsOneListNotACopyPerCall() throws Exception {
-        Pair p = new Pair(TestCertificates.ExtendedKeyUsage.CLIENT_ONLY, true, true);
-        SecurityInfo info = p.server.conn.getSecurityInfo();
-        assertNotNull(info.getPeerCertificateChain());
-        assertSame(info.getPeerCertificateChain(), info.getPeerCertificateChain());
-        assertEquals(p.clientId.getChain(), info.getPeerCertificateChain());
-    }
-
-    @Test
     public void everyStreamOfTheConnectionReportsTheSameChain() throws Exception {
         Pair p = new Pair(TestCertificates.ExtendedKeyUsage.CLIENT_ONLY, true, true);
         for (int i = 0; i < 3; i++) {
@@ -135,7 +125,6 @@ public class QuicLoopbackClientCertificateTest {
         Pair p = new Pair(TestCertificates.ExtendedKeyUsage.CLIENT_ONLY, false, false);
         assertTrue(p.server.conn.isEstablished());
         assertNull(p.server.conn.getSecurityInfo().getPeerCertificates());
-        assertNull(p.server.conn.getSecurityInfo().getPeerCertificateChain());
     }
 
     @Test

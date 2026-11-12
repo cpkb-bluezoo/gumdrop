@@ -232,7 +232,7 @@ public class DoTListener extends TcpListener {
      *
      * @return the limit; 0 for none
      */
-    public int getMaxInFlightQueries() {
+    int getMaxInFlightQueries() {
         return maxInFlightQueries;
     }
 

@@ -826,20 +826,8 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void eval(String script, int numKeys, String[] keys, String[] args,
-                     java.time.Duration timeout, ArrayResultHandler h) {
-        sendCommand(h, timeoutMillis(timeout), "EVAL", scriptArgs(script, numKeys, keys, args));
-    }
-
-    @Override
     public void evalsha(String sha1, int numKeys, String[] keys, String[] args, ArrayResultHandler h) {
         sendCommand(h, "EVALSHA", scriptArgs(sha1, numKeys, keys, args));
-    }
-
-    @Override
-    public void evalsha(String sha1, int numKeys, String[] keys, String[] args,
-                        java.time.Duration timeout, ArrayResultHandler h) {
-        sendCommand(h, timeoutMillis(timeout), "EVALSHA", scriptArgs(sha1, numKeys, keys, args));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

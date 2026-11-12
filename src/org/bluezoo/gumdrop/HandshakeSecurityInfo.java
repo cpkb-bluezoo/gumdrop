@@ -101,22 +101,6 @@ final class HandshakeSecurityInfo implements SecurityInfo {
         return (chain != null) ? chain.toArray(new Certificate[0]) : null;
     }
 
-    private volatile java.util.List<Certificate> peerChain;
-    private volatile boolean peerChainBuilt;
-
-    @Override
-    public java.util.List<Certificate> getPeerCertificateChain() {
-        if (!peerChainBuilt) {
-            List<X509Certificate> chain = engine.getPeerCertificateChain();
-            peerChain = chain != null
-                    ? java.util.Collections.unmodifiableList(
-                            new java.util.ArrayList<Certificate>(chain))
-                    : null;
-            peerChainBuilt = true;
-        }
-        return peerChain;
-    }
-
     @Override
     public Certificate[] getLocalCertificates() {
         ServerCredentials credentials = (config.getRole() == HandshakeRole.SERVER)
