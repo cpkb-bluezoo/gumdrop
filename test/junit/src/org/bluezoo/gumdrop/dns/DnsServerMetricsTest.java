@@ -132,4 +132,33 @@ public class DnsServerMetricsTest {
         assertEquals(doq, failures.getNumberDataPoints().get(0).getAttributes());
         assertEquals(1L, failures.getNumberDataPoints().get(0).getLongValue());
     }
+
+    @Test
+    public void upstreamInFlightAndIdExhaustionAreLabelledByUpstreamAndTransport() {
+        TelemetryConfig config = new TelemetryConfig();
+        DnsServerMetrics metrics = new DnsServerMetrics(config);
+        metrics.upstreamInFlight("192.0.2.1:853", "dot", 3);
+        metrics.upstreamInFlight("192.0.2.1:853", "dot", -1);
+        metrics.upstreamInFlight("192.0.2.2:853", "doq", 5);
+        metrics.upstreamIdExhausted("192.0.2.1:853", "dot");
+        metrics.upstreamIdExhausted("192.0.2.1:853", "dot");
+
+        Attributes dot = Attributes.of("dns.upstream.address", "192.0.2.1:853",
+                "dns.transport", "dot");
+        MetricData inFlight = find(config, "dns.server.upstream.inflight");
+        assertNotNull(inFlight);
+        assertEquals(2, inFlight.getNumberDataPoints().size());
+        for (NumberDataPoint dp : inFlight.getNumberDataPoints()) {
+            if (dp.getAttributes().equals(dot)) {
+                assertEquals(2L, dp.getLongValue());
+            } else {
+                assertEquals(5L, dp.getLongValue());
+            }
+        }
+        MetricData exhausted = find(config, "dns.server.upstream.id_exhaustions");
+        assertNotNull(exhausted);
+        assertEquals(1, exhausted.getNumberDataPoints().size());
+        assertEquals(dot, exhausted.getNumberDataPoints().get(0).getAttributes());
+        assertEquals(2L, exhausted.getNumberDataPoints().get(0).getLongValue());
+    }
 }

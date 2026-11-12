@@ -286,6 +286,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     @Override
     public void attachMetrics(DnsServerMetrics metrics) {
         this.metrics = metrics;
+        for (EncryptedUpstream upstream : encryptedUpstreams.values()) {
+            upstream.setMetrics(metrics);
+        }
     }
 
     public boolean isDnssecEnabled() {
@@ -721,6 +724,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 upstream = new EncryptedUpstream(transport, addr,
                         upstreamPort(addr), loop, source, time,
                         UPSTREAM_TIMEOUT_MS);
+                upstream.setMetrics(metrics);
                 encryptedUpstreams.put(key, upstream);
             }
             return upstream;

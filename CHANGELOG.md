@@ -65,6 +65,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     confirmations have arrived, which could attribute an error to the wrong
     command and swallow the reply to an ordinary command over RESP3.
   - Closes #592.
+- **DNS relay: encrypted upstreams, query IDs, cache size and metrics.**
+  - A relay with DoT or DoQ upstreams keeps one connection to each upstream
+    per worker loop, found without a lock, and sends a query on the loop it
+    arrived on, instead of sending all relayed traffic through one connection
+    on one loop.
+  - **Fix:** a query sent to an encrypted upstream was given a random 16-bit
+    ID chosen before it reached a connection, and a query whose ID was already
+    in flight replaced the pending one, so the earlier query was lost (about
+    4% of new queries at 2,500 in flight). Each connection now allocates IDs
+    itself from those not in use on it, and holds a query back, with its
+    timeout running, if all 65535 are in use. `DnsQueryIdGenerator.tryAllocate`
+    returns -1 when no ID is free; `allocate` no longer loops on a full set.
+  - `UpstreamRelayHandler.Builder.cacheMaxEntries(int)` sets the size of the
+    relay's cache (default 10,000; 0 disables it). `DnsCache` now holds its
+    bound exactly and, when full, evicts the one entry nearest its expiry per
+    insert, using per-stripe locks, instead of a tenth of itself under a
+    process-wide lock.
+  - New relay metrics, labelled by upstream address and transport:
+    `dns.server.upstream.inflight` and `dns.server.upstream.id_exhaustions`.
+    The upstream query, duration and failure metrics gained the same labels
+    in the same release.
+  - Closes #593.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

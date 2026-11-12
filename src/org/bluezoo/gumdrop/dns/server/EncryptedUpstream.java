@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
+import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
@@ -101,6 +102,9 @@ final class EncryptedUpstream {
     private int consecutiveFailures;
     private long retryNotBefore;
     private int idExhaustions;
+    private volatile DnsServerMetrics metrics;
+    private final String upstreamLabel;
+    private final String transportLabel;
 
     EncryptedUpstream(UpstreamRelayHandler.Transport kind,
                       InetSocketAddress server, int port, SelectorLoop loop,
@@ -112,6 +116,20 @@ final class EncryptedUpstream {
         this.source = source;
         this.clock = clock;
         this.timeoutMs = timeoutMs;
+        this.upstreamLabel = server.getHostString() + ":" + port;
+        this.transportLabel = kind.name().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Sets where this upstream reports its in-flight count and ID exhaustions; may be null. */
+    void setMetrics(DnsServerMetrics metrics) {
+        this.metrics = metrics;
+    }
+
+    private void inFlightChanged(int delta) {
+        DnsServerMetrics m = metrics;
+        if (m != null && delta != 0) {
+            m.upstreamInFlight(upstreamLabel, transportLabel, delta);
+        }
     }
 
     /**
@@ -233,6 +251,7 @@ final class EncryptedUpstream {
                     if (flying) {
                         pending.remove(Integer.valueOf(p.id));
                         waiting.remove(p);
+                        inFlightChanged(-1);
                     }
                     if (held || flying) {
                         p.result.onResult(null);
@@ -242,6 +261,10 @@ final class EncryptedUpstream {
             });
             if (!assignId(p)) {
                 idExhaustions++;
+                DnsServerMetrics m = metrics;
+                if (m != null) {
+                    m.upstreamIdExhausted(upstreamLabel, transportLabel);
+                }
                 awaitingId.add(p);
                 return;
             }
@@ -261,6 +284,7 @@ final class EncryptedUpstream {
             p.id = id;
             p.data = wire;
             pending.put(Integer.valueOf(id), p);
+            inFlightChanged(1);
             return true;
         }
 
@@ -315,6 +339,7 @@ final class EncryptedUpstream {
             if (p == null) {
                 return; // late, duplicate or unsolicited
             }
+            inFlightChanged(-1);
             if (p.timer != null) {
                 p.timer.cancel();
             }
@@ -359,6 +384,7 @@ final class EncryptedUpstream {
             if (transport != null) {
                 transport.close();
             }
+            inFlightChanged(-pending.size());
             List<Pending> failed = new ArrayList<Pending>(pending.values());
             failed.addAll(awaitingId);
             pending.clear();

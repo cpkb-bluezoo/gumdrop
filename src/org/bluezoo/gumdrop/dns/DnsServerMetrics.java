@@ -65,6 +65,8 @@ public class DnsServerMetrics {
     private final LongCounter upstreamQueries;
     private final DoubleHistogram upstreamDuration;
     private final LongCounter upstreamFailures;
+    private final org.bluezoo.gumdrop.telemetry.metrics.LongUpDownCounter upstreamInFlight;
+    private final LongCounter upstreamIdExhaustions;
 
     /**
      * Creates DNS server metrics using the given telemetry configuration.
@@ -125,6 +127,17 @@ public class DnsServerMetrics {
         this.upstreamFailures = meter.counterBuilder("dns.server.upstream.failures")
                 .setDescription("Failed upstream DNS queries")
                 .setUnit("failures")
+                .build();
+
+        this.upstreamInFlight = meter.upDownCounterBuilder("dns.server.upstream.inflight")
+                .setDescription("DNS queries in flight to upstream servers")
+                .setUnit("queries")
+                .build();
+
+        this.upstreamIdExhaustions = meter.counterBuilder("dns.server.upstream.id_exhaustions")
+                .setDescription("Upstream DNS queries held back because every query ID "
+                        + "on the connection was in use")
+                .setUnit("queries")
                 .build();
     }
 
@@ -207,6 +220,34 @@ public class DnsServerMetrics {
      */
     public void upstreamFailure(String upstream, String transport) {
         upstreamFailures.add(1, Attributes.of(
+                "dns.upstream.address", upstream,
+                "dns.transport", transport));
+    }
+
+    /**
+     * Records queries entering or leaving flight to an upstream server over
+     * a connection: those sent and not yet answered, timed out or lost.
+     * Summed over all the connections to the upstream.
+     *
+     * @param upstream the upstream server's address, as {@code host:port}
+     * @param transport the transport to it ("dot" or "doq")
+     * @param delta how many entered flight, or minus how many left it
+     */
+    public void upstreamInFlight(String upstream, String transport, long delta) {
+        upstreamInFlight.add(delta, Attributes.of(
+                "dns.upstream.address", upstream,
+                "dns.transport", transport));
+    }
+
+    /**
+     * Records a query that had to wait because every query ID on the
+     * connection it was bound for was in use.
+     *
+     * @param upstream the upstream server's address, as {@code host:port}
+     * @param transport the transport to it ("dot" or "doq")
+     */
+    public void upstreamIdExhausted(String upstream, String transport) {
+        upstreamIdExhaustions.add(1, Attributes.of(
                 "dns.upstream.address", upstream,
                 "dns.transport", transport));
     }

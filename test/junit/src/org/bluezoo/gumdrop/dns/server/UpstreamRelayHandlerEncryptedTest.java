@@ -625,4 +625,81 @@ public class UpstreamRelayHandlerEncryptedTest {
         assertEquals(1, seenA.size());
         assertEquals(1, seenB.size());
     }
+
+    // ── metrics ──
+
+    private static long value(org.bluezoo.gumdrop.telemetry.TelemetryConfig tc, String name,
+                              org.bluezoo.gumdrop.telemetry.metrics.Attributes attrs) {
+        for (org.bluezoo.gumdrop.telemetry.metrics.Meter meter : tc.getMeters().values()) {
+            for (org.bluezoo.gumdrop.telemetry.metrics.MetricData d : meter.collect(
+                    org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality.CUMULATIVE)) {
+                if (d.getName().equals(name)) {
+                    for (org.bluezoo.gumdrop.telemetry.metrics.NumberDataPoint dp
+                            : d.getNumberDataPoints()) {
+                        if (dp.getAttributes().equals(attrs)) {
+                            return dp.getLongValue();
+                        }
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    private static org.bluezoo.gumdrop.telemetry.metrics.Attributes dotUpstream() {
+        return org.bluezoo.gumdrop.telemetry.metrics.Attributes.of(
+                "dns.upstream.address", "192.0.2.1:853", "dns.transport", "dot");
+    }
+
+    @Test
+    public void inFlightQueriesAreCountedPerUpstream() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        org.bluezoo.gumdrop.telemetry.TelemetryConfig tc =
+                new org.bluezoo.gumdrop.telemetry.TelemetryConfig();
+        tc.metricsEnabled(true);
+        handler.attachMetrics(new org.bluezoo.gumdrop.dns.DnsServerMetrics(tc));
+        SelectorLoop a = new InlineSelectorLoop();
+        SelectorLoop b = new InlineSelectorLoop();
+        askOn(a, 1, "a.example.com");
+        askOn(a, 2, "b.example.com");
+        askOn(b, 3, "c.example.com");
+        source.created.get(0).handler.onConnected();
+        source.created.get(1).handler.onConnected();
+        assertEquals("summed over the loops' connections", 3,
+                value(tc, "dns.server.upstream.inflight", dotUpstream()));
+        MockTransport ta = source.created.get(0);
+        ta.handler.onReceive(answer(ta.sentQuery(0), "192.0.2.5").serialize());
+        assertEquals(2, value(tc, "dns.server.upstream.inflight", dotUpstream()));
+        // a timeout and a lost connection both count down
+        ta.timers.get(1).fire();
+        assertEquals(1, value(tc, "dns.server.upstream.inflight", dotUpstream()));
+        source.created.get(1).handler.onClosed();
+        assertEquals(0, value(tc, "dns.server.upstream.inflight", dotUpstream()));
+    }
+
+    @Test
+    public void exhaustingTheIdsIsCounted() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        org.bluezoo.gumdrop.telemetry.TelemetryConfig tc =
+                new org.bluezoo.gumdrop.telemetry.TelemetryConfig();
+        tc.metricsEnabled(true);
+        handler.attachMetrics(new org.bluezoo.gumdrop.dns.DnsServerMetrics(tc));
+        for (int i = 0; i < 65535; i++) {
+            ask(1, "q" + i + ".example.com");
+        }
+        assertEquals(0, value(tc, "dns.server.upstream.id_exhaustions", dotUpstream()));
+        ask(2, "one-more.example.com");
+        ask(3, "and-another.example.com");
+        assertEquals(2, value(tc, "dns.server.upstream.id_exhaustions", dotUpstream()));
+    }
+
+    @Test
+    public void noMetricsAreNeededToRelay() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        Capture c = ask(5, "plain.example.com");
+        MockTransport t = source.created.get(0);
+        t.handler.onConnected();
+        t.handler.onReceive(answer(t.sentQuery(0), "192.0.2.5").serialize());
+        assertEquals(1, c.calls);
+    }
 }
