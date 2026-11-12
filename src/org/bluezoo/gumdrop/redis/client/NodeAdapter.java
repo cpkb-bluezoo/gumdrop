@@ -38,6 +38,7 @@ final class NodeAdapter implements RedisConnectionReady {
     private final NodeListener listener;
     private final String username;
     private final String password;
+    private final int protocol;
     private RedisClientProtocolHandler connection;
     private boolean ready;
     private boolean finished;
@@ -47,15 +48,25 @@ final class NodeAdapter implements RedisConnectionReady {
      * @param username the user to authenticate as, or null for the default user
      * @param password the password, or null if the node needs none
      */
-    NodeAdapter(NodeListener listener, String username, String password) {
+    /**
+     * @param protocol the RESP version to negotiate: 3 sends HELLO 3 (with
+     *                 the credentials, if any) before the connection is
+     *                 reported ready; 2 sends no HELLO
+     */
+    NodeAdapter(NodeListener listener, String username, String password, int protocol) {
         this.listener = listener;
         this.username = username;
         this.password = password;
+        this.protocol = protocol;
     }
 
     @Override
     public void handleReady(RedisSession session) {
         connection = (RedisClientProtocolHandler) session;
+        if (protocol == 3) {
+            negotiate();
+            return;
+        }
         if (password == null) {
             becomeReady();
             return;
@@ -77,6 +88,35 @@ final class NodeAdapter implements RedisConnectionReady {
             connection.auth(username, password, result);
         } else {
             connection.auth(password, result);
+        }
+    }
+
+    // HELLO 3 carries the credentials itself, in one round trip; it
+    // authenticates as the default user when only a password is given.
+    private void negotiate() {
+        ArrayResultHandler result = new ArrayResultHandler() {
+            @Override
+            public void handleResult(java.util.List<org.bluezoo.gumdrop.redis.codec.RespValue> values,
+                                     RedisSession s) {
+                becomeReady();
+            }
+
+            @Override
+            public void handleNull(RedisSession s) {
+                becomeReady();
+            }
+
+            @Override
+            public void handleError(String error, RedisSession s) {
+                fail(new IOException(MessageFormat.format(
+                        RedisClientProtocolHandler.L10N.getString("err.hello_failed"), error)));
+                connection.close();
+            }
+        };
+        if (password != null) {
+            connection.hello(3, username != null ? username : "default", password, result);
+        } else {
+            connection.hello(3, result);
         }
     }
 

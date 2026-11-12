@@ -41,9 +41,11 @@ final class TcpNodeConnector implements NodeConnector {
     private final TlsConfig tls;
     private final String username;
     private final String password;
+    private final int protocol;
 
     TcpNodeConnector(Gumdrop gumdrop, SelectorLoop loop, DnsResolver dnsResolver,
-                     boolean secure, TlsConfig tls, String username, String password) {
+                     boolean secure, TlsConfig tls, String username, String password,
+                     int protocol) {
         this.gumdrop = gumdrop;
         this.loop = loop;
         this.dnsResolver = dnsResolver;
@@ -51,6 +53,7 @@ final class TcpNodeConnector implements NodeConnector {
         this.tls = tls;
         this.username = username;
         this.password = password;
+        this.protocol = protocol;
     }
 
     @Override
@@ -64,6 +67,6 @@ final class TcpNodeConnector implements NodeConnector {
         if (dnsResolver != null) {
             client.dnsResolver(dnsResolver);
         }
-        client.connect(gumdrop, new NodeAdapter(listener, username, password));
+        client.connect(gumdrop, new NodeAdapter(listener, username, password, protocol));
     }
 }

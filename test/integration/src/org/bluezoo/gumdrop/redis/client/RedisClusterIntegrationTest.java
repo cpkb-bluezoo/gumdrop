@@ -78,12 +78,17 @@ public class RedisClusterIntegrationTest {
     private RedisClusterSession session;
     private final String prefix = "gd-cluster-" + System.nanoTime() + "-";
 
+    /** The RESP version the client negotiates; subclasses rerun every test with another. */
+    protected int protocol() {
+        return 2;
+    }
+
     @Before
     public void connect() throws Exception {
         assumeTrue("no cluster node answering at " + HOST + ":" + PORT, reachable());
         gumdrop = Gumdrop.boot();
         loop = gumdrop.nextWorkerLoop();
-        client = new RedisClusterClient().seed(HOST, PORT).selectorLoop(loop);
+        client = new RedisClusterClient().seed(HOST, PORT).selectorLoop(loop).protocol(protocol());
         final CountDownLatch ready = new CountDownLatch(1);
         final AtomicReference<Exception> failure = new AtomicReference<Exception>();
         client.connect(gumdrop, new RedisClusterReady() {
@@ -187,7 +192,7 @@ public class RedisClusterIntegrationTest {
     }
 
     /** Runs a generic command and returns the array reply (or "error:..." as one element). */
-    private List<RespValue> command(final String name, final String... args) throws Exception {
+    protected List<RespValue> command(final String name, final String... args) throws Exception {
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicReference<List<RespValue>> out = new AtomicReference<List<RespValue>>();
         final AtomicReference<String> error = new AtomicReference<String>();

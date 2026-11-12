@@ -72,6 +72,7 @@ public class RedisClient {
     private final ClientDial dial = ClientDial.withDefaultPort(6379);
     private final TlsConfig tls = new TlsConfig();
     private boolean secure;
+    private int protocol = 2;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -149,6 +150,25 @@ public class RedisClient {
      * @param source the TLS configuration
      * @return this client
      */
+    /**
+     * Sets the RESP version to use. With 3, {@code HELLO 3} is sent as soon
+     * as the connection is up, before the handler is told it is ready, so
+     * the server can send pushes such as client-side caching invalidations;
+     * if the server rejects it the handler's {@code onError} is called. The
+     * default is 2, which sends no HELLO.
+     *
+     * @param protocol 2 or 3
+     * @return this client
+     * @throws IllegalArgumentException for any other value
+     */
+    public RedisClient protocol(int protocol) {
+        if (protocol != 2 && protocol != 3) {
+            throw new IllegalArgumentException("RESP version must be 2 or 3: " + protocol);
+        }
+        this.protocol = protocol;
+        return this;
+    }
+
     public RedisClient tls(TlsConfig source) {
         tls.copyFrom(source);
         return this;
@@ -167,7 +187,8 @@ public class RedisClient {
      */
     public void connect(Gumdrop gumdrop, RedisConnectionReady handler) {
         transportFactory = new TcpTransportFactory();
-        endpointHandler = new RedisClientProtocolHandler(handler);
+        endpointHandler = new RedisClientProtocolHandler(
+                protocol == 3 ? new HelloOnReady(handler, protocol) : handler);
 
         ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
             @Override

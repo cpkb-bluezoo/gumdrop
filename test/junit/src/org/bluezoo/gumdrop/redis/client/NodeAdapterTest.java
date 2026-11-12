@@ -70,7 +70,12 @@ public class NodeAdapterTest {
     }
 
     private RedisClientProtocolHandler connect(String user, String password) {
-        RedisClientProtocolHandler h = new RedisClientProtocolHandler(new NodeAdapter(events, user, password));
+        return connect(user, password, 2);
+    }
+
+    private RedisClientProtocolHandler connect(String user, String password, int protocol) {
+        RedisClientProtocolHandler h = new RedisClientProtocolHandler(
+                new NodeAdapter(events, user, password, protocol));
         h.connected(endpoint);
         return h;
     }
@@ -133,7 +138,7 @@ public class NodeAdapterTest {
 
     @Test
     public void anErrorBeforeTheConnectionIsReadyFailsIt() {
-        RedisClientProtocolHandler h = new RedisClientProtocolHandler(new NodeAdapter(events, null, null));
+        RedisClientProtocolHandler h = new RedisClientProtocolHandler(new NodeAdapter(events, null, null, 2));
         h.error(new java.io.IOException("refused"));
         assertEquals("failed:refused", events.events.get(0));
     }
@@ -162,9 +167,63 @@ public class NodeAdapterTest {
 
     @Test
     public void theFailureIsReportedOnlyOnce() {
-        RedisClientProtocolHandler h = new RedisClientProtocolHandler(new NodeAdapter(events, null, null));
+        RedisClientProtocolHandler h = new RedisClientProtocolHandler(new NodeAdapter(events, null, null, 2));
         h.error(new java.io.IOException("refused"));
         h.disconnected();
         assertEquals(1, events.events.size());
+    }
+
+    // ── RESP3 ──
+
+    private static final String HELLO_REPLY = "%1\r\n+server\r\n+redis\r\n";
+
+    @Test
+    public void resp3SendsHelloBeforeAnythingElseAndWaitsForTheReply() {
+        RedisClientProtocolHandler h = connect(null, null, 3);
+        assertEquals("*2\r\n$5\r\nHELLO\r\n$1\r\n3\r\n", written());
+        assertTrue("not ready until HELLO is accepted", events.events.isEmpty());
+        feed(h, HELLO_REPLY);
+        assertEquals(1, events.events.size());
+        assertEquals("ready", events.events.get(0));
+    }
+
+    @Test
+    public void resp3AuthenticatesWithinTheHelloAndSendsNoSeparateAuth() {
+        RedisClientProtocolHandler h = connect("alice", "s3cret", 3);
+        assertEquals("*5\r\n$5\r\nHELLO\r\n$1\r\n3\r\n$4\r\nAUTH\r\n$5\r\nalice\r\n$6\r\ns3cret\r\n",
+                written());
+        feed(h, HELLO_REPLY);
+        assertEquals("ready", events.events.get(0));
+    }
+
+    @Test
+    public void resp3WithOnlyAPasswordAuthenticatesAsTheDefaultUser() {
+        connect(null, "s3cret", 3);
+        assertEquals("*5\r\n$5\r\nHELLO\r\n$1\r\n3\r\n$4\r\nAUTH\r\n$7\r\ndefault\r\n$6\r\ns3cret\r\n",
+                written());
+    }
+
+    @Test
+    public void aRejectedHelloFailsTheConnectionAndClosesIt() {
+        RedisClientProtocolHandler h = connect(null, null, 3);
+        feed(h, "-ERR unknown command 'HELLO'\r\n");
+        assertEquals(1, events.events.size());
+        assertTrue(events.events.get(0), events.events.get(0).startsWith("failed:"));
+        assertTrue(events.events.get(0), events.events.get(0).contains("unknown command"));
+        assertFalse(endpoint.isOpen());
+    }
+
+    @Test
+    public void aRejectedHelloPasswordFailsTheConnection() {
+        RedisClientProtocolHandler h = connect("alice", "wrong", 3);
+        feed(h, "-WRONGPASS invalid username-password pair\r\n");
+        assertTrue(events.events.get(0), events.events.get(0).contains("WRONGPASS"));
+    }
+
+    @Test
+    public void resp2SendsNoHello() {
+        connect(null, null, 2);
+        assertEquals("", written());
+        assertEquals("ready", events.events.get(0));
     }
 }

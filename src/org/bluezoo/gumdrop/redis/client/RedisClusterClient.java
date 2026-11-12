@@ -78,6 +78,7 @@ public class RedisClusterClient {
     private boolean secure;
     private String username;
     private String password;
+    private int protocol = 2;
 
     private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
@@ -155,6 +156,27 @@ public class RedisClusterClient {
      * @param password the password
      * @return this client
      */
+    /**
+     * Sets the RESP version to use on every node connection. With 3,
+     * {@code HELLO 3} (carrying the credentials, if any) is sent on each
+     * connection as soon as it is up, before any command runs on it. That
+     * covers the connections to every node, the dedicated Pub/Sub
+     * connections, and those opened after a redirect or a topology refresh.
+     * A node that rejects it fails the connection. The default is 2, which
+     * sends no HELLO.
+     *
+     * @param protocol 2 or 3
+     * @return this client
+     * @throws IllegalArgumentException for any other value
+     */
+    public RedisClusterClient protocol(int protocol) {
+        if (protocol != 2 && protocol != 3) {
+            throw new IllegalArgumentException("RESP version must be 2 or 3: " + protocol);
+        }
+        this.protocol = protocol;
+        return this;
+    }
+
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }
@@ -196,7 +218,7 @@ public class RedisClusterClient {
                 }
             };
         }
-        connect(new TcpNodeConnector(gumdrop, loop, dnsResolver, secure, tls, username, password), handler);
+        connect(new TcpNodeConnector(gumdrop, loop, dnsResolver, secure, tls, username, password, protocol), handler);
     }
 
     /** Sets how retries are timed; a test seam (a real client times them on its loop). */
