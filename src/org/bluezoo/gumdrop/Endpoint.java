@@ -298,7 +298,9 @@ public interface Endpoint {
     /**
      * Schedules a callback to be executed after the specified delay.
      * The callback runs on this endpoint's SelectorLoop thread,
-     * making it safe to perform I/O operations.
+     * making it safe to perform I/O operations. For a timer on state that
+     * is not an endpoint's but belongs to a loop, see
+     * {@link SelectorLoop#schedule(long, Runnable)}.
      *
      * @param delayMs delay in milliseconds before the callback executes
      * @param callback the callback to execute

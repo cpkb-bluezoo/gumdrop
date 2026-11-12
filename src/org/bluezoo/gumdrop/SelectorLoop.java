@@ -37,6 +37,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -115,6 +116,15 @@ public class SelectorLoop implements Runnable {
      */
     private static final long SELECT_TIMEOUT_MS =
             Long.getLong("gumdrop.selectorLoop.selectTimeoutMs", 0L);
+
+    // Timers kept on this loop (see schedule). Used only on the loop thread.
+    private final PriorityQueue<LoopTimer> loopTimers = new PriorityQueue<LoopTimer>();
+    private long loopTimerSeq;
+    // heap size at which cancelled timers are next swept out
+    private int loopTimerSweepAt = LOOP_TIMER_SWEEP_MIN;
+
+    private static final int LOOP_TIMER_SWEEP_MIN = 1024;
+    private static final long NANOS_PER_MS = 1000000L;
 
     private final int index;
     private Gumdrop gumdrop;
@@ -318,6 +328,9 @@ public class SelectorLoop implements Runnable {
                     // Process any pending tasks
                     processPendingTasks();
 
+                    // Run the timers kept on this loop that are due
+                    runDueTimers();
+
                     // A requested shutdown is carried out here, on this
                     // thread, after the queued work above has run.
                     if (shutdownMode.get() != MODE_RUNNING && advanceShutdown()) {
@@ -383,6 +396,20 @@ public class SelectorLoop implements Runnable {
     }
 
     private long selectTimeoutMs() {
+        long bound = shutdownBoundMs();
+        long timers = timerWaitMillis();
+        if (timers < 0) {
+            return bound;
+        }
+        // select(0) would block for ever, so a timer due at once waits a millisecond
+        long wait = Math.max(1L, timers);
+        return bound == 0L ? wait : Math.min(bound, wait);
+    }
+
+    // How long the select may block for reasons other than timers: 0 for
+    // indefinitely, otherwise the periodic bound, or what is left of the
+    // deadline a shutdown has set for its handlers.
+    private long shutdownBoundMs() {
         if (!closeStarted) {
             return SELECT_TIMEOUT_MS;
         }
@@ -517,6 +544,7 @@ public class SelectorLoop implements Runnable {
                 }
             } finally {
                 pendingTimers.clear();
+                loopTimers.clear();
                 timer.shutdown();
                 if (selector != null) {
                     try {
@@ -681,6 +709,213 @@ public class SelectorLoop implements Runnable {
         }
         if (key != null && key.isValid()) {
             key.cancel();
+        }
+    }
+
+    // -- Timers kept on the loop --
+
+    /**
+     * Schedules a task to run once on this loop's thread after {@code delayMs}
+     * milliseconds. This is the way to put a deadline, a retry delay or a
+     * periodic sweep on state that belongs to this loop (a connection's
+     * idle timeout, a client's command timeout): the task runs where that
+     * state lives, with no hand-off from another thread and no lock to
+     * share with other loops.
+     *
+     * <p>The timer is kept in this loop's own queue, and the loop's wait for
+     * I/O ends at the nearest deadline; no thread is added however many
+     * timers there are, and a loop with none blocks until something
+     * happens. A task is never run before its delay has passed, though it may
+     * be run later if the loop is busy. A task that throws is logged and does
+     * not stop the loop or other timers.
+     *
+     * <p>May be called from any thread. If this loop has terminated, the
+     * task will never run and the returned handle is already cancelled.
+     *
+     * @param delayMs how long to wait, in milliseconds; 0 or less for as soon as possible
+     * @param task what to run
+     * @return a handle that cancels it; see {@link TimerHandle#cancel()}
+     * @throws NullPointerException if {@code task} is null
+     */
+    public TimerHandle schedule(long delayMs, Runnable task) {
+        return addTimer(delayMs, 0L, task);
+    }
+
+    /**
+     * Schedules a task to run on this loop's thread after
+     * {@code initialDelayMs} and then every {@code periodMs}. The runs fall
+     * on a fixed grid, {@code initialDelayMs + n * periodMs}, so a run
+     * made late does not delay the ones after it. If the loop is so late
+     * that whole periods have been missed, the task runs once and rejoins the
+     * grid; it does not run once for each period missed. Cancel it to stop it,
+     * which a run may do for itself. Otherwise as for
+     * {@link #schedule(long, Runnable)}.
+     *
+     * @param initialDelayMs how long to wait for the first run; 0 or less for as soon as possible
+     * @param periodMs the time between runs, in milliseconds
+     * @param task what to run
+     * @return a handle that cancels it; see {@link TimerHandle#cancel()}
+     * @throws IllegalArgumentException if {@code periodMs} is not positive
+     * @throws NullPointerException if {@code task} is null
+     */
+    public TimerHandle scheduleRepeating(long initialDelayMs, long periodMs, Runnable task) {
+        if (periodMs <= 0L) {
+            throw new IllegalArgumentException("period must be positive: " + periodMs);
+        }
+        return addTimer(initialDelayMs, periodMs, task);
+    }
+
+    private TimerHandle addTimer(long delayMs, long periodMs, Runnable task) {
+        if (task == null) {
+            throw new NullPointerException("task");
+        }
+        final LoopTimer timer = new LoopTimer(
+                timerNanos() + Math.max(0L, delayMs) * NANOS_PER_MS,
+                periodMs * NANOS_PER_MS, task);
+        boolean accepted = tryInvokeLater(new Runnable() {
+            @Override
+            public void run() {
+                if (!timer.cancelled) {
+                    insertTimer(timer);
+                }
+            }
+        });
+        if (!accepted) {
+            timer.cancelled = true;
+        }
+        return timer;
+    }
+
+    /**
+     * The clock timers are measured on, in nanoseconds. Monotonic.
+     * Overridden by tests, which must not depend on real time.
+     */
+    long timerNanos() {
+        return System.nanoTime();
+    }
+
+    // Loop thread only.
+    private void insertTimer(LoopTimer timer) {
+        timer.seq = ++loopTimerSeq;
+        loopTimers.add(timer);
+        if (loopTimers.size() >= loopTimerSweepAt) {
+            // Cancelled timers stay in the queue until their time comes; sweep
+            // them out once the queue has grown, so that timers cancelled long
+            // before they were due do not pile up. The threshold doubles with
+            // what is left, which keeps the sweeps amortised.
+            List<LoopTimer> live = new ArrayList<LoopTimer>(loopTimers.size());
+            for (LoopTimer t : loopTimers) {
+                if (!t.cancelled) {
+                    live.add(t);
+                }
+            }
+            loopTimers.clear();
+            loopTimers.addAll(live);
+            loopTimerSweepAt = Math.max(LOOP_TIMER_SWEEP_MIN, loopTimers.size() * 2);
+        }
+    }
+
+    // The number of timers held, cancelled ones not yet swept included. Loop thread only.
+    int loopTimerCount() {
+        return loopTimers.size();
+    }
+
+    /**
+     * How long until the nearest live timer is due, in milliseconds
+     * (rounded up, and 0 if it is due), or -1 if there is none. Loop thread
+     * only. A cancelled timer at the head of the queue is dropped here, so
+     * that it gives the loop no reason to wake.
+     */
+    long timerWaitMillis() {
+        LoopTimer head;
+        while ((head = loopTimers.peek()) != null && head.cancelled) {
+            loopTimers.poll();
+        }
+        if (head == null) {
+            return -1L;
+        }
+        long nanos = head.deadline - timerNanos();
+        return nanos <= 0L ? 0L : (nanos + NANOS_PER_MS - 1L) / NANOS_PER_MS;
+    }
+
+    // Runs the timers that are due. Those scheduled by the tasks run here
+    // wait for the next turn of the loop, so that a task that keeps scheduling
+    // itself cannot keep the loop from its I/O.
+    private void runDueTimers() {
+        if (loopTimers.isEmpty()) {
+            return;
+        }
+        long now = timerNanos();
+        List<LoopTimer> due = null;
+        LoopTimer head;
+        while ((head = loopTimers.peek()) != null && head.deadline - now <= 0L) {
+            loopTimers.poll();
+            if (head.cancelled) {
+                continue;
+            }
+            if (due == null) {
+                due = new ArrayList<LoopTimer>();
+            }
+            due.add(head);
+        }
+        if (due == null) {
+            return;
+        }
+        for (int i = 0; i < due.size(); i++) {
+            LoopTimer t = due.get(i);
+            if (t.cancelled) {
+                // cancelled by an earlier task of this batch
+                continue;
+            }
+            try {
+                t.task.run();
+            } catch (Exception e) {
+                events().warn("log.error_in_timer_callback").thrown(e).emit();
+            }
+            if (t.period > 0L && !t.cancelled) {
+                long next = t.deadline + t.period;
+                if (next - now <= 0L) {
+                    // periods were missed: run once, then keep to the grid
+                    long missed = (now - t.deadline) / t.period;
+                    next = t.deadline + (missed + 1L) * t.period;
+                }
+                t.deadline = next;
+                insertTimer(t);
+            }
+        }
+    }
+
+    /** A timer kept on this loop. */
+    private static final class LoopTimer implements TimerHandle, Comparable<LoopTimer> {
+        long deadline;
+        final long period;
+        final Runnable task;
+        long seq;
+        volatile boolean cancelled;
+
+        LoopTimer(long deadline, long period, Runnable task) {
+            this.deadline = deadline;
+            this.period = period;
+            this.task = task;
+        }
+
+        @Override
+        public void cancel() {
+            cancelled = true;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelled;
+        }
+
+        @Override
+        public int compareTo(LoopTimer other) {
+            long d = deadline - other.deadline;
+            if (d != 0L) {
+                return d < 0L ? -1 : 1;
+            }
+            return seq < other.seq ? -1 : (seq > other.seq ? 1 : 0);
         }
     }
 

@@ -142,6 +142,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   asks for one. As for TLS, a certificate for client authentication only is
   accepted and one for server authentication only is refused, and a client
   with none is refused. Closes #597.
+- **Timers kept on a `SelectorLoop`.** `SelectorLoop.schedule(delayMs, task)`
+  and `scheduleRepeating(initialDelayMs, periodMs, task)` run a task on that
+  loop's own thread, for the loop-affine deadlines, retry delays and sweeps
+  of an application's handlers and clients, without a hand-off from a timer
+  thread and without a lock shared with other loops. The timers live in the
+  loop's own queue and the nearest deadline bounds the loop's wait for I/O,
+  so there is no added thread however many timers there are, and a loop with
+  none blocks until something happens. A task never runs before its delay;
+  cancelling on the loop (`TimerHandle.cancel()`, idempotent) means it will not
+  run, even if it was due in the same turn of the loop; repeating timers run on
+  a fixed grid and, if the loop falls behind, run once and rejoin it.
+  Closes #598.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit
