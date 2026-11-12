@@ -63,11 +63,15 @@ public class RedisClusterTimeoutIntegrationTest {
 
     @Before
     public void connect() throws Exception {
+        connectWith(Duration.ofMillis(300), Duration.ZERO);
+    }
+
+    private void connectWith(Duration commandTimeout, Duration healthCheck) throws Exception {
         assumeTrue("no cluster node answering at " + HOST + ":" + PORT, reachable());
         gumdrop = Gumdrop.boot();
         loop = gumdrop.nextWorkerLoop();
         client = new RedisClusterClient().seed(HOST, PORT).selectorLoop(loop)
-                .commandTimeout(Duration.ofMillis(300));
+                .commandTimeout(commandTimeout).healthCheckInterval(healthCheck);
         final CountDownLatch ready = new CountDownLatch(1);
         final AtomicReference<Exception> failure = new AtomicReference<Exception>();
         client.connect(gumdrop, new RedisClusterReady() {
@@ -211,5 +215,41 @@ public class RedisClusterTimeoutIntegrationTest {
         Outcomes again = new Outcomes();
         get(paused, again);
         assertEquals("null", again.events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void aNodeThatGoesSilentIsDetectedAndUsedAgainOnceItAnswers() throws Exception {
+        // no command timeout: only the health check can notice
+        tearDown();
+        connectWith(Duration.ZERO, Duration.ofMillis(500));
+        String key = prefix + "silent";
+        ClusterNode node = ownerOf(key);
+        Outcomes waiting = new Outcomes();
+        pause(node.getHost(), node.getPort(), 4000);
+        long start = System.nanoTime();
+        get(key, waiting);
+        String event = waiting.events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+        assertNotNull("the waiting command was never failed", event);
+        assertTrue(event, event.startsWith("error:"));
+        assertTrue("found out after " + elapsedMs + " ms, before the pause ended",
+                elapsedMs < 3500);
+        // once the pause is over and the node has been left alone for its
+        // backoff, a new connection serves the key again
+        // (while the node is on hold, commands for it fail at once, so the
+        // attempts are paced)
+        String outcome = null;
+        Object pace = new Object();
+        for (int attempt = 0; attempt < 40 && !"null".equals(outcome); attempt++) {
+            Outcomes again = new Outcomes();
+            get(key, again);
+            outcome = again.events.poll(2, TimeUnit.SECONDS);
+            if (!"null".equals(outcome)) {
+                synchronized (pace) {
+                    TimeUnit.MILLISECONDS.timedWait(pace, 250);
+                }
+            }
+        }
+        assertEquals("null", outcome);
     }
 }

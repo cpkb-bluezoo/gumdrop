@@ -49,7 +49,7 @@ public class RedisClusterTimeoutTest {
 
     private static final String C = "127.0.0.1:7002";
 
-    private static final class Timer implements TimerHandle {
+    static final class Timer implements TimerHandle {
         final long delayMs;
         final Runnable task;
         boolean cancelled;
@@ -70,7 +70,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class TimedEndpoint extends RedisClientProtocolHandlerTest.StubEndpoint {
+    static final class TimedEndpoint extends RedisClientProtocolHandlerTest.StubEndpoint {
         final List<Timer> timers = new ArrayList<Timer>();
 
         @Override
@@ -92,7 +92,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class Request {
+    static final class Request {
         final ClusterNode node;
         final NodeListener listener;
         RedisClientProtocolHandler handler;
@@ -104,7 +104,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class QuietReady implements RedisConnectionReady {
+    static final class QuietReady implements RedisConnectionReady {
         @Override
         public void handleReady(RedisSession session) {
         }
@@ -126,7 +126,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class FakeConnector implements NodeConnector {
+    static final class FakeConnector implements NodeConnector {
         final List<Request> requests = new ArrayList<Request>();
 
         @Override
@@ -135,7 +135,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class Task {
+    static final class Task {
         final long delay;
         final Runnable task;
 
@@ -145,7 +145,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class FakeScheduler implements RedisClusterSession.Scheduler {
+    static final class FakeScheduler implements RedisClusterSession.Scheduler {
         final List<Task> tasks = new ArrayList<Task>();
 
         @Override
@@ -154,7 +154,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class Bulk implements BulkResultHandler {
+    static final class Bulk implements BulkResultHandler {
         final List<String> events = new ArrayList<String>();
 
         @Override

@@ -542,6 +542,9 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
       and keyspace notifications from every primary
     - optional RESP3 negotiation (HELLO 3) on every connection, and a
       `PushHandler` for server pushes such as client-side caching invalidations
+    - per-command timeouts, a cap on pending commands, and health checks that
+      detect a server gone silent (with reconnect and topology refresh in a
+      cluster)
     - TLS support, fully async, pipelining
 - gRPC service and client
     - efficient event based processing of .proto definitions, using

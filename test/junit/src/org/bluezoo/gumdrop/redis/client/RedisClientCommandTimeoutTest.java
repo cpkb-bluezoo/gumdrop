@@ -45,7 +45,7 @@ import static org.junit.Assert.*;
  */
 public class RedisClientCommandTimeoutTest {
 
-    private static final class Timer implements TimerHandle {
+    static final class Timer implements TimerHandle {
         final long delayMs;
         final Runnable task;
         boolean cancelled;
@@ -67,7 +67,7 @@ public class RedisClientCommandTimeoutTest {
     }
 
     /** An endpoint that records the timers asked of it. */
-    private static final class TimedEndpoint extends RedisClientProtocolHandlerTest.StubEndpoint {
+    static final class TimedEndpoint extends RedisClientProtocolHandlerTest.StubEndpoint {
         final List<Timer> timers = new ArrayList<Timer>();
 
         @Override
@@ -108,7 +108,7 @@ public class RedisClientCommandTimeoutTest {
         }
     }
 
-    private static final class Many implements ArrayResultHandler {
+    static final class Many implements ArrayResultHandler {
         final List<String> events = new ArrayList<String>();
 
         @Override

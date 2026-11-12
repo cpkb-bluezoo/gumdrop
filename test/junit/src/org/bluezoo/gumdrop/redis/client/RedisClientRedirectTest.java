@@ -315,11 +315,14 @@ public class RedisClientRedirectTest {
     }
 
     @Test
-    public void withoutAListenerADropStillLeavesHandlersUntold() {
+    public void withoutAListenerADropTellsTheWaitingHandlersOnce() {
         Results r = new Results();
         session.get("one", r);
         handler.disconnected();
-        assertTrue(r.events.isEmpty());
+        assertEquals(1, r.events.size());
+        assertTrue(r.events.get(0), r.events.get(0).startsWith("error:"));
+        handler.disconnected();
+        assertEquals(1, r.events.size());
     }
 
     @Test

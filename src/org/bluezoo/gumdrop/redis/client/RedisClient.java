@@ -75,6 +75,7 @@ public class RedisClient {
     private int protocol = 2;
     private java.time.Duration commandTimeout = java.time.Duration.ZERO;
     private int maxPendingCommands = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
+    private java.time.Duration healthCheckInterval = java.time.Duration.ZERO;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -211,6 +212,28 @@ public class RedisClient {
         return this;
     }
 
+    /**
+     * Sets the health check interval. When commands are waiting (or the
+     * connection is subscribed) and nothing has been heard from the server
+     * for this long, the client sends {@code PING}; if nothing is heard for
+     * another interval the connection is closed, and the handlers of the
+     * commands waiting get an error. This finds a server that has gone
+     * silent without the connection being reset. A connection whose oldest
+     * waiting command blocks on the server on purpose (a blocking pop) is
+     * not checked. The default is no check.
+     *
+     * @param interval the interval; zero for no check
+     * @return this client
+     * @throws IllegalArgumentException if negative
+     */
+    public RedisClient healthCheckInterval(java.time.Duration interval) {
+        if (interval.isNegative()) {
+            throw new IllegalArgumentException("negative interval: " + interval);
+        }
+        this.healthCheckInterval = interval;
+        return this;
+    }
+
     public RedisClient tls(TlsConfig source) {
         tls.copyFrom(source);
         return this;
@@ -233,6 +256,7 @@ public class RedisClient {
                 protocol == 3 ? new HelloOnReady(handler, protocol) : handler);
         endpointHandler.setCommandTimeoutMillis(commandTimeout.toMillis());
         endpointHandler.setMaxPending(maxPendingCommands);
+        endpointHandler.setHealthCheckMillis(healthCheckInterval.toMillis());
 
         ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
             @Override

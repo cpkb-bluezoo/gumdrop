@@ -82,6 +82,7 @@ public class RedisClusterClient {
     private PushHandler pushHandler;
     private java.time.Duration commandTimeout = java.time.Duration.ZERO;
     private int maxPendingCommands = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
+    private java.time.Duration healthCheckInterval = java.time.Duration.ZERO;
 
     private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
@@ -263,6 +264,29 @@ public class RedisClusterClient {
         return this;
     }
 
+    /**
+     * Sets the health check interval. When commands are waiting for a node
+     * (or a Pub/Sub connection is open) and nothing has been heard from it
+     * for this long, the connection sends {@code PING}; if nothing is heard
+     * for another interval it is closed, the commands waiting are failed,
+     * the node is left alone for a while, a fresh topology is requested and
+     * Pub/Sub connections are restored. This finds a node that has gone
+     * silent without the connection being reset, as a network partition
+     * does. A connection whose oldest waiting command blocks on the server
+     * on purpose (a blocking pop) is not checked. The default is no check.
+     *
+     * @param interval the interval; zero for no check
+     * @return this client
+     * @throws IllegalArgumentException if negative
+     */
+    public RedisClusterClient healthCheckInterval(java.time.Duration interval) {
+        if (interval.isNegative()) {
+            throw new IllegalArgumentException("negative interval: " + interval);
+        }
+        this.healthCheckInterval = interval;
+        return this;
+    }
+
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }
@@ -334,6 +358,7 @@ public class RedisClusterClient {
                         session.setPushHandler(pushHandler);
                         session.setCommandTimeoutMillis(commandTimeout.toMillis());
                         session.setMaxPending(maxPendingCommands);
+                        session.setHealthCheckMillis(healthCheckInterval.toMillis());
                         // Connect to every master, and keep the seed connection
                         // until one of those has settled: Gumdrop stops a
                         // runtime with no connection at all.

@@ -49,4 +49,13 @@ interface RedirectListener {
      */
     default void connectionLost(java.util.List<SentCommand> commands) {
     }
+
+    /**
+     * Called when the connection's health check has failed and the
+     * connection is about to be closed: the server stopped answering without
+     * the connection being reset. {@link #connectionLost} follows for the
+     * commands that were waiting. The default does nothing.
+     */
+    default void healthCheckFailed() {
+    }
 }

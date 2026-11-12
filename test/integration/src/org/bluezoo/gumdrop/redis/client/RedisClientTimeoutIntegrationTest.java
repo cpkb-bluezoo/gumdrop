@@ -66,11 +66,16 @@ public class RedisClientTimeoutIntegrationTest {
 
     @Before
     public void connect() throws Exception {
+        connectWith(Duration.ofMillis(300), Duration.ZERO);
+    }
+
+    private void connectWith(Duration commandTimeout, Duration healthCheck) throws Exception {
         assumeTrue("no server answering at " + HOST + ":" + PORT, reachable());
         gumdrop = Gumdrop.boot();
         loop = gumdrop.nextWorkerLoop();
         client = new RedisClient().host(HOST).port(PORT).selectorLoop(loop)
-                .commandTimeout(Duration.ofMillis(300)).maxPendingCommands(3);
+                .commandTimeout(commandTimeout).maxPendingCommands(3)
+                .healthCheckInterval(healthCheck);
         final CountDownLatch ready = new CountDownLatch(1);
         client.connect(gumdrop, new RedisConnectionReady() {
             @Override
@@ -212,5 +217,22 @@ public class RedisClientTimeoutIntegrationTest {
             }
         });
         assertEquals("reply:patient", outcomes.events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void aServerThatGoesSilentIsDetectedByTheHealthCheck() throws Exception {
+        // no command timeout: only the health check can notice
+        tearDown();
+        connectWith(Duration.ZERO, Duration.ofMillis(500));
+        pause(4000);
+        Outcomes waiting = new Outcomes();
+        long start = System.nanoTime();
+        echo("anyone there", waiting);
+        String event = waiting.events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+        assertNotNull("the waiting command was never failed", event);
+        assertTrue(event, event.startsWith("error:"));
+        assertTrue("found out after " + elapsedMs + " ms, before the pause ended", elapsedMs < 3500);
+        assertNull("only once", waiting.events.poll(3, TimeUnit.SECONDS));
     }
 }

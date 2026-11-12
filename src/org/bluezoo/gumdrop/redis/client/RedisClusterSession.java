@@ -113,6 +113,7 @@ final class RedisClusterSession extends AbstractRedisSession {
     // connection as it comes up.
     private long commandTimeoutMs;
     private int maxPending = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
+    private long healthCheckMs;
 
     private Subscriber plain;
 
@@ -178,6 +179,15 @@ final class RedisClusterSession extends AbstractRedisSession {
      */
     void setMaxPending(int max) {
         this.maxPending = Math.max(0, max);
+    }
+
+    /**
+     * Sets the health check interval of every connection (see
+     * {@link RedisClientProtocolHandler#setHealthCheckMillis}). 0 (the
+     * default) is no check.
+     */
+    void setHealthCheckMillis(long millis) {
+        this.healthCheckMs = Math.max(0, millis);
     }
 
     void setClock(Clock clock) {
@@ -969,6 +979,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             handler.setPushHandler(pushHandler);
             handler.setCommandTimeoutMillis(commandTimeoutMs);
             handler.setMaxPending(maxPending);
+            handler.setHealthCheckMillis(healthCheckMs);
             ready = true;
             restore();
         }
@@ -995,6 +1006,10 @@ final class RedisClusterSession extends AbstractRedisSession {
             }
             leavingChannels.clear();
             leavingPatterns.clear();
+            if (!stopped && !closed && hasSubscriptions()) {
+                // a connection that was lost may mean the node has moved
+                requestRefresh();
+            }
             scheduleRetry();
         }
 
@@ -1151,6 +1166,11 @@ final class RedisClusterSession extends AbstractRedisSession {
             }
 
             @Override
+            public void healthCheckFailed() {
+                requestRefresh();
+            }
+
+            @Override
             public void connectionLost(List<SentCommand> unanswered) {
                 // the subscriptions are restored when the connection is
             }
@@ -1247,6 +1267,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             handler.setPushHandler(pushHandler);
             handler.setCommandTimeoutMillis(commandTimeoutMs);
             handler.setMaxPending(maxPending);
+            handler.setHealthCheckMillis(healthCheckMs);
             ready = true;
             SentCommand next;
             while ((next = queue.poll()) != null) {
@@ -1312,6 +1333,8 @@ final class RedisClusterSession extends AbstractRedisSession {
 
         private final NodeConnection owner;
         private final ClusterNode from;
+        // a health check failure has already put the node on hold
+        private boolean heldOff;
 
         Redirects(NodeConnection owner) {
             this.owner = owner;
@@ -1374,6 +1397,17 @@ final class RedisClusterSession extends AbstractRedisSession {
         }
 
         @Override
+        public void healthCheckFailed() {
+            // the node has gone quiet: leave it alone for a while, and see
+            // whether the cluster still has it where we think
+            heldOff = true;
+            owner.backOff(MessageFormat.format(
+                    RedisClientProtocolHandler.L10N.getString("err.cluster_connection_lost"),
+                    from.getAddress()));
+            requestRefresh();
+        }
+
+        @Override
         public void connectionLost(List<SentCommand> unanswered) {
             String message = MessageFormat.format(
                     RedisClientProtocolHandler.L10N.getString("err.cluster_connection_lost"),
@@ -1385,8 +1419,10 @@ final class RedisClusterSession extends AbstractRedisSession {
                 // a connection that dies with commands unanswered is not
                 // healthy, even if it did connect: a proxy in front of a
                 // dead node accepts connections and drops them
-                owner.backOff(message);
-                requestRefresh();
+                if (!heldOff) {
+                    owner.backOff(message);
+                    requestRefresh();
+                }
             }
         }
     }

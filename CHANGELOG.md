@@ -38,6 +38,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     by a topology refresh and drops those that leave. The servers must have
     `notify-keyspace-events` enabled; the client does not configure them.
   - Closes #590.
+- **Redis command timeouts, a pending-command cap and connection health
+  checks.**
+  - `RedisClient` and `RedisClusterClient` take `commandTimeout(Duration)`.
+    A command that has not been answered in time fails its handler with a
+    `TIMEOUT` error, once, on the connection's loop; the reply that arrives
+    later is discarded and the connection's replies stay paired with their
+    commands. `eval`, `evalsha` and `command` take a `Duration` to override
+    it per call. Blocking pops and blocking stream reads are given their own
+    wait on top of the timeout.
+  - `maxPendingCommands(int)` caps the commands awaiting a reply (default
+    65536, on each connection and on a cluster node's queue while it
+    connects); a command beyond it fails at once with an `OVERLOAD` error
+    instead of queueing.
+  - `healthCheckInterval(Duration)`: when commands are waiting (or a
+    subscription is open) and the server has been silent for the interval,
+    the client sends `PING`; if that goes unanswered too, the connection is
+    closed and what was waiting is failed. In a cluster the node is left
+    alone for a while, a fresh topology is requested, and Pub/Sub
+    connections are restored.
+  - **Behaviour change:** the handlers of commands still waiting on a plain
+    `RedisClient` connection that drops now get an error (they were
+    previously never called).
+  - **Fix:** subscription commands (`SUBSCRIBE`, `SSUBSCRIBE` and the rest)
+    are no longer left in the queue of commands awaiting a reply once their
+    confirmations have arrived, which could attribute an error to the wrong
+    command and swallow the reply to an ordinary command over RESP3.
+  - Closes #592.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

@@ -139,6 +139,16 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     private org.bluezoo.gumdrop.TimerHandle timer;
     private long timerDueNanos;
 
+    // Health check. When something is waiting on the server and nothing has
+    // been heard from it for healthIntervalMs, PING; when nothing is heard
+    // for another interval, the connection is dead. 0: no check.
+    private long healthIntervalMs;
+    private org.bluezoo.gumdrop.TimerHandle healthTimer;
+    // when the server was last heard from, or when something started to wait
+    private long quietSinceNanos;
+    private boolean pingOutstanding;
+    private boolean disconnectedCalled;
+
     /**
      * Creates a Redis client endpoint handler.
      *
@@ -167,6 +177,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // RESP spec — streaming decode of RESP2 wire format
     @Override
     public void receive(ByteBuffer buf) {
+        quietSinceNanos = ticker.nanos();
         try {
             decoder.receive(buf);
             RespValue response;
@@ -195,7 +206,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         closed = true;
         cancelTimer();
         releasePending();
-        handler.onDisconnected();
+        if (!disconnectedCalled) {
+            disconnectedCalled = true;
+            handler.onDisconnected();
+        }
     }
 
     @Override
@@ -223,18 +237,35 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // nothing changes: they are left as they were.
     private void releasePending() {
         RedirectListener listener = redirectListener;
-        if (listener == null || pendingCommands.isEmpty()) {
+        if (pendingCommands.isEmpty()) {
+            return;
+        }
+        if (listener == null) {
+            // nobody else will tell them
+            failPending(L10N.getString("err.not_connected"));
             return;
         }
         List<SentCommand> unanswered = new ArrayList<SentCommand>(pendingCommands.size());
         for (PendingCommand pending : pendingCommands) {
-            if (pending.sent != null && !pending.timedOut) {
+            if (pending.sent != null && !pending.timedOut && !pending.internal) {
                 unanswered.add(pending.sent);
             }
         }
         pendingCommands.clear();
         if (!unanswered.isEmpty()) {
             listener.connectionLost(unanswered);
+        }
+    }
+
+    // Tells the handlers of the commands still waiting that they failed, and
+    // forgets the commands. Those already told of a timeout are not told again.
+    private void failPending(String error) {
+        List<PendingCommand> waiting = new ArrayList<PendingCommand>(pendingCommands);
+        pendingCommands.clear();
+        for (PendingCommand pending : waiting) {
+            if (!pending.timedOut && !pending.internal && pending.callback != null) {
+                dispatchError(pending.callback, error);
+            }
         }
     }
 
@@ -270,6 +301,20 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
      */
     void setMaxPending(int max) {
         this.maxPending = Math.max(0, max);
+    }
+
+    /**
+     * Sets the health check interval: while commands are waiting for a reply
+     * (or the connection is subscribed) and nothing has been heard from the
+     * server for this long, a {@code PING} is sent, and if nothing is heard
+     * for another interval the connection is closed and what was waiting is
+     * failed. A connection whose oldest waiting command is one that blocks
+     * on the server on purpose is not checked.
+     *
+     * @param millis the interval; 0 for no check (the default)
+     */
+    void setHealthCheckMillis(long millis) {
+        this.healthIntervalMs = Math.max(0, millis);
     }
 
     /** Test seam: the clock deadlines are measured against. */
@@ -362,6 +407,11 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         PendingCommand pending = pendingCommands.poll();
         if (pending == null) {
             events().warn("warn.response_no_pending").attr("response", String.valueOf(response)).emit();
+            return;
+        }
+        if (pending.internal) {
+            // the answer to our own PING
+            pingOutstanding = false;
             return;
         }
         if (pending.timedOut) {
@@ -652,6 +702,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                     L10N.getString("err.too_many_pending"), Integer.valueOf(maxPending)));
             return;
         }
+        pending.blocking = CommandTimeouts.blockingMillis(command, text, binary) >= 0;
         pending.deadlineNanos = deadlineFor(pending, command, text, binary, timeoutMs);
         ByteBuffer buf;
         if (binary != null) {
@@ -661,11 +712,86 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         } else {
             buf = encoder.encodeCommand(command);
         }
+        if (pendingCommands.isEmpty()) {
+            // from now on the server owes us an answer
+            quietSinceNanos = ticker.nanos();
+        }
         pendingCommands.add(pending);
         endpoint.send(buf);
         if (pending.deadlineNanos != 0) {
             armFor(pending.deadlineNanos);
         }
+        armHealth();
+    }
+
+    // ── health check ──
+
+    // Whether the server owes us something we should hear about: a reply to
+    // a command (unless the oldest waiting command blocks on purpose), or a
+    // subscription's traffic.
+    private boolean watching() {
+        if (pingOutstanding || pubSubMode) {
+            return true;
+        }
+        PendingCommand head = pendingCommands.peek();
+        return head != null && !head.blocking && !head.internal;
+    }
+
+    private void armHealth() {
+        if (healthIntervalMs <= 0 || closed || endpoint == null || healthTimer != null
+                || !watching()) {
+            return;
+        }
+        long dueNanos = quietSinceNanos + healthIntervalMs * 1000000L;
+        scheduleHealth(Math.max(1, (dueNanos - ticker.nanos() + 999999L) / 1000000L));
+    }
+
+    private void scheduleHealth(long delayMs) {
+        healthTimer = endpoint.scheduleTimer(delayMs, new Runnable() {
+            @Override
+            public void run() {
+                checkHealth();
+            }
+        });
+    }
+
+    private void checkHealth() {
+        healthTimer = null;
+        if (closed) {
+            return;
+        }
+        if (!watching()) {
+            // re-armed by the next command or subscription
+            return;
+        }
+        long quietMs = (ticker.nanos() - quietSinceNanos) / 1000000L;
+        if (quietMs < healthIntervalMs) {
+            // heard from the server since: look again when the interval is up
+            scheduleHealth(Math.max(1, healthIntervalMs - quietMs));
+            return;
+        }
+        if (pingOutstanding) {
+            healthFailed();
+            return;
+        }
+        PendingCommand ping = pending(null, null, "PING", 0);
+        ping.internal = true;
+        pendingCommands.add(ping);
+        pingOutstanding = true;
+        endpoint.send(encoder.encodeCommand("PING"));
+        scheduleHealth(healthIntervalMs);
+    }
+
+    // The server has not answered a PING within an interval: it is not
+    // going to. The connection is closed and what was waiting is failed, so
+    // that callers can fail over and the owner can reconnect.
+    private void healthFailed() {
+        RedirectListener listener = redirectListener;
+        if (listener != null) {
+            listener.healthCheckFailed();
+        }
+        close();
+        disconnected();
     }
 
     // ── timeouts ──
@@ -725,6 +851,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if (timer != null) {
             timer.cancel();
             timer = null;
+        }
+        if (healthTimer != null) {
+            healthTimer.cancel();
+            healthTimer = null;
         }
     }
 
@@ -788,6 +918,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         this.messageHandler = h;
         this.pubSubMode = true;
         sendCommand(null, "SUBSCRIBE", channels);
+        armHealth();
     }
 
     @Override
@@ -798,6 +929,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         // as one so an ordinary unsubscribe to zero does not end the mode
         this.shardCount = Math.max(shardCount, 1);
         sendCommand(null, "SSUBSCRIBE", channels);
+        armHealth();
     }
 
     @Override
@@ -805,6 +937,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         this.messageHandler = h;
         this.pubSubMode = true;
         sendCommand(null, "PSUBSCRIBE", patterns);
+        armHealth();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -830,6 +963,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         long deadlineNanos;
         long timeoutMs;
         boolean timedOut;
+        // waits on the server on purpose (a blocking pop and the like)
+        boolean blocking;
+        // sent by the connection itself (the health check's PING)
+        boolean internal;
 
         PendingCommand(Object callback, SentCommand sent, String subscriptionKind,
                        int confirmationsDue) {
