@@ -175,7 +175,7 @@ public class UpstreamRelayHandlerDeliveryTest {
         handler.setStaleRetentionSeconds(10);
         handler.setStaleAnswerTtl(5);
         handler.setAggressiveNsecEnabled(true);
-        handler.setMetrics(null);
+        handler.attachMetrics(null);
         handler.setTrustAnchor(null);
         handler.dnssecEnabled(true);
         assertTrue(handler.isDnssecEnabled());

@@ -124,6 +124,25 @@ public class DnsServerLifecycleTest {
         }
     }
 
+    /** Handler that records the metrics it is given. */
+    private static final class MetricsHandler implements DnsQueryHandler {
+        DnsServerMetrics attached;
+        int attaches;
+
+        @Override
+        public void handleQuery(DnsMessage query, SelectorLoop loop,
+                                DnsQueryCallback callback) {
+            callback.onResponse(query.createResponse(
+                    Collections.<DnsResourceRecord>emptyList()));
+        }
+
+        @Override
+        public void attachMetrics(DnsServerMetrics metrics) {
+            attached = metrics;
+            attaches++;
+        }
+    }
+
     private static final class CaptureCallback implements DnsQueryCallback {
         DnsMessage response;
         String error;
@@ -244,6 +263,57 @@ public class DnsServerLifecycleTest {
         server.start((Gumdrop) null);
         DnsServerMetrics metrics = server.getMetrics();
         assertNotNull(metrics);
+        server.stop();
+    }
+
+    private static MockListener meteredListener() {
+        MockListener metered = new MockListener();
+        TelemetryConfig tc = new TelemetryConfig();
+        tc.metricsEnabled(true);
+        metered.telemetry = tc;
+        return metered;
+    }
+
+    @Test
+    public void startGivesMetricsToTheActiveHandler() {
+        MetricsHandler handler = new MetricsHandler();
+        DnsServer server = new DnsServer();
+        server.addListener(meteredListener());
+        server.handler(handler);
+        server.start((Gumdrop) null);
+        assertSame(server.getMetrics(), handler.attached);
+        server.stop();
+    }
+
+    @Test
+    public void startGivesMetricsToEveryHandlerInAChain() {
+        MetricsHandler first = new MetricsHandler();
+        MetricsHandler second = new MetricsHandler();
+        MetricsHandler third = new MetricsHandler();
+        DnsServer server = new DnsServer();
+        server.addListener(meteredListener());
+        server.handler(DnsQueryHandlers.chain(first,
+                DnsQueryHandlers.chain(second, third)));
+        server.start((Gumdrop) null);
+        assertNotNull(server.getMetrics());
+        assertSame(server.getMetrics(), first.attached);
+        assertSame(server.getMetrics(), second.attached);
+        assertSame(server.getMetrics(), third.attached);
+        server.stop();
+    }
+
+    @Test
+    public void startGivesNoMetricsWhenTelemetryDoesNotAskForThem() {
+        MetricsHandler handler = new MetricsHandler();
+        MockListener plain = new MockListener();
+        TelemetryConfig off = new TelemetryConfig();
+        off.metricsEnabled(false);
+        plain.telemetry = off;
+        DnsServer server = new DnsServer();
+        server.addListener(plain);
+        server.handler(handler);
+        server.start((Gumdrop) null);
+        assertEquals(0, handler.attaches);
         server.stop();
     }
 

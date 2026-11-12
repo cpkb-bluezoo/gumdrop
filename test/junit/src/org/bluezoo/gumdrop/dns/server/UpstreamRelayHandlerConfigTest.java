@@ -163,7 +163,7 @@ public class UpstreamRelayHandlerConfigTest {
     @Test
     public void cacheHitsAndMissesWithMetrics() throws Exception {
         UpstreamRelayHandler h = new UpstreamRelayHandler();
-        h.setMetrics(new DnsServerMetrics(new TelemetryConfig()));
+        h.attachMetrics(new DnsServerMetrics(new TelemetryConfig()));
         h.start();
         DnsCache cache = h.getCache();
         List<DnsResourceRecord> recs = new ArrayList<DnsResourceRecord>();

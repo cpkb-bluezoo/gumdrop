@@ -23,7 +23,9 @@ package org.bluezoo.gumdrop.dns;
 
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
+import org.bluezoo.gumdrop.telemetry.metrics.Attributes;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
+import org.bluezoo.gumdrop.telemetry.metrics.NumberDataPoint;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.junit.Test;
 
@@ -69,8 +71,8 @@ public class DnsServerMetricsTest {
         metrics.cacheMiss();
         metrics.cacheStaleServed();
         metrics.cacheAggressiveNsecServed();
-        metrics.upstreamQuery(12.0d);
-        metrics.upstreamFailure();
+        metrics.upstreamQuery("192.0.2.1:53", "udp", 12.0d);
+        metrics.upstreamFailure("192.0.2.1:53", "udp");
 
         Set<String> names = collectedNames(config);
         assertTrue(names.contains("dns.server.queries"));
@@ -83,5 +85,51 @@ public class DnsServerMetricsTest {
         assertTrue(names.contains("dns.server.upstream.queries"));
         assertTrue(names.contains("dns.server.upstream.duration"));
         assertTrue(names.contains("dns.server.upstream.failures"));
+    }
+
+    private static MetricData find(TelemetryConfig config, String name) {
+        for (Meter meter : config.getMeters().values()) {
+            for (MetricData d : meter.collect(AggregationTemporality.CUMULATIVE)) {
+                if (d.getName().equals(name)) {
+                    return d;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void upstreamMetricsAreLabelledByUpstreamAndTransport() {
+        TelemetryConfig config = new TelemetryConfig();
+        DnsServerMetrics metrics = new DnsServerMetrics(config);
+        metrics.upstreamQuery("192.0.2.1:53", "udp", 12.0d);
+        metrics.upstreamQuery("192.0.2.1:853", "dot", 7.0d);
+        metrics.upstreamQuery("192.0.2.1:853", "dot", 9.0d);
+        metrics.upstreamFailure("192.0.2.2:853", "doq");
+
+        Attributes udp = Attributes.of("dns.upstream.address", "192.0.2.1:53",
+                "dns.transport", "udp");
+        Attributes dot = Attributes.of("dns.upstream.address", "192.0.2.1:853",
+                "dns.transport", "dot");
+        Attributes doq = Attributes.of("dns.upstream.address", "192.0.2.2:853",
+                "dns.transport", "doq");
+
+        MetricData queries = find(config, "dns.server.upstream.queries");
+        assertEquals(2, queries.getNumberDataPoints().size());
+        for (NumberDataPoint dp : queries.getNumberDataPoints()) {
+            if (dp.getAttributes().equals(udp)) {
+                assertEquals(1L, dp.getLongValue());
+            } else if (dp.getAttributes().equals(dot)) {
+                assertEquals(2L, dp.getLongValue());
+            } else {
+                fail("unexpected " + dp.getAttributes());
+            }
+        }
+        MetricData duration = find(config, "dns.server.upstream.duration");
+        assertEquals(2, duration.getHistogramDataPoints().size());
+        MetricData failures = find(config, "dns.server.upstream.failures");
+        assertEquals(1, failures.getNumberDataPoints().size());
+        assertEquals(doq, failures.getNumberDataPoints().get(0).getAttributes());
+        assertEquals(1L, failures.getNumberDataPoints().get(0).getLongValue());
     }
 }

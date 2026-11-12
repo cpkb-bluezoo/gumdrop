@@ -242,7 +242,15 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         this.trustAnchor = trustAnchor;
     }
 
-    void setMetrics(DnsServerMetrics metrics) {
+    /**
+     * Records this relay's upstream metrics (queries, duration and failures,
+     * labelled by upstream address and transport) to {@code metrics}. The
+     * server calls this when metrics are enabled, whether the relay is the
+     * top-level handler or sits inside a chain or another handler that
+     * forwards {@link DnsQueryHandler#attachMetrics}.
+     */
+    @Override
+    public void attachMetrics(DnsServerMetrics metrics) {
         this.metrics = metrics;
     }
 
@@ -846,10 +854,18 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             fail("err.upstream", cause);
         }
 
+        private String upstreamLabel() {
+            return upstream.getHostString() + ":" + upstream.getPort();
+        }
+
+        private String transportLabel() {
+            return transport.name().toLowerCase(java.util.Locale.ROOT);
+        }
+
         private void succeed(DnsMessage response) {
             if (metrics != null) {
                 double durationMs = (System.nanoTime() - startNanos) / 1_000_000.0;
-                metrics.upstreamQuery(durationMs);
+                metrics.upstreamQuery(upstreamLabel(), transportLabel(), durationMs);
             }
             DnsMessage finalResponse = new DnsMessage(
                     originalQuery.getId(),
@@ -878,7 +894,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 endpoint.close();
             }
             if (metrics != null) {
-                metrics.upstreamFailure();
+                metrics.upstreamFailure(upstreamLabel(), transportLabel());
             }
             LOGGER.warning(MessageFormat.format(L10N.getString(key), args));
             next();
@@ -894,7 +910,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 endpoint.close();
             }
             if (metrics != null) {
-                metrics.upstreamFailure();
+                metrics.upstreamFailure(upstreamLabel(), transportLabel());
             }
             String msg = MessageFormat.format(L10N.getString(key), upstream);
             if (cause != null) {

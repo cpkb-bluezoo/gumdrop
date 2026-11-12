@@ -187,17 +187,27 @@ public class DnsServerMetrics {
     /**
      * Records an upstream query.
      *
+     * @param upstream the upstream server's address, as {@code host:port}
+     * @param transport the transport to it ("udp", "dot" or "doq")
      * @param durationMs the upstream query duration in milliseconds
      */
-    public void upstreamQuery(double durationMs) {
-        upstreamQueries.add(1);
-        upstreamDuration.record(durationMs);
+    public void upstreamQuery(String upstream, String transport, double durationMs) {
+        Attributes attrs = Attributes.of(
+                "dns.upstream.address", upstream,
+                "dns.transport", transport);
+        upstreamQueries.add(1, attrs);
+        upstreamDuration.record(durationMs, attrs);
     }
 
     /**
      * Records a failed upstream query.
+     *
+     * @param upstream the upstream server's address, as {@code host:port}
+     * @param transport the transport to it ("udp", "dot" or "doq")
      */
-    public void upstreamFailure() {
-        upstreamFailures.add(1);
+    public void upstreamFailure(String upstream, String transport) {
+        upstreamFailures.add(1, Attributes.of(
+                "dns.upstream.address", upstream,
+                "dns.transport", transport));
     }
 }

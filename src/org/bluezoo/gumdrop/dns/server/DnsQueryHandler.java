@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQueryContext;
+import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 
 /**
@@ -126,6 +127,18 @@ public interface DnsQueryHandler {
                                          DnsQueryContext context,
                                          DnsQueryCallback callback) {
         return handleNonQueryOpcode(query, loop, callback);
+    }
+
+    /**
+     * Gives the handler the server's metrics, if metrics are enabled, before
+     * the handler is started. A handler that forwards queries upstream
+     * records its upstream metrics here; a handler that holds other
+     * handlers must pass the metrics on to them. {@link DnsQueryHandlers#chain}
+     * does so for its members. The default does nothing.
+     *
+     * @param metrics the server's metrics, never null
+     */
+    default void attachMetrics(DnsServerMetrics metrics) {
     }
 
     /**

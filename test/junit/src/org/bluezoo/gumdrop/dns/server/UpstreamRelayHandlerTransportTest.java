@@ -189,7 +189,7 @@ public class UpstreamRelayHandlerTransportTest {
     public void testUdpAnswerRestoresClientIdAndRecordsMetrics() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
         tc.metricsEnabled(true);
-        handler.setMetrics(new DnsServerMetrics(tc));
+        handler.attachMetrics(new DnsServerMetrics(tc));
         handler.setUpstreamServers("192.0.2.1:5300");
         Capture c = ask("www.example.com");
         assertEquals(1, udp.handlers.size());
@@ -207,6 +207,48 @@ public class UpstreamRelayHandlerTransportTest {
         // a late duplicate is ignored
         deliver(udp.handlers.get(0), answerTo(sent, 0));
         assertEquals(1, c.calls);
+    }
+
+    private static org.bluezoo.gumdrop.telemetry.metrics.MetricData metric(
+            TelemetryConfig tc, String name) {
+        for (org.bluezoo.gumdrop.telemetry.metrics.Meter meter : tc.getMeters().values()) {
+            for (org.bluezoo.gumdrop.telemetry.metrics.MetricData d : meter.collect(
+                    org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality.CUMULATIVE)) {
+                if (d.getName().equals(name)) {
+                    return d;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void testRelayBehindAChainReportsLabelledUpstreamMetrics() throws Exception {
+        TelemetryConfig tc = new TelemetryConfig();
+        tc.metricsEnabled(true);
+        DnsQueryHandler declining = new DnsQueryHandler() {
+            @Override
+            public void handleQuery(DnsMessage q, SelectorLoop l, DnsQueryCallback cb) {
+                cb.onResponse(q.createResponse(
+                        java.util.Collections.<DnsResourceRecord>emptyList()));
+            }
+        };
+        DnsQueryHandler chain = DnsQueryHandlers.chain(declining, handler);
+        chain.attachMetrics(new DnsServerMetrics(tc));
+        handler.setUpstreamServers("192.0.2.1:5300");
+        Capture c = new Capture();
+        chain.handleQuery(DnsMessage.createQuery(21, "www.example.com", DnsType.A), loop, c);
+        assertEquals(1, udp.handlers.size());
+        deliver(udp.handlers.get(0), answerTo(sentQuery(udp.endpoints.get(0)), 0));
+        assertEquals(1, c.calls);
+
+        org.bluezoo.gumdrop.telemetry.metrics.MetricData queries =
+                metric(tc, "dns.server.upstream.queries");
+        assertNotNull(queries);
+        assertEquals(1, queries.getNumberDataPoints().size());
+        assertEquals(org.bluezoo.gumdrop.telemetry.metrics.Attributes.of(
+                "dns.upstream.address", "192.0.2.1:5300", "dns.transport", "udp"),
+                queries.getNumberDataPoints().get(0).getAttributes());
     }
 
     @Test
@@ -245,7 +287,7 @@ public class UpstreamRelayHandlerTransportTest {
         handler.setUpstreamServers("192.0.2.1 192.0.2.2 192.0.2.3 192.0.2.4 192.0.2.5");
         TelemetryConfig tc = new TelemetryConfig();
         tc.metricsEnabled(true);
-        handler.setMetrics(new DnsServerMetrics(tc));
+        handler.attachMetrics(new DnsServerMetrics(tc));
         Capture c = ask("www.example.com");
 
         // 1: malformed datagram

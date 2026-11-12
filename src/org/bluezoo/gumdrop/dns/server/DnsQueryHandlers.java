@@ -72,6 +72,12 @@ public final class DnsQueryHandlers {
         }
 
         @Override
+        public void attachMetrics(org.bluezoo.gumdrop.dns.DnsServerMetrics metrics) {
+            first.attachMetrics(metrics);
+            second.attachMetrics(metrics);
+        }
+
+        @Override
         public void start() {
             first.start();
             second.start();

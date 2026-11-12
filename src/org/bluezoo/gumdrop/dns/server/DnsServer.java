@@ -252,8 +252,8 @@ public class DnsServer implements Server {
         }
 
         activeHandler = resolveActiveHandler();
-        if (metrics != null && activeHandler instanceof UpstreamRelayHandler) {
-            ((UpstreamRelayHandler) activeHandler).setMetrics(metrics);
+        if (metrics != null) {
+            activeHandler.attachMetrics(metrics);
         }
         activeHandler.start(gumdrop);
 
