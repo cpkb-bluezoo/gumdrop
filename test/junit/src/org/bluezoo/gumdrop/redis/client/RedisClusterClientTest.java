@@ -184,6 +184,56 @@ public class RedisClusterClientTest {
         assertEquals("[invalidate]", kinds.toString());
     }
 
+    private static final class Errors implements MessageHandler {
+        final List<String> errors = new ArrayList<String>();
+
+        @Override
+        public void handleMessage(String channel, byte[] message) {
+        }
+
+        @Override
+        public void handlePatternMessage(String pattern, String channel, byte[] message) {
+        }
+
+        @Override
+        public void handleSubscribed(String channel, int count) {
+        }
+
+        @Override
+        public void handleUnsubscribed(String channel, int count) {
+        }
+
+        @Override
+        public void handlePatternSubscribed(String pattern, int count) {
+        }
+
+        @Override
+        public void handlePatternUnsubscribed(String pattern, int count) {
+        }
+
+        @Override
+        public void handleError(String error) {
+            errors.add(error);
+        }
+    }
+
+    @Test
+    public void keyspaceSubscriptionNeedsAConnectedClient() {
+        Errors h = new Errors();
+        client.subscribeKeyspace("__keyspace@0__:*", h);
+        assertEquals(1, h.errors.size());
+    }
+
+    @Test
+    public void keyspaceSubscriptionReachesEveryMaster() {
+        discover();
+        int before = connector.requests.size();
+        Errors h = new Errors();
+        client.subscribeKeyspace("__keyspace@0__:*", h);
+        assertEquals(before + 2, connector.requests.size());
+        assertTrue(h.errors.isEmpty());
+    }
+
     @Test
     public void theSessionRoutesBySlot() {
         discover();

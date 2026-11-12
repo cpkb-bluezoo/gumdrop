@@ -25,9 +25,11 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -586,5 +588,207 @@ public class RedisClusterIntegrationTest {
         for (String channel : channels) {
             assertTrue(got.toString(), got.contains("smessage:" + channel + ":m-" + channel));
         }
+    }
+
+    // ── keyspace notifications ──
+
+    /** Addresses of the cluster's nodes, split by role, from CLUSTER NODES. */
+    private List<String[]> clusterNodes() throws Exception {
+        String text = command("CLUSTER", "NODES").get(0).asString();
+        List<String[]> out = new ArrayList<String[]>();
+        for (String line : text.split("\n")) {
+            String[] f = line.trim().split(" ");
+            if (f.length > 2) {
+                String address = f[1].substring(0, f[1].indexOf('@'));
+                out.add(new String[] { address, f[2].contains("slave") ? "replica" : "primary" });
+            }
+        }
+        return out;
+    }
+
+    /** One command to one node over its own connection; returns the first reply line. */
+    private static String raw(String address, String... parts) throws IOException {
+        int colon = address.lastIndexOf(':');
+        try (Socket socket = new Socket(address.substring(0, colon),
+                Integer.parseInt(address.substring(colon + 1)))) {
+            socket.setSoTimeout(10000);
+            StringBuilder sb = new StringBuilder("*" + parts.length + "\r\n");
+            for (String p : parts) {
+                sb.append('$').append(p.getBytes(StandardCharsets.UTF_8).length).append("\r\n")
+                        .append(p).append("\r\n");
+            }
+            socket.getOutputStream().write(sb.toString().getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
+            java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    socket.getInputStream(), StandardCharsets.UTF_8));
+            return in.readLine();
+        }
+    }
+
+    /** Switches keyspace notifications on, on every node (replicas may be promoted later). */
+    private void enableNotifications() throws Exception {
+        for (String[] node : clusterNodes()) {
+            assertEquals("+OK", raw(node[0], "CONFIG", "SET", "notify-keyspace-events", "KEA"));
+        }
+    }
+
+    /** Collects keyspace events; waiters block on a monitor, not by sleeping. */
+    private static final class KeyspaceEvents implements MessageHandler {
+        private final Object lock = new Object();
+        private final Set<String> keys = new HashSet<String>();
+        private int subscribed;
+        final List<String> errors = java.util.Collections.synchronizedList(new ArrayList<String>());
+
+        @Override
+        public void handleMessage(String channel, byte[] message) {
+        }
+
+        @Override
+        public void handlePatternMessage(String pattern, String channel, byte[] message) {
+            if (new String(message, StandardCharsets.UTF_8).equals("set")) {
+                synchronized (lock) {
+                    keys.add(channel.substring(channel.indexOf(':') + 1));
+                    lock.notifyAll();
+                }
+            }
+        }
+
+        @Override
+        public void handleSubscribed(String channel, int count) {
+        }
+
+        @Override
+        public void handleUnsubscribed(String channel, int count) {
+        }
+
+        @Override
+        public void handlePatternSubscribed(String pattern, int count) {
+            synchronized (lock) {
+                subscribed++;
+                lock.notifyAll();
+            }
+        }
+
+        @Override
+        public void handlePatternUnsubscribed(String pattern, int count) {
+        }
+
+        @Override
+        public void handleError(String error) {
+            errors.add(error);
+        }
+
+        int subscribed() {
+            synchronized (lock) {
+                return subscribed;
+            }
+        }
+
+        /** Waits until at least {@code n} subscriptions were confirmed. */
+        boolean awaitSubscribed(int n, long seconds) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+            synchronized (lock) {
+                while (subscribed < n) {
+                    long left = deadline - System.nanoTime();
+                    if (left <= 0) {
+                        return false;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(lock, left);
+                }
+                return true;
+            }
+        }
+
+        /** Waits until a {@code set} event was seen for every key. */
+        boolean awaitKeys(List<String> wanted, long seconds) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+            synchronized (lock) {
+                while (!keys.containsAll(wanted)) {
+                    long left = deadline - System.nanoTime();
+                    if (left <= 0) {
+                        return false;
+                    }
+                    TimeUnit.NANOSECONDS.timedWait(lock, left);
+                }
+                return true;
+            }
+        }
+
+        int seen() {
+            synchronized (lock) {
+                return keys.size();
+            }
+        }
+    }
+
+    private int primaryCount() throws Exception {
+        int primaries = 0;
+        for (String[] node : clusterNodes()) {
+            if (node[1].equals("primary")) {
+                primaries++;
+            }
+        }
+        return primaries;
+    }
+
+    private KeyspaceEvents subscribeKeyspace() throws Exception {
+        enableNotifications();
+        final KeyspaceEvents events = new KeyspaceEvents();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                client.subscribeKeyspace("__keyspace@0__:" + prefix + "*", events);
+            }
+        });
+        int primaries = primaryCount();
+        assertTrue("subscribed on every primary; errors " + events.errors,
+                events.awaitSubscribed(primaries, TIMEOUT_SECONDS));
+        return events;
+    }
+
+    private List<String> writeKeys(String stem, int count) throws Exception {
+        List<String> keys = new ArrayList<String>();
+        for (int i = 0; i < count; i++) {
+            String key = prefix + stem + i;
+            keys.add(key);
+            set(key, "v");
+        }
+        return keys;
+    }
+
+    @Test
+    public void keyspaceEventsArriveFromEveryShard() throws Exception {
+        KeyspaceEvents events = subscribeKeyspace();
+        List<String> keys = writeKeys("k", 40);
+        assertTrue("seen " + events.seen() + " of " + keys.size(),
+                events.awaitKeys(keys, TIMEOUT_SECONDS));
+    }
+
+    @Test
+    public void keyspaceEventsContinueAfterAFailover() throws Exception {
+        KeyspaceEvents events = subscribeKeyspace();
+        String replica = null;
+        for (String[] node : clusterNodes()) {
+            if (node[1].equals("replica")) {
+                replica = node[0];
+                break;
+            }
+        }
+        assertNotNull("the cluster has a replica to promote", replica);
+        final int before = events.subscribed();
+        assertEquals("+OK", raw(replica, "CLUSTER", "FAILOVER"));
+        // The command returns before the promotion. Writes to the slots that
+        // moved are redirected, which makes the client refresh its topology
+        // and subscribe to the new primary; keep writing until it has.
+        boolean followed = false;
+        for (int round = 0; round < 20 && !followed; round++) {
+            writeKeys("f" + round + "-", 40);
+            followed = events.awaitSubscribed(before + 1, 1);
+        }
+        assertTrue("the new primary was subscribed to; errors " + events.errors, followed);
+        // and events from every shard flow again
+        List<String> keys = writeKeys("after", 40);
+        assertTrue("seen " + events.seen() + " events; errors " + events.errors,
+                events.awaitKeys(keys, TIMEOUT_SECONDS));
     }
 }

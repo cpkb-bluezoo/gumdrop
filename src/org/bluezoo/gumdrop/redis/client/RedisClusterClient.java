@@ -193,6 +193,34 @@ public class RedisClusterClient {
         return this;
     }
 
+    /**
+     * Subscribes to keyspace or keyevent notifications across the cluster.
+     * Redis publishes them only on the node that owns the key, so this
+     * subscribes the pattern with {@code PSUBSCRIBE} on a dedicated
+     * connection to every primary, adds the primaries found by a topology
+     * refresh, and drops those that leave. Events reach the handler as
+     * pattern messages. The subscription lasts until the client is closed.
+     *
+     * <p>The cluster's nodes must have notifications switched on
+     * ({@code notify-keyspace-events}, for example {@code KEA}); the client
+     * does not change server configuration.
+     *
+     * <p>Call on the client's loop, for example from
+     * {@link RedisClusterReady#handleReady}. If the client is not connected
+     * the handler's {@code handleError} is called.
+     *
+     * @param pattern the pattern, for example {@code __keyspace@0__:user:*}
+     * @param handler receives the events
+     */
+    public void subscribeKeyspace(String pattern, MessageHandler handler) {
+        RedisClusterSession current = session;
+        if (current == null || closed) {
+            handler.handleError(RedisClientProtocolHandler.L10N.getString("err.not_connected"));
+            return;
+        }
+        current.subscribeKeyspace(pattern, handler);
+    }
+
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }

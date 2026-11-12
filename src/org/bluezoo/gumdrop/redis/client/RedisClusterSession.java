@@ -108,6 +108,13 @@ final class RedisClusterSession extends AbstractRedisSession {
     // one per node for the sharded channels that node owns.
     private PushHandler pushHandler;
     private Subscriber plain;
+
+    // Keyspace notifications are published only on the node that owns the
+    // key, so a keyspace subscription needs a connection to every primary,
+    // kept in step with the topology.
+    private final List<KeyspaceInterest> keyspace = new ArrayList<KeyspaceInterest>();
+    private final Map<ClusterNode, Subscriber> keyspaceSubscribers =
+            new HashMap<ClusterNode, Subscriber>();
     private final Map<ClusterNode, Subscriber> shardSubscribers =
             new HashMap<ClusterNode, Subscriber>();
 
@@ -224,6 +231,19 @@ final class RedisClusterSession extends AbstractRedisSession {
             if (!keep.contains(sub.node)) {
                 shardSubscribers.remove(sub.node);
                 sub.retire();
+            }
+        }
+        if (!keyspace.isEmpty()) {
+            for (Subscriber sub : new ArrayList<Subscriber>(keyspaceSubscribers.values())) {
+                if (!keep.contains(sub.node)) {
+                    keyspaceSubscribers.remove(sub.node);
+                    sub.shutdown();
+                }
+            }
+            for (ClusterNode node : keep) {
+                if (!keyspaceSubscribers.containsKey(node)) {
+                    subscribeKeyspaceOn(node);
+                }
             }
         }
     }
@@ -494,6 +514,11 @@ final class RedisClusterSession extends AbstractRedisSession {
             sub.shutdown();
         }
         shardSubscribers.clear();
+        for (Subscriber sub : new ArrayList<Subscriber>(keyspaceSubscribers.values())) {
+            sub.shutdown();
+        }
+        keyspaceSubscribers.clear();
+        keyspace.clear();
     }
 
     @Override
@@ -518,6 +543,63 @@ final class RedisClusterSession extends AbstractRedisSession {
             if (sub.handler != null) {
                 sub.handler.setPushHandler(handler);
             }
+        }
+        for (Subscriber sub : keyspaceSubscribers.values()) {
+            if (sub.handler != null) {
+                sub.handler.setPushHandler(handler);
+            }
+        }
+    }
+
+    // ── keyspace notifications ──
+
+    /** A keyspace pattern and who wants its events. */
+    private static final class KeyspaceInterest {
+        final String pattern;
+        final MessageHandler handler;
+
+        KeyspaceInterest(String pattern, MessageHandler handler) {
+            this.pattern = pattern;
+            this.handler = handler;
+        }
+    }
+
+    /**
+     * Subscribes to a pattern of keyspace or keyevent notifications on every
+     * primary, including those that join the cluster later, and stops
+     * listening to those that leave. Events arrive as pattern messages on
+     * the handler. Lasts until the session is closed.
+     *
+     * <p>The servers must have notifications enabled
+     * ({@code notify-keyspace-events}); this does not change their
+     * configuration.
+     *
+     * @param pattern the pattern, for example {@code __keyspace@0__:user:*}
+     * @param handler receives the events, and any error
+     */
+    void subscribeKeyspace(String pattern, MessageHandler handler) {
+        if (refuseIfClosed(handler)) {
+            return;
+        }
+        keyspace.add(new KeyspaceInterest(pattern, handler));
+        for (ClusterNode node : new ArrayList<ClusterNode>(map.nodes())) {
+            Subscriber sub = keyspaceSubscribers.get(node);
+            if (sub == null) {
+                subscribeKeyspaceOn(node);
+            } else {
+                sub.add(handler, new String[] { pattern }, true);
+            }
+        }
+    }
+
+    // A new subscriber for one primary, carrying every pattern asked for.
+    private void subscribeKeyspaceOn(ClusterNode node) {
+        Subscriber sub = new Subscriber(false);
+        sub.node = node;
+        sub.pinned = true;
+        keyspaceSubscribers.put(node, sub);
+        for (KeyspaceInterest interest : keyspace) {
+            sub.add(interest.handler, new String[] { interest.pattern }, true);
         }
     }
 
@@ -676,6 +758,8 @@ final class RedisClusterSession extends AbstractRedisSession {
         private boolean connecting;
         private boolean retryScheduled;
         private boolean stopped;
+        // a connection to one particular node, not moved to another
+        private boolean pinned;
         private int failures;
 
         Subscriber(boolean shard) {
@@ -788,7 +872,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             if (ready || connecting || retryScheduled || stopped || closed) {
                 return;
             }
-            if (!shard && (node == null || !map.nodes().contains(node))) {
+            if (!shard && !pinned && (node == null || !map.nodes().contains(node))) {
                 node = anyNode();
                 if (node == null) {
                     failAll(NO_NODES);

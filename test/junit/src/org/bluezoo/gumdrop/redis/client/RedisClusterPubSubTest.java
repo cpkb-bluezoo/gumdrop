@@ -697,4 +697,109 @@ public class RedisClusterPubSubTest {
         reply(up(connector.requests.get(1)), INVALIDATE);
         assertEquals(2, pushes.kinds.size());
     }
+
+    // ── keyspace notifications ──
+
+    private static final String PATTERN = "__keyspace@0__:*";
+
+    private static SlotMap fourMasters() {
+        return SlotMap.parse(arr(range(0, 4095, 7000), range(4096, 8191, 7001),
+                range(8192, 12287, 7002), range(12288, 16383, 7003)), "127.0.0.1");
+    }
+
+    private void refreshTo(SlotMap fresh) {
+        // a connection that cannot be made asks for a fresh topology
+        session.get("foo", new Ignore());
+        connector.forAddress(C).get(connector.forAddress(C).size() - 1)
+                .listener.failed(new java.io.IOException("refused"));
+        refresher.requests.get(refresher.requests.size() - 1).refreshed(fresh);
+    }
+
+    @Test
+    public void keyspaceSubscriptionConnectsToEveryPrimary() {
+        session.subscribeKeyspace(PATTERN, new Rec());
+        assertEquals(1, connector.forAddress(A).size());
+        assertEquals(1, connector.forAddress(B).size());
+        assertEquals(1, connector.forAddress(C).size());
+        assertEquals(resp("PSUBSCRIBE", PATTERN), written(up(A, 0)));
+        assertEquals(resp("PSUBSCRIBE", PATTERN), written(up(B, 0)));
+        assertEquals(resp("PSUBSCRIBE", PATTERN), written(up(C, 0)));
+    }
+
+    @Test
+    public void eventsFromEveryPrimaryReachTheHandler() {
+        Rec h = new Rec();
+        session.subscribeKeyspace(PATTERN, h);
+        Request a = up(A, 0);
+        up(B, 0);
+        Request c = up(C, 0);
+        reply(a, "*4\r\n$8\r\npmessage\r\n$16\r\n__keyspace@0__:*\r\n$18\r\n__keyspace@0__:bar\r\n$3\r\nset\r\n");
+        reply(c, "*4\r\n$8\r\npmessage\r\n$16\r\n__keyspace@0__:*\r\n$18\r\n__keyspace@0__:foo\r\n$3\r\ndel\r\n");
+        assertEquals("[pmessage:__keyspace@0__:*:__keyspace@0__:bar:set, "
+                + "pmessage:__keyspace@0__:*:__keyspace@0__:foo:del]", h.events.toString());
+    }
+
+    @Test
+    public void aLaterPatternIsSubscribedOnEveryPrimary() {
+        session.subscribeKeyspace(PATTERN, new Rec());
+        Request a = up(A, 0);
+        up(B, 0);
+        up(C, 0);
+        session.subscribeKeyspace("__keyevent@0__:expired", new Rec());
+        assertTrue(written(a), written(a).endsWith(resp("PSUBSCRIBE", "__keyevent@0__:expired")));
+    }
+
+    @Test
+    public void aPrimaryFoundByARefreshIsSubscribedToo() {
+        session.subscribeKeyspace(PATTERN, new Rec());
+        up(A, 0);
+        up(B, 0);
+        Request c = up(C, 0);
+        refreshTo(fourMasters());
+        assertEquals(1, connector.forAddress("127.0.0.1:7003").size());
+        Request d = upLatest("127.0.0.1:7003");
+        assertEquals(resp("PSUBSCRIBE", PATTERN), written(d));
+        assertTrue(c.endpoint.open);
+    }
+
+    @Test
+    public void aPrimaryThatHasLeftIsDropped() {
+        session.subscribeKeyspace(PATTERN, new Rec());
+        up(A, 0);
+        Request b = up(B, 0);
+        Request c = up(C, 0);
+        refreshTo(SlotMap.parse(arr(range(0, 8000, 7000), range(8001, 16383, 7001)), "127.0.0.1"));
+        assertFalse("C's subscription is closed", c.endpoint.open);
+        assertTrue(b.endpoint.open);
+        int before = connector.requests.size();
+        lose(c);
+        // nothing restores it
+        for (Task t : new ArrayList<Task>(scheduler.tasks)) {
+            t.task.run();
+        }
+        assertEquals(before, connector.forAddress(C).size() + connector.forAddress(A).size()
+                + connector.forAddress(B).size());
+    }
+
+    @Test
+    public void aLostPrimaryConnectionIsRestoredAndResubscribed() {
+        session.subscribeKeyspace(PATTERN, new Rec());
+        up(A, 0);
+        up(B, 0);
+        Request c = up(C, 0);
+        lose(c);
+        scheduler.runLast();
+        assertEquals(2, connector.forAddress(C).size());
+        assertEquals(resp("PSUBSCRIBE", PATTERN), written(up(C, 1)));
+    }
+
+    @Test
+    public void keyspaceSubscriptionOnAClosedSessionIsAnError() {
+        session.close();
+        Rec h = new Rec();
+        session.subscribeKeyspace(PATTERN, h);
+        assertEquals(1, h.events.size());
+        assertTrue(h.events.get(0), h.events.get(0).startsWith("error:"));
+        assertEquals(0, connector.requests.size());
+    }
 }

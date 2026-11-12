@@ -21,6 +21,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     their slot between nodes. `RedisSession` gains `ssubscribe`, `sunsubscribe`
     and `spublish`, and `MessageHandler` gains default shard callbacks.
   - Replica reads are not supported. Closes #586.
+- **Redis RESP3 on cluster connections, a push listener and cluster keyspace
+  notifications.**
+  - `RedisClusterClient.protocol(3)` and `RedisClient.protocol(3)` send
+    `HELLO 3` (with the credentials, if any) on every connection before it is
+    reported ready: every node connection, the Pub/Sub connections, and those
+    opened after a redirect or a topology refresh. A rejected HELLO fails the
+    connection.
+  - `PushHandler` receives the RESP3 pushes that are not Pub/Sub deliveries,
+    such as the `invalidate` push of client-side caching (`CLIENT TRACKING`),
+    with the payload converted to plain Java values. Set it with
+    `RedisSession.setPushHandler` or `RedisClusterClient.pushHandler`. It is
+    called on the connection's selector loop.
+  - `RedisClusterClient.subscribeKeyspace(pattern, handler)` subscribes to
+    keyspace or keyevent notifications on every primary, adds primaries found
+    by a topology refresh and drops those that leave. The servers must have
+    `notify-keyspace-events` enabled; the client does not configure them.
+  - Closes #590.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit
