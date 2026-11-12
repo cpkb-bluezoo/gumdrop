@@ -741,7 +741,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         void start() {
             if (transport != Transport.UDP) {
-                encryptedUpstream(index, loop).query(queryData, upstreamId,
+                encryptedUpstream(index, loop).query(queryData,
                         upstreamQuery.getQuestions(),
                         new EncryptedUpstream.Result() {
                             @Override

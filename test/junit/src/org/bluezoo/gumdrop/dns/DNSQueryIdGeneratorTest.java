@@ -57,4 +57,34 @@ public class DNSQueryIdGeneratorTest {
             assertTrue(id >= 1 && id <= 65535);
         }
     }
+
+    @Test
+    public void tryAllocateFindsTheOnlyFreeIdWhenAlmostAllAreInUse() {
+        Set<Integer> inUse = new HashSet<Integer>();
+        for (int id = 1; id <= 65535; id++) {
+            if (id != 40000) {
+                inUse.add(Integer.valueOf(id));
+            }
+        }
+        assertEquals(40000, DnsQueryIdGenerator.tryAllocate(inUse));
+    }
+
+    @Test
+    public void tryAllocateReportsExhaustionInsteadOfLooping() {
+        Set<Integer> inUse = new HashSet<Integer>();
+        for (int id = 1; id <= 65535; id++) {
+            inUse.add(Integer.valueOf(id));
+        }
+        assertEquals(-1, DnsQueryIdGenerator.tryAllocate(inUse));
+    }
+
+    @Test
+    public void tryAllocateNeverReturnsZeroOrAnIdInUse() {
+        Set<Integer> inUse = new HashSet<Integer>();
+        for (int i = 0; i < 5000; i++) {
+            int id = DnsQueryIdGenerator.tryAllocate(inUse);
+            assertTrue(id >= 1 && id <= 65535);
+            assertTrue(inUse.add(Integer.valueOf(id)));
+        }
+    }
 }

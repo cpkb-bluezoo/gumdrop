@@ -48,13 +48,40 @@ public final class DnsQueryIdGenerator {
      * @throws IllegalStateException if no ID is available
      */
     public static int allocate(Set<Integer> inUse) {
-        for (int attempt = 0; attempt < 65536; attempt++) {
+        int id = tryAllocate(inUse);
+        if (id < 0) {
+            throw new IllegalStateException("No available DNS query IDs");
+        }
+        return id;
+    }
+
+    /**
+     * Allocates a random query ID in 1..65535 that is not in {@code inUse},
+     * or reports that there is none. A few random probes find a free ID
+     * quickly while few are in use; when most are, the IDs are scanned from
+     * a random start, so the cost stays bounded however full the set is.
+     *
+     * @param inUse the IDs already in use
+     * @return a free ID, or -1 if all 65535 are in use
+     */
+    public static int tryAllocate(Set<Integer> inUse) {
+        if (inUse.size() >= 0xFFFF) {
+            return -1;
+        }
+        for (int attempt = 0; attempt < 16; attempt++) {
             int id = RANDOM.nextInt(0xFFFF) + 1;
-            if (!inUse.contains(id)) {
+            if (!inUse.contains(Integer.valueOf(id))) {
                 return id;
             }
         }
-        throw new IllegalStateException("No available DNS query IDs");
+        int start = RANDOM.nextInt(0xFFFF);
+        for (int i = 0; i < 0xFFFF; i++) {
+            int id = (start + i) % 0xFFFF + 1;
+            if (!inUse.contains(Integer.valueOf(id))) {
+                return id;
+            }
+        }
+        return -1;
     }
 
     /**

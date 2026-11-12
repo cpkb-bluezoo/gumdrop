@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.dns.server;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,6 +38,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
@@ -97,6 +99,7 @@ final class EncryptedUpstream {
     private Connection current;
     private int consecutiveFailures;
     private long retryNotBefore;
+    private int idExhaustions;
 
     EncryptedUpstream(UpstreamRelayHandler.Transport kind,
                       InetSocketAddress server, int port, SelectorLoop loop,
@@ -113,16 +116,27 @@ final class EncryptedUpstream {
     /**
      * Sends a query and reports the matching response, or null if the
      * connection failed, the query timed out, or the answer did not match.
-     * May be called from any thread.
+     * The connection gives the query an ID of its own, different from that
+     * of every other query in flight on it, so the {@code data} may carry
+     * any ID; it is replaced on the wire. May be called from any thread.
      */
-    void query(final byte[] data, final int id,
-               final List<DnsQuestion> questions, final Result result) {
+    void query(final byte[] data, final List<DnsQuestion> questions, final Result result) {
         loop.invokeLater(new Runnable() {
             @Override
             public void run() {
-                queryOnLoop(data, id, questions, result);
+                queryOnLoop(data, questions, result);
             }
         });
+    }
+
+    /** How many times a query had to wait because every ID was in use; for tests and metrics. */
+    int idExhaustions() {
+        return idExhaustions;
+    }
+
+    /** How many queries are in flight; for tests and metrics. */
+    int inFlight() {
+        return current != null ? current.pending.size() : 0;
     }
 
     /** Closes the connection, failing anything outstanding. May be called from any thread. */
@@ -137,7 +151,7 @@ final class EncryptedUpstream {
         });
     }
 
-    private void queryOnLoop(byte[] data, int id,
+    private void queryOnLoop(byte[] data,
                              List<DnsQuestion> questions, Result result) {
         if (current == null) {
             if (clock.millis() < retryNotBefore) {
@@ -151,7 +165,7 @@ final class EncryptedUpstream {
                 return;
             }
         }
-        current.add(new Pending(id, data, questions, result));
+        current.add(new Pending(data, questions, result));
     }
 
     private void recordFailure() {
@@ -164,14 +178,14 @@ final class EncryptedUpstream {
     }
 
     private static final class Pending {
-        final int id;
-        final byte[] data;
+        // assigned by the connection when the query is sent
+        int id;
+        byte[] data;
         final List<DnsQuestion> questions;
         final Result result;
         TimerHandle timer;
 
-        Pending(int id, byte[] data, List<DnsQuestion> questions, Result result) {
-            this.id = id;
+        Pending(byte[] data, List<DnsQuestion> questions, Result result) {
             this.data = data;
             this.questions = questions;
             this.result = result;
@@ -186,6 +200,8 @@ final class EncryptedUpstream {
         private boolean dead;
         private final Map<Integer, Pending> pending = new HashMap<Integer, Pending>();
         private final List<Pending> waiting = new ArrayList<Pending>();
+        // queries held back because all 65535 IDs are in use
+        private final ArrayDeque<Pending> awaitingId = new ArrayDeque<Pending>();
 
         boolean open() {
             try {
@@ -202,20 +218,62 @@ final class EncryptedUpstream {
         }
 
         void add(final Pending p) {
-            pending.put(Integer.valueOf(p.id), p);
             p.timer = transport.scheduleTimer(timeoutMs, new Runnable() {
                 @Override
                 public void run() {
-                    if (pending.remove(Integer.valueOf(p.id)) != null) {
+                    boolean held = awaitingId.remove(p);
+                    boolean flying = pending.get(Integer.valueOf(p.id)) == p;
+                    if (flying) {
+                        pending.remove(Integer.valueOf(p.id));
                         waiting.remove(p);
+                    }
+                    if (held || flying) {
                         p.result.onResult(null);
+                        sendHeldBack();
                     }
                 }
             });
+            if (!assignId(p)) {
+                idExhaustions++;
+                awaitingId.add(p);
+                return;
+            }
+            dispatch(p);
+        }
+
+        // Gives the query an ID no other query in flight on this connection
+        // has, and writes it into the query. False if all are in use.
+        private boolean assignId(Pending p) {
+            int id = DnsQueryIdGenerator.tryAllocate(pending.keySet());
+            if (id < 0) {
+                return false;
+            }
+            byte[] wire = p.data.clone();
+            wire[0] = (byte) (id >> 8);
+            wire[1] = (byte) id;
+            p.id = id;
+            p.data = wire;
+            pending.put(Integer.valueOf(id), p);
+            return true;
+        }
+
+        private void dispatch(Pending p) {
             if (ready) {
                 transport.send(ByteBuffer.wrap(p.data));
             } else {
                 waiting.add(p);
+            }
+        }
+
+        // IDs have been freed: let the queries held back for want of one go.
+        private void sendHeldBack() {
+            while (!awaitingId.isEmpty() && !dead) {
+                Pending next = awaitingId.peek();
+                if (!assignId(next)) {
+                    return;
+                }
+                awaitingId.poll();
+                dispatch(next);
             }
         }
 
@@ -258,10 +316,12 @@ final class EncryptedUpstream {
             if (!response.isResponse()
                     || !response.getQuestions().equals(p.questions)) {
                 p.result.onResult(null);
+                sendHeldBack();
                 return;
             }
             consecutiveFailures = 0;
             p.result.onResult(response);
+            sendHeldBack();
         }
 
         @Override
@@ -293,7 +353,9 @@ final class EncryptedUpstream {
                 transport.close();
             }
             List<Pending> failed = new ArrayList<Pending>(pending.values());
+            failed.addAll(awaitingId);
             pending.clear();
+            awaitingId.clear();
             waiting.clear();
             for (int i = 0; i < failed.size(); i++) {
                 Pending p = failed.get(i);

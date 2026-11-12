@@ -28,6 +28,8 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -413,5 +415,103 @@ public class UpstreamRelayHandlerEncryptedTest {
         MockTransport t = source.created.get(0);
         handler.stop();
         assertTrue(t.closed);
+    }
+
+    // ── query IDs on a connection ──
+
+    private static int idOf(byte[] wire) {
+        return ((wire[0] & 0xFF) << 8) | (wire[1] & 0xFF);
+    }
+
+    @Test
+    public void everyQueryInFlightOnAConnectionHasItsOwnId() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        int count = 3000;
+        for (int i = 0; i < count; i++) {
+            ask(100 + (i % 1000), "q" + i + ".example.com");
+        }
+        MockTransport t = source.created.get(0);
+        t.handler.onConnected();
+        assertEquals(count, t.sent.size());
+        Set<Integer> ids = new HashSet<Integer>();
+        for (byte[] wire : t.sent) {
+            int id = idOf(wire);
+            assertTrue("id " + id + " is a valid, non-zero ID", id >= 1 && id <= 65535);
+            assertTrue("id " + id + " is not used twice", ids.add(Integer.valueOf(id)));
+        }
+    }
+
+    @Test
+    public void noQueryInFlightIsOverwrittenSoEveryOneIsAnswered() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        int count = 3000;
+        List<Capture> captures = new ArrayList<Capture>();
+        for (int i = 0; i < count; i++) {
+            captures.add(ask(1 + i, "q" + i + ".example.com"));
+        }
+        MockTransport t = source.created.get(0);
+        t.handler.onConnected();
+        for (int i = 0; i < count; i++) {
+            t.handler.onReceive(answer(t.sentQuery(i), "192.0.2.9").serialize());
+        }
+        for (int i = 0; i < count; i++) {
+            Capture c = captures.get(i);
+            assertEquals("query " + i + " answered once", 1, c.calls);
+            assertEquals(1 + i, c.response.getId());
+            assertEquals("q" + i + ".example.com",
+                    c.response.getQuestions().get(0).getName().replaceAll("\\.$", ""));
+        }
+    }
+
+    @Test
+    public void aQueryWaitsForAFreeIdWhenAllAreInUseAndGoesWhenOneIsFreed() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        int all = 65535;
+        List<Capture> captures = new ArrayList<Capture>();
+        for (int i = 0; i < all; i++) {
+            captures.add(ask(1, "q" + i + ".example.com"));
+        }
+        MockTransport t = source.created.get(0);
+        t.handler.onConnected();
+        assertEquals("every ID is in use", all, t.sent.size());
+        Capture extra = ask(7, "extra.example.com");
+        assertEquals("the next query is held back", all, t.sent.size());
+        assertEquals(0, extra.calls);
+
+        t.handler.onReceive(answer(t.sentQuery(0), "192.0.2.3").serialize());
+        assertEquals("sent once an ID is free", all + 1, t.sent.size());
+        DnsMessage sent = t.sentQuery(all);
+        assertEquals("extra.example.com",
+                sent.getQuestions().get(0).getName().replaceAll("\\.$", ""));
+        t.handler.onReceive(answer(sent, "192.0.2.4").serialize());
+        assertEquals(1, extra.calls);
+        assertEquals(7, extra.response.getId());
+    }
+
+    @Test
+    public void aQueryHeldBackForAnIdStillTimesOut() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        for (int i = 0; i < 65535; i++) {
+            ask(1, "q" + i + ".example.com");
+        }
+        MockTransport t = source.created.get(0);
+        t.handler.onConnected();
+        final int[] outcome = new int[1];
+        handler.handleQuery(DnsMessage.createQuery(9, "late.example.com", DnsType.A), loop,
+                new DnsQueryCallback() {
+                    @Override
+                    public void onResponse(DnsMessage message) {
+                        outcome[0] = (message == null
+                                || message.getRcode() == DnsMessage.RCODE_SERVFAIL) ? -1 : 1;
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        outcome[0] = -2;
+                    }
+                });
+        MockTimer last = t.timers.get(t.timers.size() - 1);
+        last.fire();
+        assertEquals("the held-back query failed", -1, outcome[0]);
     }
 }
