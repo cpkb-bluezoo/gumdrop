@@ -459,6 +459,17 @@ public final class TlsRecordEngine {
     }
 
     /**
+     * Returns the server name the client asked for in the ClientHello
+     * {@code server_name} extension (SNI), or null on a client or if none
+     * was sent.
+     *
+     * @return the requested host name, or null
+     */
+    public String getPeerServerName() {
+        return engine.getPeerServerName();
+    }
+
+    /**
      * Returns the peer's certificate chain -- see
      * {@link HandshakeEngine#getPeerCertificateChain} for the full
      * per-role contract.

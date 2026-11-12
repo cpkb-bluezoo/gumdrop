@@ -315,6 +315,7 @@ public class DnsServer implements Server {
 
             if (!isStandardQuery(query)) {
                 dispatchNonQueryOpcode(query, origin.getSelectorLoop(),
+                        origin.queryContext(source),
                         new DnsQueryCallback() {
                     @Override
                     public void onResponse(DnsMessage response) {
@@ -731,14 +732,16 @@ public class DnsServer implements Server {
      *
      * @param query the parsed DNS message
      * @param loop the selector loop the message arrived on
+     * @param context the connection the message arrived on
      * @param callback invoked exactly once with the response
      */
     public void dispatchNonQueryOpcode(final DnsMessage query,
                                        final SelectorLoop loop,
+                                       final DnsQueryContext context,
                                        final DnsQueryCallback callback) {
         DnsQueryHandler handler = activeHandler != null
                 ? activeHandler : resolveActiveHandler();
-        if (handler.handleNonQueryOpcode(query, loop, callback)) {
+        if (handler.handleNonQueryOpcode(query, loop, context, callback)) {
             return;
         }
         callback.onResponse(query.createErrorResponse(

@@ -384,6 +384,17 @@ public final class Tls12RecordEngine {
     }
 
     /**
+     * Returns the server name the client asked for in the ClientHello
+     * {@code server_name} extension (SNI), or null on a client or if none
+     * was sent.
+     *
+     * @return the requested host name, or null
+     */
+    public String getPeerServerName() {
+        return engine.getPeerServerName();
+    }
+
+    /**
      * Returns the peer's certificate chain.
      *
      * @return the peer's certificate chain, leaf first, or null

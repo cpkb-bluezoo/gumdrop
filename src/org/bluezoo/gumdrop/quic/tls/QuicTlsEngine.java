@@ -112,4 +112,14 @@ public interface QuicTlsEngine {
     default String getNegotiatedApplicationProtocol() {
         return null;
     }
+
+    /**
+     * Returns the server name the client asked for in its ClientHello
+     * (SNI), on a server; null on a client or if none was sent.
+     *
+     * @return the requested host name, or null
+     */
+    default String getPeerServerName() {
+        return null;
+    }
 }

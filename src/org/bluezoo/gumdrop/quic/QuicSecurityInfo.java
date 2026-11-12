@@ -50,6 +50,7 @@ final class QuicSecurityInfo implements SecurityInfo {
     private final String cipherSuite;
     private final String namedGroup;
     private final String applicationProtocol;
+    private final String serverName;
     private final Certificate[] peerCertificates;
     private final long handshakeDurationMs;
     private final boolean earlyDataAccepted;
@@ -75,6 +76,7 @@ final class QuicSecurityInfo implements SecurityInfo {
                 : ((QuicTlsClientEngine) tlsEngine).getSelectedGroup();
         this.namedGroup = group != null ? group.getName() : null;
         this.applicationProtocol = tlsEngine.getNegotiatedApplicationProtocol();
+        this.serverName = tlsEngine.getPeerServerName();
         this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
         this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
         this.earlyDataAccepted = earlyDataAccepted;
@@ -123,6 +125,11 @@ final class QuicSecurityInfo implements SecurityInfo {
     @Override
     public String getApplicationProtocol() {
         return applicationProtocol;
+    }
+
+    @Override
+    public String getServerName() {
+        return serverName;
     }
 
     @Override

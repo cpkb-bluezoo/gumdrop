@@ -513,6 +513,11 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     }
 
     @Override
+    public String getPeerServerName() {
+        return engine.getPeerServerName();
+    }
+
+    @Override
     public byte[] getClientHandshakeTrafficSecret() {
         return engine.getClientHandshakeTrafficSecret();
     }

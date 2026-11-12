@@ -110,6 +110,11 @@ final class Tls12SecurityInfo implements SecurityInfo {
     }
 
     @Override
+    public String getServerName() {
+        return engine.getPeerServerName();
+    }
+
+    @Override
     public long getHandshakeDurationMs() {
         if (handshakeStartTime <= 0) {
             return -1;

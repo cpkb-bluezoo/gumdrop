@@ -146,4 +146,17 @@ public interface SecurityInfo {
         return false;
     }
 
+    /**
+     * Returns the server name the client requested, from the ClientHello
+     * {@code server_name} extension (SNI, RFC 6066 section 3). Lets a
+     * server that answers for several names on one listener tell them
+     * apart. The default returns null, as does every client-side
+     * implementation and a connection whose client sent no name.
+     *
+     * @return the requested host name, or null
+     */
+    default String getServerName() {
+        return null;
+    }
+
 }

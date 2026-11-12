@@ -265,7 +265,9 @@ public class DnsServerLifecycleTest {
     public void dispatchNonQueryWithoutHandlerIsNotimp() {
         DnsServer server = new DnsServer();
         CaptureCallback cb = new CaptureCallback();
-        server.dispatchNonQueryOpcode(DnsMessage.createNotify(1, "example.com."), null, cb);
+        server.dispatchNonQueryOpcode(DnsMessage.createNotify(1, "example.com."), null,
+                org.bluezoo.gumdrop.dns.DnsQueryContext.of("udp",
+                        org.bluezoo.gumdrop.dns.DnsQueryTransport.UDP, null, null, null), cb);
         assertEquals(DnsMessage.RCODE_NOTIMP, cb.response.getRcode());
     }
 

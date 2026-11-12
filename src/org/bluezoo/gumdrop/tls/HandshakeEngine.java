@@ -73,6 +73,7 @@ import org.bluezoo.gumdrop.crypto.SignatureScheme;
  */
 public final class HandshakeEngine {
 
+    private String peerServerName;
     private static final List<SignatureScheme> ALL_SIGNATURE_SCHEMES;
     static {
         SignatureScheme[] values = SignatureScheme.values();
@@ -991,6 +992,7 @@ public final class HandshakeEngine {
             fail(sink, AlertDescription.ILLEGAL_PARAMETER, "Cipher suite changed across HelloRetryRequest");
             return;
         }
+        peerServerName = ch.serverName;
         ServerCredentials resolvedCredentials = (config.getServerCredentialsResolver() != null)
                 ? config.getServerCredentialsResolver().resolve(ch.serverName)
                 : config.getServerCredentials();
@@ -1761,6 +1763,17 @@ public final class HandshakeEngine {
      */
     public String getNegotiatedApplicationProtocol() {
         return negotiatedAlpn;
+    }
+
+    /**
+     * Returns the server name the client asked for in the ClientHello
+     * {@code server_name} extension (SNI), or null on a client or if none
+     * was sent.
+     *
+     * @return the requested host name, or null
+     */
+    public String getPeerServerName() {
+        return peerServerName;
     }
 
     /**

@@ -108,6 +108,27 @@ public interface DnsQueryHandler {
     }
 
     /**
+     * Handles a non-query message with the context of the client connection
+     * it arrived on (remote and local address, transport, security
+     * parameters), so that NOTIFY, UPDATE and similar can be authorised by
+     * peer address or client certificate. The server calls this overload;
+     * the default delegates to {@link #handleNonQueryOpcode(DnsMessage,
+     * SelectorLoop, DnsQueryCallback)}.
+     *
+     * @param query the parsed DNS message
+     * @param loop the selector loop for any outbound work, or {@code null}
+     * @param context the connection the message arrived on
+     * @param callback receives the response when this handler claims the
+     *                 message
+     * @return {@code true} if this handler claimed the message
+     */
+    default boolean handleNonQueryOpcode(DnsMessage query, SelectorLoop loop,
+                                         DnsQueryContext context,
+                                         DnsQueryCallback callback) {
+        return handleNonQueryOpcode(query, loop, callback);
+    }
+
+    /**
      * Initialises handler resources. Called from {@link DnsServer#start(Gumdrop)}.
      *
      * @param gumdrop the runtime the owning {@link DnsServer} is starting under

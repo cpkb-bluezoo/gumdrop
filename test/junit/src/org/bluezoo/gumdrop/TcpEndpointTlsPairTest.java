@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.crypto.CryptoServices;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -248,6 +249,39 @@ public class TcpEndpointTlsPairTest {
         handshake(client, server);
         assertFalse(cp.events.contains("secure"));
         assertFalse(cp.errors.isEmpty());
+    }
+
+    @Test
+    public void tls13ServerSideReportsTheRequestedServerName() throws Exception {
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, client13(), null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(sp, server13(), null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        assertEquals(TestCertificates.SERVER_NAME, server.getSecurityInfo().getServerName());
+    }
+
+    @Test
+    public void tls12ServerSideReportsTheRequestedServerName() throws Exception {
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, null, client12(), TlsVersion.TLS_1_2, true);
+        TcpEndpoint server = endpoint(sp, null, server12(), TlsVersion.TLS_1_2, false);
+        handshake(client, server);
+        assertEquals(TestCertificates.SERVER_NAME, server.getSecurityInfo().getServerName());
+    }
+
+    @Test
+    public void noServerNameIsReportedWhenTheClientSentNone() throws Exception {
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        HandshakeConfig c = client13();
+        c.setServerName(null);
+        c.setVerifyHostname(false);
+        TcpEndpoint client = endpoint(cp, c, null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(sp, server13(), null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        assertNull(server.getSecurityInfo().getServerName());
     }
 
     @Test

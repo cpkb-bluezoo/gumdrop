@@ -170,7 +170,7 @@ final class DoQStreamHandler implements ProtocolHandler {
             if (!DnsServer.isStandardQuery(query)) {
                 final long startNanos = System.nanoTime();
                 server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
-                        doqCallback(query, startNanos, metrics));
+                        queryContext(), doqCallback(query, startNanos, metrics));
                 return;
             }
 
@@ -182,11 +182,7 @@ final class DoQStreamHandler implements ProtocolHandler {
 
             final long startNanos = System.nanoTime();
             server.processQuery(query, endpoint.getSelectorLoop(),
-                    DnsQueryContext.of("doq", DnsQueryTransport.FRAMED_TCP,
-                            endpoint.getRemoteAddress(),
-                            endpoint.getLocalAddress(),
-                            endpoint.getSecurityInfo()),
-                    doqCallback(query, startNanos, metrics));
+                    queryContext(), doqCallback(query, startNanos, metrics));
 
         } catch (DnsFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
@@ -290,5 +286,12 @@ final class DoQStreamHandler implements ProtocolHandler {
         framed.put(payload);
         framed.flip();
         endpoint.send(framed);
+    }
+
+    /** The context of the connection a message arrived on. */
+    private DnsQueryContext queryContext() {
+        return DnsQueryContext.of("doq", DnsQueryTransport.FRAMED_TCP,
+                endpoint.getRemoteAddress(), endpoint.getLocalAddress(),
+                endpoint.getSecurityInfo());
     }
 }

@@ -308,6 +308,17 @@ public final class Dtls13RecordEngine {
         return engine.getNegotiatedApplicationProtocol();
     }
 
+    /**
+     * Returns the server name the client asked for in the ClientHello
+     * {@code server_name} extension (SNI), or null on a client or if none
+     * was sent.
+     *
+     * @return the requested host name, or null
+     */
+    public String getPeerServerName() {
+        return engine.getPeerServerName();
+    }
+
     public List<X509Certificate> getPeerCertificateChain() {
         return engine.getPeerCertificateChain();
     }

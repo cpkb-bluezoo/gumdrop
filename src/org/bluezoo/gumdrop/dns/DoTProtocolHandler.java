@@ -181,7 +181,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
             if (!DnsServer.isStandardQuery(query)) {
                 final long startNanos = System.nanoTime();
                 server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
-                        framedCallback(query, startNanos));
+                        queryContext(), framedCallback(query, startNanos));
                 return;
             }
 
@@ -193,10 +193,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
             final long startNanos = System.nanoTime();
             server.processQuery(query, endpoint.getSelectorLoop(),
-                    DnsQueryContext.of(metricsTransport, DnsQueryTransport.FRAMED_TCP,
-                            endpoint.getRemoteAddress(),
-                            endpoint.getLocalAddress(), securityOf(endpoint)),
-                    framedCallback(query, startNanos));
+                    queryContext(), framedCallback(query, startNanos));
 
         } catch (DnsFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
@@ -207,6 +204,13 @@ final class DoTProtocolHandler implements ProtocolHandler {
                     .attr("remote_address", String.valueOf(endpoint.getRemoteAddress()))
                     .thrown(e).emit();
         }
+    }
+
+    /** The context of the connection a message arrived on. */
+    private DnsQueryContext queryContext() {
+        return DnsQueryContext.of(metricsTransport, DnsQueryTransport.FRAMED_TCP,
+                endpoint.getRemoteAddress(), endpoint.getLocalAddress(),
+                securityOf(endpoint));
     }
 
     /** Security parameters of a secure endpoint; null for plain TCP. */
