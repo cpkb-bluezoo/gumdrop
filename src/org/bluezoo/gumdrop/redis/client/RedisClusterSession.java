@@ -114,6 +114,7 @@ final class RedisClusterSession extends AbstractRedisSession {
     private long commandTimeoutMs;
     private int maxPending = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
     private long healthCheckMs;
+    private long maxBackoffMs = MAX_BACKOFF_MS;
 
     private Subscriber plain;
 
@@ -190,6 +191,15 @@ final class RedisClusterSession extends AbstractRedisSession {
         this.healthCheckMs = Math.max(0, millis);
     }
 
+    /**
+     * Sets the longest wait before reconnecting to a node that could not be
+     * reached (it starts at {@link #INITIAL_BACKOFF_MS} and doubles). The
+     * default is {@link #MAX_BACKOFF_MS}.
+     */
+    void setMaxBackoffMillis(long millis) {
+        this.maxBackoffMs = Math.max(INITIAL_BACKOFF_MS, millis);
+    }
+
     void setClock(Clock clock) {
         this.clock = clock;
     }
@@ -244,6 +254,14 @@ final class RedisClusterSession extends AbstractRedisSession {
     private void applyTopology(SlotMap fresh) {
         map = fresh;
         Set<ClusterNode> keep = new HashSet<ClusterNode>(fresh.nodes());
+        // Commands waiting for a connection to a node go to whichever node
+        // serves their slot now, rather than wait for a node that may be
+        // gone, or no longer the owner. Those belonging to a transaction
+        // or watch cannot move.
+        List<SentCommand> moving = new ArrayList<SentCommand>();
+        for (NodeConnection connection : connections.values()) {
+            connection.takeMovable(moving);
+        }
         Iterator<Map.Entry<ClusterNode, NodeConnection>> it = connections.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<ClusterNode, NodeConnection> entry = it.next();
@@ -279,6 +297,9 @@ final class RedisClusterSession extends AbstractRedisSession {
                     subscribeKeyspaceOn(node);
                 }
             }
+        }
+        for (SentCommand command : moving) {
+            route(command);
         }
     }
 
@@ -649,13 +670,13 @@ final class RedisClusterSession extends AbstractRedisSession {
 
     // ── Pub/Sub ──
 
-    /** The wait after the given number of failures in a row. */
-    static long backoffFor(int failures) {
+    /** The wait after the given number of failures in a row, doubling up to the longest allowed. */
+    private long backoffFor(int failures) {
         long delay = INITIAL_BACKOFF_MS;
-        for (int i = 1; i < failures && delay < MAX_BACKOFF_MS; i++) {
+        for (int i = 1; i < failures && delay < maxBackoffMs; i++) {
             delay *= 2;
         }
-        return Math.min(delay, MAX_BACKOFF_MS);
+        return Math.min(delay, maxBackoffMs);
     }
 
     /** A subscription, and how many times it has been moved since it was last confirmed. */
@@ -1197,6 +1218,18 @@ final class RedisClusterSession extends AbstractRedisSession {
             this.node = node;
         }
 
+        /** Removes the commands waiting for this connection that can go elsewhere, into {@code out}. */
+        void takeMovable(List<SentCommand> out) {
+            Iterator<SentCommand> it = queue.iterator();
+            while (it.hasNext()) {
+                SentCommand command = it.next();
+                if (!command.isPinned()) {
+                    it.remove();
+                    out.add(command);
+                }
+            }
+        }
+
         void submit(SentCommand command) {
             if (ready) {
                 write(command);
@@ -1204,6 +1237,9 @@ final class RedisClusterSession extends AbstractRedisSession {
             }
             if (!connecting && clock.millis() < retryNotBefore) {
                 fail(command, lastFailure);
+                // the node may have been replaced: look, rather than wait for
+                // the next attempt at it, which may be far off
+                requestRefresh();
                 return;
             }
             if (maxPending > 0 && command.getCallback() != null && queue.size() >= maxPending) {

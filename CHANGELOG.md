@@ -87,6 +87,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     The upstream query, duration and failure metrics gained the same labels
     in the same release.
   - Closes #593.
+- **Redis Cluster: faster recovery from a failed primary.**
+  - A command refused because its node's connection is backing off now asks
+    for a fresh topology (through the existing limit of one refresh a second),
+    so the client learns of a promoted replica without waiting for the next,
+    possibly much later, reconnect attempt.
+  - Commands waiting for a connection to a node move to the node that serves
+    their slot as soon as a refresh shows the slot has moved, instead of
+    failing when the old node is dropped or being sent to a node that no
+    longer owns the slot.
+  - `RedisClusterClient.maxReconnectBackoff(Duration)` caps the reconnect
+    wait, which starts at one second and doubles (default 30 seconds).
+  - Closes #594.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

@@ -689,4 +689,119 @@ public class RedisClusterResilienceTest {
         assertTrue(scheduler.tasks.isEmpty());
         assertTrue(refresher.requests.isEmpty());
     }
+
+    // ── slow failovers: refresh while backing off, move what is waiting ──
+
+    /** Fails C twice, so that it is backing off for two seconds, and settles the refreshes. */
+    private void backOffC() {
+        session.get("foo", new Bulk());
+        failConnect(C, 0);
+        refresher.requests.get(refresher.requests.size() - 1)
+                .failed(new java.io.IOException("not yet"));
+        clock.now += RedisClusterSession.INITIAL_BACKOFF_MS;
+        session.get("foo", new Bulk());
+        failConnect(C, 1);
+        refresher.requests.get(refresher.requests.size() - 1)
+                .failed(new java.io.IOException("not yet"));
+    }
+
+    @Test
+    public void aCommandRefusedWhileTheNodeIsBackingOffAsksForATopology() {
+        backOffC();
+        int before = refresher.requests.size();
+        clock.now += RedisClusterSession.REFRESH_INTERVAL_MS + 100;
+        Bulk b = new Bulk();
+        session.get("foo", b);
+        assertEquals("refused at once, no new attempt", 2, connector.forAddress(C).size());
+        assertEquals(1, b.events.size());
+        assertTrue(b.events.get(0), b.events.get(0).startsWith("error:"));
+        assertEquals("and a refresh was asked for", before + 1, refresher.requests.size());
+    }
+
+    @Test
+    public void refusedCommandsDoNotRefreshMoreOftenThanTheThrottleAllows() {
+        backOffC();
+        clock.now += RedisClusterSession.REFRESH_INTERVAL_MS + 100;
+        int before = refresher.requests.size();
+        for (int i = 0; i < 20; i++) {
+            session.get("foo", new Bulk());
+        }
+        assertEquals("one refresh for the lot", before + 1, refresher.requests.size());
+        // that refresh finishes, but another so soon would break the throttle
+        refresher.requests.get(refresher.requests.size() - 1)
+                .failed(new java.io.IOException("not yet"));
+        session.get("foo", new Bulk());
+        assertEquals("not within a second of the last", before + 1, refresher.requests.size());
+    }
+
+    @Test
+    public void aCommandWaitingForANodeThatLeavesTheClusterGoesToTheNewOwner() {
+        Bulk waiting = new Bulk();
+        session.get("foo", waiting);                       // waits for C to connect
+        session.get("bar", new Bulk());
+        failConnect(A, 0);                                 // asks for a topology
+        // C is gone: B now serves everything from 5461 on, foo's slot included
+        refresher.requests.get(0).refreshed(SlotMap.parse(arr(range(0, 5460, 7000),
+                range(5461, 16383, 7001)), "127.0.0.1"));
+        assertEquals("B is asked for a connection", 1, connector.forAddress(B).size());
+        Request b = up(B);
+        assertTrue("the GET for foo went to B: " + written(b),
+                written(b).contains(resp("GET", "foo")));
+        assertTrue("it was not failed: " + waiting.events, waiting.events.isEmpty());
+    }
+
+    @Test
+    public void aCommandWaitingForASlotThatMovedToAnotherLiveNodeGoesThere() {
+        Bulk waiting = new Bulk();
+        session.get("foo", waiting);                       // waits for C to connect
+        session.get("bar", new Bulk());
+        failConnect(A, 0);
+        // foo's slot, 12182, now belongs to B; C still serves the rest
+        refresher.requests.get(0).refreshed(SlotMap.parse(arr(range(0, 5460, 7000),
+                range(5461, 12182, 7001), range(12183, 16383, 7002)), "127.0.0.1"));
+        assertEquals("B is asked for a connection", 1, connector.forAddress(B).size());
+        Request b = up(B);
+        assertTrue("the GET for foo went to B: " + written(b),
+                written(b).contains(resp("GET", "foo")));
+        // and C's connection, when it comes, has nothing for foo
+        Request c = up(C);
+        assertFalse(written(c), written(c).contains(resp("GET", "foo")));
+        assertTrue(waiting.events.toString(), waiting.events.isEmpty());
+    }
+
+    // ── a cap on the reconnect backoff ──
+
+    @Test
+    public void theBackoffCanBeCapped() {
+        session.setMaxBackoffMillis(2000);
+        session.get("foo", new Bulk());
+        failConnect(C, 0);                                       // 1 s
+        clock.now += 1000;
+        session.get("foo", new Bulk());
+        failConnect(C, 1);                                       // 2 s
+        clock.now += 2000;
+        session.get("foo", new Bulk());
+        failConnect(C, 2);                                       // would be 4 s: held at 2 s
+        assertEquals(3, connector.forAddress(C).size());
+        clock.now += 2000;
+        session.get("foo", new Bulk());
+        assertEquals("tried again after the capped wait", 4, connector.forAddress(C).size());
+    }
+
+    @Test
+    public void theBackoffGrowsToThirtySecondsByDefault() {
+        session.get("foo", new Bulk());
+        long wait = 1000;
+        for (int attempt = 0; attempt < 8; attempt++) {
+            failConnect(C, attempt);
+            clock.now += Math.min(wait, RedisClusterSession.MAX_BACKOFF_MS) - 1;
+            session.get("foo", new Bulk());
+            assertEquals("still backing off just before " + wait, attempt + 1,
+                    connector.forAddress(C).size());
+            clock.now += 1;
+            session.get("foo", new Bulk());
+            assertEquals(attempt + 2, connector.forAddress(C).size());
+            wait *= 2;
+        }
+    }
 }

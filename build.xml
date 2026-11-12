@@ -1405,6 +1405,15 @@
     <integration-junit includes='**/redis/client/*IntegrationTest.java'/>
   </target>
 
+  <!-- How soon the Redis Cluster client serves a dead primary's slots again.
+       Opt-in: it stops and restarts a container of the podman cluster
+       described in RedisClusterIntegrationTest, so it needs
+       GUMDROP_REDIS_FAILOVER_TEST=1 in the environment, and podman. -->
+  <target name='integration-test-redis-cluster-failover' depends='integration-build'
+          description='Run the Redis Cluster failover recovery test (stops a container; needs GUMDROP_REDIS_FAILOVER_TEST=1)'>
+    <integration-junit includes='**/redis/client/RedisClusterFailoverIntegrationTest.java'/>
+  </target>
+
   <!-- Run MQTT client tests against a real, locally-running Eclipse
        Mosquitto instance: same rationale as the targets above, and
        likewise deliberately NOT a dependency of 'integration-test'.

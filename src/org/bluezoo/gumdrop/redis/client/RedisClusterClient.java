@@ -83,6 +83,7 @@ public class RedisClusterClient {
     private java.time.Duration commandTimeout = java.time.Duration.ZERO;
     private int maxPendingCommands = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
     private java.time.Duration healthCheckInterval = java.time.Duration.ZERO;
+    private java.time.Duration maxReconnectBackoff = java.time.Duration.ofMillis(RedisClusterSession.MAX_BACKOFF_MS);
 
     private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
@@ -287,6 +288,27 @@ public class RedisClusterClient {
         return this;
     }
 
+    /**
+     * Sets the longest wait before the client tries again to connect to a
+     * node it could not reach. The wait starts at one second and doubles
+     * after each failure in a row up to this; a shorter limit finds a node
+     * that has come back sooner, at the price of more attempts at one that
+     * has not. Commands for a node that is being waited for fail at once and
+     * ask for a fresh topology meanwhile. The default is 30 seconds; the
+     * least is one second.
+     *
+     * @param backoff the longest wait
+     * @return this client
+     * @throws IllegalArgumentException if negative
+     */
+    public RedisClusterClient maxReconnectBackoff(java.time.Duration backoff) {
+        if (backoff.isNegative()) {
+            throw new IllegalArgumentException("negative backoff: " + backoff);
+        }
+        this.maxReconnectBackoff = backoff;
+        return this;
+    }
+
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }
@@ -359,6 +381,7 @@ public class RedisClusterClient {
                         session.setCommandTimeoutMillis(commandTimeout.toMillis());
                         session.setMaxPending(maxPendingCommands);
                         session.setHealthCheckMillis(healthCheckInterval.toMillis());
+                        session.setMaxBackoffMillis(maxReconnectBackoff.toMillis());
                         // Connect to every master, and keep the seed connection
                         // until one of those has settled: Gumdrop stops a
                         // runtime with no connection at all.
