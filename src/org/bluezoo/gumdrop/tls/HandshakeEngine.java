@@ -1413,7 +1413,7 @@ public final class HandshakeEngine {
             return;
         }
 
-        CertificateVerifier.Result result = CertificateVerifier.verifyChain(chain, config.getClientTrustManager(), null);
+        CertificateVerifier.Result result = CertificateVerifier.verifyClientChain(chain, config.getClientTrustManager());
         if (!result.isOk() && config.getClientAuthPolicy() == ClientAuthPolicy.REQUIRE) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, result.getError());
             return;

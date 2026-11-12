@@ -1022,4 +1022,67 @@ public class TcpEndpointTlsPairTest {
             assertFalse(version.toString(), sp.errors.isEmpty());
         }
     }
+
+    // ── the extended key usage of a client certificate ──
+
+    /** Handshakes with a client certificate of the given usage, issued by a CA the server trusts. */
+    private boolean clientCertificateAccepted(TlsVersion version,
+            TestCertificates.ExtendedKeyUsage usage) throws Exception {
+        TestCertificates.Identity ca = TestCertificates.newCa(TestCertificates.KeyKind.EC_P256, "usage-ca");
+        TestCertificates.Identity leaf = TestCertificates.newIssued(ca,
+                TestCertificates.KeyKind.EC_P256, "usage-client", usage);
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client;
+        TcpEndpoint server;
+        if (version == TlsVersion.TLS_1_3) {
+            HandshakeConfig sc = server13();
+            sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
+            sc.setClientTrustManager(ca.trustManager());
+            HandshakeConfig cc = client13();
+            cc.setClientCredentials(leaf.credentials());
+            client = endpoint(cp, cc, null, version, true);
+            server = endpoint(sp, sc, null, version, false);
+        } else {
+            Tls12HandshakeConfig sc = server12();
+            sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
+            sc.setClientTrustManager(ca.trustManager());
+            Tls12HandshakeConfig cc = client12();
+            cc.setClientCredentials(leaf.credentials());
+            client = endpoint(cp, null, cc, version, true);
+            server = endpoint(sp, null, sc, version, false);
+        }
+        handshake(client, server);
+        lastServerErrors = sp.errors.toString();
+        return sp.events.contains("secure") && sp.errors.isEmpty();
+    }
+
+    private String lastServerErrors = "";
+
+    @Test
+    public void aClientAuthOnlyCertificateIsAcceptedAsAClientCertificate() throws Exception {
+        for (int v = 0; v < VERSIONS.length; v++) {
+            boolean ok = clientCertificateAccepted(VERSIONS[v],
+                    TestCertificates.ExtendedKeyUsage.CLIENT_ONLY);
+            assertTrue(VERSIONS[v] + " " + lastServerErrors, ok);
+        }
+    }
+
+    @Test
+    public void aServerAuthOnlyCertificateIsRejectedAsAClientCertificate() throws Exception {
+        for (int v = 0; v < VERSIONS.length; v++) {
+            boolean ok = clientCertificateAccepted(VERSIONS[v],
+                    TestCertificates.ExtendedKeyUsage.SERVER_ONLY);
+            assertFalse(VERSIONS[v].toString(), ok);
+        }
+    }
+
+    @Test
+    public void aCertificateForBothPurposesIsStillAccepted() throws Exception {
+        for (int v = 0; v < VERSIONS.length; v++) {
+            boolean ok = clientCertificateAccepted(VERSIONS[v],
+                    TestCertificates.ExtendedKeyUsage.SERVER_AND_CLIENT);
+            assertTrue(VERSIONS[v] + " " + lastServerErrors, ok);
+        }
+    }
 }

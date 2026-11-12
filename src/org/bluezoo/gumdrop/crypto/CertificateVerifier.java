@@ -136,18 +136,17 @@ public final class CertificateVerifier {
     }
 
     /**
-     * Verifies a peer-presented certificate chain: delegates chain trust
-     * to {@code trustManager.checkServerTrusted}, then (if a hostname is
-     * given) checks the leaf certificate's subject alternative names
-     * against it.
+     * Verifies the certificate chain presented by a peer <em>server</em>:
+     * delegates chain trust to {@code trustManager.checkServerTrusted}, then
+     * (if a hostname is given) checks the leaf certificate's subject
+     * alternative names against it.
      *
-     * @param chain the peer's certificate chain, leaf first
+     * @param chain the server's certificate chain, leaf first
      * @param trustManager the configured trust manager
-     * @param expectedHostname the hostname the peer should be identified
-     *                         as, or null to skip hostname checking (for
-     *                         client certificate verification, where
-     *                         there is no hostname to check against)
+     * @param expectedHostname the hostname the server should be identified
+     *                         as, or null to skip hostname checking
      * @return the verification result
+     * @see #verifyClientChain
      */
     public static Result verifyChain(List<X509Certificate> chain, X509TrustManager trustManager,
             String expectedHostname) {
@@ -155,6 +154,9 @@ public final class CertificateVerifier {
             return Result.error("Empty certificate chain");
         }
         try {
+            // JSSE trust managers accept only a fixed set of key-exchange
+            // names here (ECDHE_RSA and the like), and "UNKNOWN" is the one
+            // for a caller that does not know the key exchange
             trustManager.checkServerTrusted(chain.toArray(new X509Certificate[0]), "UNKNOWN");
         } catch (CertificateException e) {
             return Result.error("Certificate chain not trusted: " + e.getMessage());
@@ -164,6 +166,39 @@ public final class CertificateVerifier {
             return Result.error("Certificate does not match hostname " + expectedHostname);
         }
         return Result.ok();
+    }
+
+    /**
+     * Verifies the certificate chain presented by a peer <em>client</em>
+     * (mutual TLS): delegates chain trust to
+     * {@code trustManager.checkClientTrusted}, so that the certificate's
+     * extended key usage is checked for client authentication, not server
+     * authentication. There is no hostname to check a client against.
+     *
+     * @param chain the client's certificate chain, leaf first
+     * @param trustManager the configured client trust manager
+     * @return the verification result
+     */
+    public static Result verifyClientChain(List<X509Certificate> chain, X509TrustManager trustManager) {
+        if (chain.isEmpty()) {
+            return Result.error("Empty certificate chain");
+        }
+        try {
+            trustManager.checkClientTrusted(chain.toArray(new X509Certificate[0]),
+                    authType(chain.get(0)));
+        } catch (CertificateException e) {
+            return Result.error("Certificate chain not trusted: " + e.getMessage());
+        }
+        return Result.ok();
+    }
+
+    // The authentication type handed to a trust manager for a client
+    // certificate: the algorithm of the leaf's public key (RSA, EC,
+    // Ed25519, ...), which is what JSSE's key types name. Trust managers
+    // require it to be non-empty.
+    private static String authType(X509Certificate leaf) {
+        String algorithm = leaf.getPublicKey().getAlgorithm();
+        return (algorithm != null && !algorithm.isEmpty()) ? algorithm : "UNKNOWN";
     }
 
     /**

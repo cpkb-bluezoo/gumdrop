@@ -319,7 +319,8 @@ public final class TestCertificates {
      */
     public static Identity newSelfSigned(KeyKind kind, String commonName) throws Exception {
         KeyPair pair = kind.generate();
-        return build(kind, pair, commonName, null, false, sans(commonName));
+        return build(kind, pair, commonName, null, false, sans(commonName),
+                ExtendedKeyUsage.SERVER_AND_CLIENT);
     }
 
     /**
@@ -332,7 +333,8 @@ public final class TestCertificates {
      */
     public static Identity newCa(KeyKind kind, String commonName) throws Exception {
         KeyPair pair = kind.generate();
-        return build(kind, pair, commonName, null, true, new String[0]);
+        return build(kind, pair, commonName, null, true, new String[0],
+                ExtendedKeyUsage.SERVER_AND_CLIENT);
     }
 
     /**
@@ -347,8 +349,34 @@ public final class TestCertificates {
      */
     public static Identity newIssued(Identity ca, KeyKind kind, String commonName)
             throws Exception {
+        return newIssued(ca, kind, commonName, ExtendedKeyUsage.SERVER_AND_CLIENT);
+    }
+
+    /** Which purposes a test end-entity certificate's extended key usage allows. */
+    public enum ExtendedKeyUsage {
+        /** Both {@code serverAuth} and {@code clientAuth} (the default). */
+        SERVER_AND_CLIENT,
+        /** {@code clientAuth} only: the usual profile of a client certificate. */
+        CLIENT_ONLY,
+        /** {@code serverAuth} only. */
+        SERVER_ONLY
+    }
+
+    /**
+     * Generates a fresh end-entity certificate issued by the given CA, with
+     * the given extended key usage.
+     *
+     * @param ca the issuing CA
+     * @param kind the leaf key kind
+     * @param commonName the leaf subject CN, also the first DNS SAN
+     * @param usage the extended key usage to put in the certificate
+     * @return the leaf identity
+     * @throws Exception on failure
+     */
+    public static Identity newIssued(Identity ca, KeyKind kind, String commonName,
+            ExtendedKeyUsage usage) throws Exception {
         KeyPair pair = kind.generate();
-        return build(kind, pair, commonName, ca, false, sans(commonName));
+        return build(kind, pair, commonName, ca, false, sans(commonName), usage);
     }
 
     private static String[] sans(String commonName) {
@@ -546,7 +574,7 @@ public final class TestCertificates {
     // ---- certificate assembly ----
 
     private static Identity build(KeyKind kind, KeyPair pair, String commonName, Identity issuer,
-            boolean ca, String[] sanSpecs) throws Exception {
+            boolean ca, String[] sanSpecs, ExtendedKeyUsage usage) throws Exception {
         KeyKind signerKind = kind;
         PrivateKey signerKey = pair.getPrivate();
         if (issuer != null) {
@@ -582,7 +610,7 @@ public final class TestCertificates {
         byte[] notAfter = utcTime(notAfterMillis);
         byte[] validity = seq(notBefore, notAfter);
 
-        byte[] extensions = extensions(kind, ca, sanSpecs, subjectKeyId, authorityKeyId);
+        byte[] extensions = extensions(kind, ca, sanSpecs, subjectKeyId, authorityKeyId, usage);
         byte[] extensionsTagged = tlv(0xa3, extensions);
         byte[] tbs = seq(version, serial, sigAlg, issuerName, validity, subject, spki,
                 extensionsTagged);
@@ -609,7 +637,7 @@ public final class TestCertificates {
     }
 
     private static byte[] extensions(KeyKind kind, boolean ca, String[] sanSpecs,
-            byte[] subjectKeyId, byte[] authorityKeyId) throws Exception {
+            byte[] subjectKeyId, byte[] authorityKeyId, ExtendedKeyUsage purposes) throws Exception {
         List<byte[]> list = new ArrayList<byte[]>();
 
         byte[] bcValue;
@@ -639,7 +667,9 @@ public final class TestCertificates {
         if (!ca) {
             byte[] serverAuth = oid(OID_SERVER_AUTH);
             byte[] clientAuth = oid(OID_CLIENT_AUTH);
-            byte[] eku = seq(serverAuth, clientAuth);
+            byte[] eku = purposes == ExtendedKeyUsage.CLIENT_ONLY ? seq(clientAuth)
+                    : purposes == ExtendedKeyUsage.SERVER_ONLY ? seq(serverAuth)
+                    : seq(serverAuth, clientAuth);
             list.add(extension(OID_EKU, false, eku));
         }
 
