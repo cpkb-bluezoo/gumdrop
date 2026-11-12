@@ -252,8 +252,8 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         } else {
             buf = encoder.encodeCommand(command.getCommand());
         }
-        pendingCommands.add(new PendingCommand(command.getCallback(),
-                redirectListener != null ? command : null));
+        pendingCommands.add(pending(command.getCallback(),
+                redirectListener != null ? command : null, command.getCommand(), argCountOf(command)));
         endpoint.send(buf);
     }
 
@@ -388,6 +388,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             String channel = array.get(1).asString();
             int count = (int) array.get(2).asLong();
             ordinaryCount = count;
+            settle("subscribe");
             messageHandler.handleSubscribed(channel, count);
             return true;
         }
@@ -395,12 +396,14 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             String pattern = array.get(1).asString();
             int count = (int) array.get(2).asLong();
             ordinaryCount = count;
+            settle("psubscribe");
             messageHandler.handlePatternSubscribed(pattern, count);
             return true;
         }
         if ("unsubscribe".equals(type) && array.size() >= 3) {
             String channel = array.get(1).asString();
             int count = (int) array.get(2).asLong();
+            settle("unsubscribe");
             ordinaryCount = count;
             MessageHandler h = messageHandler;
             leaveModeIfIdle();
@@ -410,6 +413,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if ("punsubscribe".equals(type) && array.size() >= 3) {
             String pattern = array.get(1).asString();
             int count = (int) array.get(2).asLong();
+            settle("punsubscribe");
             ordinaryCount = count;
             MessageHandler h = messageHandler;
             leaveModeIfIdle();
@@ -426,12 +430,14 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             String channel = array.get(1).asString();
             int count = (int) array.get(2).asLong();
             shardCount = count;
+            settle("ssubscribe");
             messageHandler.handleShardSubscribed(channel, count);
             return true;
         }
         if ("sunsubscribe".equals(type) && array.size() >= 3) {
             String channel = array.get(1).asString();
             int count = (int) array.get(2).asLong();
+            settle("sunsubscribe");
             shardCount = count;
             MessageHandler h = messageHandler;
             leaveModeIfIdle();
@@ -558,7 +564,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             }
             return;
         }
-        pendingCommands.add(new PendingCommand(callback, remember(callback, command, null, null)));
+        pendingCommands.add(pending(callback, remember(callback, command, null, null), command, 0));
         ByteBuffer buf = encoder.encodeCommand(command);
         endpoint.send(buf);
     }
@@ -571,7 +577,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             }
             return;
         }
-        pendingCommands.add(new PendingCommand(callback, remember(callback, command, args, null)));
+        pendingCommands.add(pending(callback, remember(callback, command, args, null), command, args.length));
         ByteBuffer buf = encoder.encodeCommand(command, args);
         endpoint.send(buf);
     }
@@ -584,7 +590,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             }
             return;
         }
-        pendingCommands.add(new PendingCommand(callback, remember(callback, command, null, args)));
+        pendingCommands.add(pending(callback, remember(callback, command, null, args), command, args.length));
         ByteBuffer buf = encoder.encodeCommand(command, args);
         endpoint.send(buf);
     }
@@ -646,11 +652,59 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         final Object callback;
         // the command as sent; null unless a RedirectListener was installed
         final SentCommand sent;
+        // For a subscription command: its kind (subscribe, psubscribe, ...)
+        // and how many confirmations are still due. The server answers it
+        // with one confirmation per channel rather than with a reply, and
+        // the command leaves the queue when the last one has arrived.
+        final String subscriptionKind;
+        int confirmationsDue;
 
-        PendingCommand(Object callback, SentCommand sent) {
+        PendingCommand(Object callback, SentCommand sent, String subscriptionKind,
+                       int confirmationsDue) {
             this.callback = callback;
             this.sent = sent;
+            this.subscriptionKind = subscriptionKind;
+            this.confirmationsDue = confirmationsDue;
         }
+    }
+
+    private static final String[] SUBSCRIPTION_KINDS = {
+        "subscribe", "psubscribe", "ssubscribe", "unsubscribe", "punsubscribe", "sunsubscribe"
+    };
+
+    // The kind of subscription command, lower case, or null for any other.
+    private static String subscriptionKind(String command) {
+        for (String kind : SUBSCRIPTION_KINDS) {
+            if (kind.equalsIgnoreCase(command)) {
+                return kind;
+            }
+        }
+        return null;
+    }
+
+    private PendingCommand pending(Object callback, SentCommand sent, String command, int argCount) {
+        String kind = subscriptionKind(command);
+        return new PendingCommand(callback, sent, kind, kind != null ? Math.max(1, argCount) : 0);
+    }
+
+    // One confirmation of a subscription command has arrived: when it was
+    // the last due, the command is no longer awaiting a reply. Confirmations
+    // the server volunteers (a slot moved away) find some other command at
+    // the head of the queue, and are ignored here.
+    private void settle(String kind) {
+        PendingCommand head = pendingCommands.peek();
+        if (head != null && kind.equals(head.subscriptionKind)) {
+            if (--head.confirmationsDue <= 0) {
+                pendingCommands.poll();
+            }
+        }
+    }
+
+    private static int argCountOf(SentCommand command) {
+        if (command.getBinaryArgs() != null) {
+            return command.getBinaryArgs().length;
+        }
+        return command.getTextArgs() != null ? command.getTextArgs().length : 0;
     }
 
     private SentCommand remember(Object callback, String command,
