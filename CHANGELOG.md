@@ -99,6 +99,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `RedisClusterClient.maxReconnectBackoff(Duration)` caps the reconnect
     wait, which starts at one second and doubles (default 30 seconds).
   - Closes #594.
+- **DNS: a limit on queries in flight per DoT or TCP connection.**
+  `DoTListener.maxInFlightQueries(int)` and
+  `DnsTcpListener.maxInFlightQueries(int)` (default 128; 0 for none) bound
+  the queries being handled for one connection. A client that pipelines more
+  has the connection left unread until a response has been sent, so nothing
+  is refused or dropped, and the server's work for one client is bounded;
+  the queries already read are started first when room appears, and the
+  connection is not stopped and started for every query. The connection
+  limits, per-address limit and idle, read and connection timeouts are
+  documented on both listeners, and `DnsTcpListener` has them as fluent
+  setters like `DoTListener`. New metrics:
+  `dns.server.connection.inflight` (a histogram of the number in flight as
+  each query starts) and `dns.server.connection.backpressure` (times a
+  connection was stopped at its limit), labelled by transport.
+  Closes #595.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

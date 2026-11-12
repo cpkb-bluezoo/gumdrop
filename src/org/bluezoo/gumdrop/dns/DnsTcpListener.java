@@ -31,7 +31,26 @@ import java.net.InetAddress;
  *
  * <p>Uses the same length-prefixed framing as DoT, without TLS. Suitable
  * for AXFR/IXFR and large responses.
-  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ *
+ * <h2>Limits</h2>
+ * <p>A client can hold a connection, and the server's work for it, only
+ * within bounds that are set on the listener:
+ * <ul>
+ * <li>{@link #maxConnections(int)}: the most connections open at once;
+ * further ones are refused.</li>
+ * <li>{@link #maxConnectionsPerIP(int)}: the most from one client address.</li>
+ * <li>{@link #idleTimeoutMs(long)}, {@link #readTimeoutMs(long)} and
+ * {@link #connectionTimeoutMs(long)}: how long a connection may sit idle, a
+ * read may stall, and a connection may take to be established, before it is
+ * closed.</li>
+ * <li>{@link #maxInFlightQueries(int)}: the most queries in flight on one
+ * connection; a client that pipelines more waits, unread, until a
+ * response has been sent.</li>
+ * </ul>
+ * Each connection also holds at least 68 KiB of buffers, so the connection
+ * limits matter as much as the others.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DnsTcpListener extends TcpListener {
 
@@ -39,6 +58,7 @@ public class DnsTcpListener extends TcpListener {
 
     private int port = DEFAULT_PORT;
     private org.bluezoo.gumdrop.dns.server.DnsServer server;
+    private int maxInFlightQueries = DoTProtocolHandler.DEFAULT_MAX_IN_FLIGHT;
 
     public DnsTcpListener() {
         secure = false;
@@ -66,6 +86,83 @@ public class DnsTcpListener extends TcpListener {
         return this;
     }
 
+    /**
+     * Sets the most queries that may be in flight on one connection. A
+     * client may pipeline any number of queries; once this many are being
+     * handled, the connection is not read until a response has been sent
+     * (backpressure), so no query is refused or dropped and the work a
+     * client can make the server hold is bounded. The default is
+     * 128; 0 for no limit.
+     *
+     * @param max the limit
+     * @return this listener
+     * @throws IllegalArgumentException if negative
+     */
+    public DnsTcpListener maxInFlightQueries(int max) {
+        if (max < 0) {
+            throw new IllegalArgumentException("negative limit: " + max);
+        }
+        this.maxInFlightQueries = max;
+        return this;
+    }
+
+    /**
+     * Returns the most queries that may be in flight on one connection.
+     *
+     * @return the limit; 0 for none
+     */
+    public int getMaxInFlightQueries() {
+        return maxInFlightQueries;
+    }
+
+    @Override
+    public DnsTcpListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener allowedNetworks(java.util.List<org.bluezoo.gumdrop.util.CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public DnsTcpListener blockedNetworks(java.util.List<org.bluezoo.gumdrop.util.CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
     @Override
     public String getDescription() {
         return "dns-tcp";
@@ -82,6 +179,6 @@ public class DnsTcpListener extends TcpListener {
 
     @Override
     protected ProtocolHandler createHandler() {
-        return new DoTProtocolHandler(server, "tcp");
+        return new DoTProtocolHandler(server, "tcp", maxInFlightQueries);
     }
 }

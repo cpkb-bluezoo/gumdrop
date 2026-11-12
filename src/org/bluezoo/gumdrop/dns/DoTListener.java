@@ -44,6 +44,24 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * Configure a keystore or certificate chain via the standard
  * {@link org.bluezoo.gumdrop.Listener} TLS properties.
  *
+ * <h2>Limits</h2>
+ * <p>A client can hold a connection, and the server's work for it, only
+ * within bounds that are set on the listener:
+ * <ul>
+ * <li>{@link #maxConnections(int)}: the most connections open at once;
+ * further ones are refused.</li>
+ * <li>{@link #maxConnectionsPerIP(int)}: the most from one client address.</li>
+ * <li>{@link #idleTimeoutMs(long)}, {@link #readTimeoutMs(long)} and
+ * {@link #connectionTimeoutMs(long)}: how long a connection may sit idle, a
+ * read may stall, and a connection may take to be established, before it is
+ * closed.</li>
+ * <li>{@link #maxInFlightQueries(int)}: the most queries in flight on one
+ * connection; a client that pipelines more waits, unread, until a
+ * response has been sent.</li>
+ * </ul>
+ * Each connection also holds at least 68 KiB of buffers, so the connection
+ * limits matter as much as the others.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTProtocolHandler
  * @see org.bluezoo.gumdrop.dns.server.DnsServer
@@ -55,6 +73,7 @@ public class DoTListener extends TcpListener {
 
     private int port = DEFAULT_PORT;
     private org.bluezoo.gumdrop.dns.server.DnsServer server;
+    private int maxInFlightQueries = DoTProtocolHandler.DEFAULT_MAX_IN_FLIGHT;
 
     /**
      * Creates a new DoT listener. TLS is enabled by default.
@@ -188,6 +207,35 @@ public class DoTListener extends TcpListener {
     }
 
 
+    /**
+     * Sets the most queries that may be in flight on one connection. A
+     * client may pipeline any number of queries; once this many are being
+     * handled, the connection is not read until a response has been sent
+     * (backpressure), so no query is refused or dropped and the work a
+     * client can make the server hold is bounded. The default is
+     * 128; 0 for no limit.
+     *
+     * @param max the limit
+     * @return this listener
+     * @throws IllegalArgumentException if negative
+     */
+    public DoTListener maxInFlightQueries(int max) {
+        if (max < 0) {
+            throw new IllegalArgumentException("negative limit: " + max);
+        }
+        this.maxInFlightQueries = max;
+        return this;
+    }
+
+    /**
+     * Returns the most queries that may be in flight on one connection.
+     *
+     * @return the limit; 0 for none
+     */
+    public int getMaxInFlightQueries() {
+        return maxInFlightQueries;
+    }
+
     @Override
     public String getDescription() {
         return "dns-tls";
@@ -215,7 +263,7 @@ public class DoTListener extends TcpListener {
 
     @Override
     protected ProtocolHandler createHandler() {
-        return new DoTProtocolHandler(server);
+        return new DoTProtocolHandler(server, "dot", maxInFlightQueries);
     }
 
 }

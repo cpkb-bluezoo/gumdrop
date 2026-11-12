@@ -67,6 +67,8 @@ public class DnsServerMetrics {
     private final LongCounter upstreamFailures;
     private final org.bluezoo.gumdrop.telemetry.metrics.LongUpDownCounter upstreamInFlight;
     private final LongCounter upstreamIdExhaustions;
+    private final DoubleHistogram connectionInFlight;
+    private final LongCounter connectionBackpressure;
 
     /**
      * Creates DNS server metrics using the given telemetry configuration.
@@ -132,6 +134,19 @@ public class DnsServerMetrics {
         this.upstreamInFlight = meter.upDownCounterBuilder("dns.server.upstream.inflight")
                 .setDescription("DNS queries in flight to upstream servers")
                 .setUnit("queries")
+                .build();
+
+        this.connectionInFlight = meter.histogramBuilder("dns.server.connection.inflight")
+                .setDescription("Queries in flight on a DoT or TCP connection, "
+                        + "as each new query starts")
+                .setUnit("queries")
+                .setExplicitBuckets(1, 2, 4, 8, 16, 32, 64, 128, 256)
+                .build();
+
+        this.connectionBackpressure = meter.counterBuilder("dns.server.connection.backpressure")
+                .setDescription("Times a DoT or TCP connection stopped being read because "
+                        + "its in-flight limit was reached")
+                .setUnit("events")
                 .build();
 
         this.upstreamIdExhaustions = meter.counterBuilder("dns.server.upstream.id_exhaustions")
@@ -250,5 +265,26 @@ public class DnsServerMetrics {
         upstreamIdExhaustions.add(1, Attributes.of(
                 "dns.upstream.address", upstream,
                 "dns.transport", transport));
+    }
+
+    /**
+     * Records how many queries are in flight on a stream connection as a
+     * new query starts on it, which gives their distribution per connection.
+     *
+     * @param transport the transport ("dot" or "tcp")
+     * @param inFlight the number in flight, including the new one
+     */
+    public void connectionInFlight(String transport, int inFlight) {
+        connectionInFlight.record(inFlight, Attributes.of("dns.transport", transport));
+    }
+
+    /**
+     * Records that a connection stopped being read because it reached its
+     * limit on queries in flight.
+     *
+     * @param transport the transport ("dot" or "tcp")
+     */
+    public void connectionBackpressure(String transport) {
+        connectionBackpressure.add(1, Attributes.of("dns.transport", transport));
     }
 }

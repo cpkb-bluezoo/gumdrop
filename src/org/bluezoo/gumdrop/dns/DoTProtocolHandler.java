@@ -71,10 +71,22 @@ final class DoTProtocolHandler implements ProtocolHandler {
     // RFC 1035 section 4.2.2: max DNS message size is 65535 octets
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
+    /** The default most queries in flight on one connection. */
+    static final int DEFAULT_MAX_IN_FLIGHT = 128;
+
     private final org.bluezoo.gumdrop.dns.server.DnsServer server;
     private final String metricsTransport;
+    private final int maxInFlight;
     private Endpoint endpoint;
     private ByteBuffer accumulator;
+
+    // Queries handed to the server whose responses have not been sent. A
+    // client may pipeline any number; once this reaches maxInFlight the
+    // connection is not read until a response is sent, so a client cannot
+    // make the server hold unbounded work for it.
+    private int inFlight;
+    private boolean readPaused;
+    private boolean closed;
 
     DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer server) {
         this(server, "dot");
@@ -82,8 +94,18 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer server,
                        String metricsTransport) {
+        this(server, metricsTransport, DEFAULT_MAX_IN_FLIGHT);
+    }
+
+    /**
+     * @param maxInFlight the most queries in flight on the connection at
+     *                    once; 0 for no limit
+     */
+    DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer server,
+                       String metricsTransport, int maxInFlight) {
         this.server = server;
         this.metricsTransport = metricsTransport;
+        this.maxInFlight = maxInFlight;
         this.accumulator = ByteBuffer.allocate(4096);
         this.accumulator.flip();
     }
@@ -111,8 +133,18 @@ final class DoTProtocolHandler implements ProtocolHandler {
     @Override
     public void receive(ByteBuffer data) {
         appendToAccumulator(data);
+        drain();
+    }
 
-        while (accumulator.remaining() >= LENGTH_PREFIX_SIZE) {
+    // Starts the queries that are waiting in the accumulator, as far as the
+    // limit on queries in flight allows. What is left stays buffered; a
+    // completed query calls this again.
+    private void drain() {
+        while (!closed && accumulator.remaining() >= LENGTH_PREFIX_SIZE) {
+            if (atLimit()) {
+                pauseReading();
+                break;
+            }
             accumulator.mark();
             int messageLength =
                     ((accumulator.get() & 0xFF) << 8)
@@ -140,10 +172,48 @@ final class DoTProtocolHandler implements ProtocolHandler {
         }
 
         compactAccumulator();
+        if (atLimit()) {
+            // no room for what may arrive next
+            pauseReading();
+        }
+    }
+
+    private boolean atLimit() {
+        return maxInFlight > 0 && inFlight >= maxInFlight;
+    }
+
+    private void pauseReading() {
+        if (!readPaused && !closed) {
+            readPaused = true;
+            endpoint.pauseRead();
+            DnsServerMetrics metrics = server.getMetrics();
+            if (metrics != null) {
+                metrics.connectionBackpressure(metricsTransport);
+            }
+        }
+    }
+
+    // A response has been sent for a query that was in flight.
+    private void queryCompleted() {
+        if (inFlight > 0) {
+            inFlight--;
+        }
+        if (closed || !readPaused || atLimit()) {
+            return;
+        }
+        // room again: start the queries already read, and only if that
+        // still leaves room read more, so that a client keeping the
+        // connection full does not make it stop and start for every query
+        drain();
+        if (!atLimit()) {
+            readPaused = false;
+            endpoint.resumeRead();
+        }
     }
 
     @Override
     public void disconnected() {
+        closed = true;
         if (LOGGER.isLoggable(Level.FINE)) {
             SocketAddress remote = (endpoint != null)
                     ? endpoint.getRemoteAddress() : null;
@@ -161,6 +231,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
     }
 
     private void processMessage(ByteBuffer messageBuf) {
+        inProgress = null;
         try {
             final DnsMessage query = DnsMessage.parse(messageBuf);
 
@@ -180,6 +251,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
             if (!DnsServer.isStandardQuery(query)) {
                 final long startNanos = System.nanoTime();
+                started(metrics);
                 server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
                         queryContext(), framedCallback(query, startNanos));
                 return;
@@ -192,6 +264,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
             }
 
             final long startNanos = System.nanoTime();
+            started(metrics);
             server.processQuery(query, endpoint.getSelectorLoop(),
                     queryContext(), framedCallback(query, startNanos));
 
@@ -203,6 +276,18 @@ final class DoTProtocolHandler implements ProtocolHandler {
             events().warn("err.dot_query_error")
                     .attr("remote_address", String.valueOf(endpoint.getRemoteAddress()))
                     .thrown(e).emit();
+            if (inProgress != null) {
+                // the query never got going, so it holds no place
+                inProgress.finish();
+            }
+        }
+    }
+
+    // A query is being handed to the server.
+    private void started(DnsServerMetrics metrics) {
+        inFlight++;
+        if (metrics != null) {
+            metrics.connectionInFlight(metricsTransport, inFlight);
         }
     }
 
@@ -220,27 +305,55 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     private DnsQueryCallback framedCallback(final DnsMessage query,
                                             final long startNanos) {
-        return new DnsQueryCallback() {
-            @Override
-            public void onResponse(DnsMessage response) {
-                recordMetrics(response, startNanos);
-                sendResponse(response);
-            }
+        inProgress = new FramedCallback(query, startNanos);
+        return inProgress;
+    }
 
-            @Override
-            public void onResponseSequence(List<DnsMessage> responses) {
-                recordMetrics(responses.get(responses.size() - 1), startNanos);
-                for (int i = 0; i < responses.size(); i++) {
-                    sendResponse(responses.get(i));
-                }
-            }
+    // The query being handed to the server; its place is released if that fails.
+    private FramedCallback inProgress;
 
-            @Override
-            public void onError(String error) {
-                sendResponse(query.createErrorResponse(
-                        DnsMessage.RCODE_SERVFAIL));
+    /** Sends a query's response(s) framed, and releases its place among those in flight. */
+    private final class FramedCallback implements DnsQueryCallback {
+
+        private final DnsMessage query;
+        private final long startNanos;
+        private boolean done;
+
+        FramedCallback(DnsMessage query, long startNanos) {
+            this.query = query;
+            this.startNanos = startNanos;
+        }
+
+        @Override
+        public void onResponse(DnsMessage response) {
+            recordMetrics(response, startNanos);
+            sendResponse(response);
+            finish();
+        }
+
+        @Override
+        public void onResponseSequence(List<DnsMessage> responses) {
+            recordMetrics(responses.get(responses.size() - 1), startNanos);
+            for (int i = 0; i < responses.size(); i++) {
+                sendResponse(responses.get(i));
             }
-        };
+            finish();
+        }
+
+        @Override
+        public void onError(String error) {
+            sendResponse(query.createErrorResponse(
+                    DnsMessage.RCODE_SERVFAIL));
+            finish();
+        }
+
+        // each query counts once, whichever way it ends
+        void finish() {
+            if (!done) {
+                done = true;
+                queryCompleted();
+            }
+        }
     }
 
     private void recordMetrics(DnsMessage response, long startNanos) {

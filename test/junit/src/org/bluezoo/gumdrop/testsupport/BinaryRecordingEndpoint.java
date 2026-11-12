@@ -196,8 +196,27 @@ public final class BinaryRecordingEndpoint implements Endpoint {
     public void setTelemetryConfig(TelemetryConfig config) {
         this.telemetryConfig = config;
     }
-    @Override public void pauseRead() { }
-    @Override public void resumeRead() { }
+    @Override public void pauseRead() { readPaused = true; pauseReadCount++; }
+    @Override public void resumeRead() { readPaused = false; resumeReadCount++; }
+
+    private boolean readPaused;
+    private int pauseReadCount;
+    private int resumeReadCount;
+
+    /** Whether reading is currently paused. */
+    public boolean isReadPaused() {
+        return readPaused;
+    }
+
+    /** How many times reading was paused. */
+    public int getPauseReadCount() {
+        return pauseReadCount;
+    }
+
+    /** How many times reading was resumed. */
+    public int getResumeReadCount() {
+        return resumeReadCount;
+    }
     @Override public void onWriteReady(Runnable callback) {
         if (callback != null) {
             callback.run();
