@@ -36,13 +36,16 @@ final class SentCommand {
     private final int redirects;
     private final boolean asking;
     private final boolean pinned;
+    private final long timeoutMs;
 
     SentCommand(Object callback, String command, String[] textArgs, byte[][] binaryArgs) {
-        this(callback, command, textArgs, binaryArgs, 0, false, false);
+        this(callback, command, textArgs, binaryArgs, 0, false, false, CommandTimeouts.DEFAULT);
     }
 
     private SentCommand(Object callback, String command, String[] textArgs,
-                        byte[][] binaryArgs, int redirects, boolean asking, boolean pinned) {
+                        byte[][] binaryArgs, int redirects, boolean asking, boolean pinned,
+                        long timeoutMs) {
+        this.timeoutMs = timeoutMs;
         this.callback = callback;
         this.command = command;
         this.textArgs = textArgs;
@@ -70,13 +73,27 @@ final class SentCommand {
     /** This command after one more redirect, to be preceded by {@code ASKING} if {@code asking}. */
     SentCommand redirected(boolean asking) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects + 1, asking, pinned);
+                redirects + 1, asking, pinned, timeoutMs);
     }
 
     /** This command marked as one that must not be redirected. */
     SentCommand pinned() {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, true);
+                redirects, asking, true, timeoutMs);
+    }
+
+    /**
+     * A copy with the given timeout: {@link CommandTimeouts#DEFAULT} for the
+     * connection's default, {@link CommandTimeouts#NONE} for none, otherwise
+     * milliseconds.
+     */
+    SentCommand withTimeout(long timeoutMs) {
+        return new SentCommand(callback, command, textArgs, binaryArgs,
+                redirects, asking, pinned, timeoutMs);
+    }
+
+    long getTimeoutMs() {
+        return timeoutMs;
     }
 
     /** The arguments as bytes (text in UTF-8); empty if there are none. */
@@ -117,11 +134,11 @@ final class SentCommand {
     /** Sends the same command, with the same result handler, on {@code target}. */
     void resend(AbstractRedisSession target) {
         if (textArgs != null) {
-            target.sendCommand(callback, command, textArgs);
+            target.sendCommand(callback, timeoutMs, command, textArgs);
         } else if (binaryArgs != null) {
-            target.sendCommand(callback, command, binaryArgs);
+            target.sendCommand(callback, timeoutMs, command, binaryArgs);
         } else {
-            target.sendCommand(callback, command);
+            target.sendCommand(callback, timeoutMs, command, new String[0]);
         }
     }
 }

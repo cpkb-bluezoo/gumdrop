@@ -288,6 +288,16 @@ final class RedisClusterSession extends AbstractRedisSession {
         route(new SentCommand(callback, command, null, args));
     }
 
+    @Override
+    void sendCommand(Object callback, long timeoutMs, String command, String[] args) {
+        route(new SentCommand(callback, command, args, null).withTimeout(timeoutMs));
+    }
+
+    @Override
+    void sendCommand(Object callback, long timeoutMs, String command, byte[][] args) {
+        route(new SentCommand(callback, command, null, args).withTimeout(timeoutMs));
+    }
+
     private void fail(SentCommand command, String error) {
         deliverError(command.getCallback(), error, this);
     }

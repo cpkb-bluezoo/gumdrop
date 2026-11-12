@@ -68,6 +68,39 @@ abstract class AbstractRedisSession implements RedisSession {
     abstract void sendCommand(Object callback, String command, byte[][] args);
 
     /**
+     * Sends a command with text arguments and its own timeout.
+     *
+     * @param callback the result handler, or null if no reply is wanted
+     * @param timeoutMs {@link CommandTimeouts#DEFAULT} for the connection's
+     *                  default, {@link CommandTimeouts#NONE} for none,
+     *                  otherwise milliseconds
+     * @param command the command name
+     * @param args the arguments
+     */
+    abstract void sendCommand(Object callback, long timeoutMs, String command, String[] args);
+
+    /**
+     * Sends a command with binary-safe arguments and its own timeout.
+     *
+     * @param callback the result handler, or null if no reply is wanted
+     * @param timeoutMs as for {@link #sendCommand(Object, long, String, String[])}
+     * @param command the command name
+     * @param args the arguments
+     */
+    abstract void sendCommand(Object callback, long timeoutMs, String command, byte[][] args);
+
+    // A Duration as a per-command timeout in milliseconds.
+    private static long timeoutMillis(java.time.Duration timeout) {
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("negative timeout: " + timeout);
+        }
+        if (timeout.isZero()) {
+            return CommandTimeouts.NONE;
+        }
+        return Math.max(1, timeout.toMillis());
+    }
+
+    /**
      * Tells a command's result handler that it failed, whatever kind of
      * handler it is. Does nothing for a null callback.
      *
@@ -774,8 +807,7 @@ abstract class AbstractRedisSession implements RedisSession {
     // RedisSession — Scripting commands (EVAL/EVALSHA)
     // ─────────────────────────────────────────────────────────────────────────
 
-    @Override
-    public void eval(String script, int numKeys, String[] keys, String[] args, ArrayResultHandler h) {
+    private static String[] scriptArgs(String script, int numKeys, String[] keys, String[] args) {
         String[] allArgs = new String[2 + keys.length + args.length];
         allArgs[0] = script;
         allArgs[1] = String.valueOf(numKeys);
@@ -785,21 +817,29 @@ abstract class AbstractRedisSession implements RedisSession {
         for (int i = 0; i < args.length; i++) {
             allArgs[i + 2 + keys.length] = args[i];
         }
-        sendCommand(h, "EVAL", allArgs);
+        return allArgs;
+    }
+
+    @Override
+    public void eval(String script, int numKeys, String[] keys, String[] args, ArrayResultHandler h) {
+        sendCommand(h, "EVAL", scriptArgs(script, numKeys, keys, args));
+    }
+
+    @Override
+    public void eval(String script, int numKeys, String[] keys, String[] args,
+                     java.time.Duration timeout, ArrayResultHandler h) {
+        sendCommand(h, timeoutMillis(timeout), "EVAL", scriptArgs(script, numKeys, keys, args));
     }
 
     @Override
     public void evalsha(String sha1, int numKeys, String[] keys, String[] args, ArrayResultHandler h) {
-        String[] allArgs = new String[2 + keys.length + args.length];
-        allArgs[0] = sha1;
-        allArgs[1] = String.valueOf(numKeys);
-        for (int i = 0; i < keys.length; i++) {
-            allArgs[i + 2] = keys[i];
-        }
-        for (int i = 0; i < args.length; i++) {
-            allArgs[i + 2 + keys.length] = args[i];
-        }
-        sendCommand(h, "EVALSHA", allArgs);
+        sendCommand(h, "EVALSHA", scriptArgs(sha1, numKeys, keys, args));
+    }
+
+    @Override
+    public void evalsha(String sha1, int numKeys, String[] keys, String[] args,
+                        java.time.Duration timeout, ArrayResultHandler h) {
+        sendCommand(h, timeoutMillis(timeout), "EVALSHA", scriptArgs(sha1, numKeys, keys, args));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -944,5 +984,15 @@ abstract class AbstractRedisSession implements RedisSession {
     @Override
     public void command(ArrayResultHandler h, String command, byte[]... args) {
         sendCommand(h, command, args);
+    }
+
+    @Override
+    public void command(java.time.Duration timeout, ArrayResultHandler h, String command, String... args) {
+        sendCommand(h, timeoutMillis(timeout), command, args);
+    }
+
+    @Override
+    public void command(java.time.Duration timeout, ArrayResultHandler h, String command, byte[]... args) {
+        sendCommand(h, timeoutMillis(timeout), command, args);
     }
 }

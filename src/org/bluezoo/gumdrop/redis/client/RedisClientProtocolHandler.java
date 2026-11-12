@@ -116,6 +116,29 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // Receives the pushes that are not Pub/Sub deliveries. May be null.
     private PushHandler pushHandler;
 
+    /** The most commands allowed to await a reply on one connection, unless configured. */
+    static final int DEFAULT_MAX_PENDING = 65536;
+
+    /** Source of the monotonic time deadlines are measured in; replaced in tests. */
+    interface Ticker {
+        long nanos();
+    }
+
+    private Ticker ticker = new Ticker() {
+        @Override
+        public long nanos() {
+            return System.nanoTime();
+        }
+    };
+
+    // Applied to commands that name no timeout of their own. 0: none.
+    private long defaultTimeoutMs;
+    // 0: unlimited
+    private int maxPending = DEFAULT_MAX_PENDING;
+    // One timer serves every deadline: it is set for the earliest.
+    private org.bluezoo.gumdrop.TimerHandle timer;
+    private long timerDueNanos;
+
     /**
      * Creates a Redis client endpoint handler.
      *
@@ -170,6 +193,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     @Override
     public void disconnected() {
         closed = true;
+        cancelTimer();
         releasePending();
         handler.onDisconnected();
     }
@@ -204,7 +228,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
         List<SentCommand> unanswered = new ArrayList<SentCommand>(pendingCommands.size());
         for (PendingCommand pending : pendingCommands) {
-            if (pending.sent != null) {
+            if (pending.sent != null && !pending.timedOut) {
                 unanswered.add(pending.sent);
             }
         }
@@ -221,6 +245,36 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     @Override
     public void setPushHandler(PushHandler handler) {
         this.pushHandler = handler;
+    }
+
+    /**
+     * Sets how long a command may wait for its reply when it names no
+     * timeout of its own. On expiry its handler gets a {@code TIMEOUT} error
+     * and a reply that comes later is discarded. Commands that wait on the
+     * server on purpose (blocking pops, blocking stream reads) are given
+     * their own wait on top of it.
+     *
+     * @param millis the timeout; 0 for none (the default)
+     */
+    void setCommandTimeoutMillis(long millis) {
+        this.defaultTimeoutMs = Math.max(0, millis);
+    }
+
+    /**
+     * Sets the most commands that may await a reply at once. A command sent
+     * beyond that fails at once with an {@code OVERLOAD} error, instead of
+     * queueing without limit. Commands with no handler, and Pub/Sub
+     * commands, are not counted against it.
+     *
+     * @param max the cap; 0 for none
+     */
+    void setMaxPending(int max) {
+        this.maxPending = Math.max(0, max);
+    }
+
+    /** Test seam: the clock deadlines are measured against. */
+    void setTicker(Ticker ticker) {
+        this.ticker = ticker;
     }
 
     void setRedirectListener(RedirectListener listener) {
@@ -240,21 +294,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
      * very object (with its redirect count) while a listener is installed.
      */
     void send(SentCommand command) {
-        if (endpoint == null || closed) {
-            deliverError(command.getCallback(), L10N.getString("err.not_connected"), resultSession);
-            return;
-        }
-        ByteBuffer buf;
-        if (command.getBinaryArgs() != null) {
-            buf = encoder.encodeCommand(command.getCommand(), command.getBinaryArgs());
-        } else if (command.getTextArgs() != null) {
-            buf = encoder.encodeCommand(command.getCommand(), command.getTextArgs());
-        } else {
-            buf = encoder.encodeCommand(command.getCommand());
-        }
-        pendingCommands.add(pending(command.getCallback(),
-                redirectListener != null ? command : null, command.getCommand(), argCountOf(command)));
-        endpoint.send(buf);
+        transmit(command.getCallback(), redirectListener != null ? command : null,
+                command.getCommand(), command.getTextArgs(), command.getBinaryArgs(),
+                command.getTimeoutMs());
     }
 
     /** Test seam: attaches an endpoint without the connect handshake. */
@@ -272,6 +314,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             return;
         }
         closed = true;
+        cancelTimer();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("debug.closing_connection"));
         }
@@ -319,6 +362,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         PendingCommand pending = pendingCommands.poll();
         if (pending == null) {
             events().warn("warn.response_no_pending").attr("response", String.valueOf(response)).emit();
+            return;
+        }
+        if (pending.timedOut) {
+            // its handler has been told it timed out
             return;
         }
         dispatchResponse(pending, response);
@@ -558,41 +605,160 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     @Override
     void sendCommand(Object callback, String command) {
-        if (endpoint == null || closed) {
-            if (callback != null) {
-                dispatchError(callback, L10N.getString("err.not_connected"));
-            }
-            return;
-        }
-        pendingCommands.add(pending(callback, remember(callback, command, null, null), command, 0));
-        ByteBuffer buf = encoder.encodeCommand(command);
-        endpoint.send(buf);
+        transmit(callback, remember(callback, command, null, null), command, null, null,
+                CommandTimeouts.DEFAULT);
     }
 
     @Override
     void sendCommand(Object callback, String command, String[] args) {
-        if (endpoint == null || closed) {
-            if (callback != null) {
-                dispatchError(callback, L10N.getString("err.not_connected"));
-            }
-            return;
-        }
-        pendingCommands.add(pending(callback, remember(callback, command, args, null), command, args.length));
-        ByteBuffer buf = encoder.encodeCommand(command, args);
-        endpoint.send(buf);
+        transmit(callback, remember(callback, command, args, null), command, args, null,
+                CommandTimeouts.DEFAULT);
     }
 
     @Override
     void sendCommand(Object callback, String command, byte[][] args) {
+        transmit(callback, remember(callback, command, null, args), command, null, args,
+                CommandTimeouts.DEFAULT);
+    }
+
+    @Override
+    void sendCommand(Object callback, long timeoutMs, String command, String[] args) {
+        transmit(callback, remember(callback, command, args, null), command, args, null, timeoutMs);
+    }
+
+    @Override
+    void sendCommand(Object callback, long timeoutMs, String command, byte[][] args) {
+        transmit(callback, remember(callback, command, null, args), command, null, args, timeoutMs);
+    }
+
+    // Queues a command as awaiting its reply, and sends it. Fails it at once
+    // if the connection is not up, or if too many commands are already
+    // awaiting a reply to take another.
+    private void transmit(Object callback, SentCommand sent, String command,
+                          String[] text, byte[][] binary, long timeoutMs) {
         if (endpoint == null || closed) {
             if (callback != null) {
                 dispatchError(callback, L10N.getString("err.not_connected"));
             }
             return;
         }
-        pendingCommands.add(pending(callback, remember(callback, command, null, args), command, args.length));
-        ByteBuffer buf = encoder.encodeCommand(command, args);
+        int argCount = text != null ? text.length : binary != null ? binary.length : 0;
+        PendingCommand pending = pending(callback, sent, command, argCount);
+        // control commands and subscriptions are few and have no handler
+        // to tell, so only commands with a handler are refused
+        if (maxPending > 0 && callback != null && pending.subscriptionKind == null
+                && pendingCommands.size() >= maxPending) {
+            dispatchError(callback, MessageFormat.format(
+                    L10N.getString("err.too_many_pending"), Integer.valueOf(maxPending)));
+            return;
+        }
+        pending.deadlineNanos = deadlineFor(pending, command, text, binary, timeoutMs);
+        ByteBuffer buf;
+        if (binary != null) {
+            buf = encoder.encodeCommand(command, binary);
+        } else if (text != null) {
+            buf = encoder.encodeCommand(command, text);
+        } else {
+            buf = encoder.encodeCommand(command);
+        }
+        pendingCommands.add(pending);
         endpoint.send(buf);
+        if (pending.deadlineNanos != 0) {
+            armFor(pending.deadlineNanos);
+        }
+    }
+
+    // ── timeouts ──
+
+    // The moment a command's reply is overdue, or 0 for never.
+    private long deadlineFor(PendingCommand pending, String command, String[] text,
+                             byte[][] binary, long timeoutMs) {
+        if (pending.subscriptionKind != null || pending.callback == null) {
+            return 0;
+        }
+        long ms;
+        if (timeoutMs >= 0) {
+            ms = timeoutMs;
+        } else if (defaultTimeoutMs == 0) {
+            return 0;
+        } else {
+            long blocking = CommandTimeouts.blockingMillis(command, text, binary);
+            if (blocking < 0) {
+                ms = defaultTimeoutMs;
+            } else if (blocking == 0) {
+                return 0;
+            } else {
+                ms = defaultTimeoutMs + blocking;
+            }
+        }
+        if (ms == 0) {
+            return 0;
+        }
+        pending.timeoutMs = ms;
+        long due = ticker.nanos() + ms * 1000000L;
+        return due == 0 ? 1 : due;
+    }
+
+    // Makes sure the timer will fire no later than the given moment.
+    private void armFor(long dueNanos) {
+        if (timer != null && timerDueNanos - dueNanos <= 0) {
+            return;
+        }
+        if (timer != null) {
+            timer.cancel();
+        }
+        long delayMs = Math.max(1, (dueNanos - ticker.nanos() + 999999L) / 1000000L);
+        timerDueNanos = dueNanos;
+        timer = endpoint.scheduleTimer(delayMs, new Runnable() {
+            @Override
+            public void run() {
+                expire();
+            }
+        });
+        if (timer == null) {
+            // an endpoint with no timers: nothing will fire
+            timerDueNanos = 0;
+        }
+    }
+
+    private void cancelTimer() {
+        if (timer != null) {
+            timer.cancel();
+            timer = null;
+        }
+    }
+
+    // The timer has fired: fails every command now overdue, then sets the
+    // timer for the next deadline. A failed command keeps its place in the
+    // queue as the server will still answer it, in order; the answer is
+    // discarded when it comes.
+    private void expire() {
+        timer = null;
+        if (closed) {
+            return;
+        }
+        long now = ticker.nanos();
+        List<PendingCommand> overdue = new ArrayList<PendingCommand>();
+        long next = 0;
+        for (PendingCommand pending : pendingCommands) {
+            if (pending.timedOut || pending.deadlineNanos == 0) {
+                continue;
+            }
+            if (pending.deadlineNanos - now <= 0) {
+                pending.timedOut = true;
+                overdue.add(pending);
+            } else if (next == 0 || pending.deadlineNanos - next < 0) {
+                next = pending.deadlineNanos;
+            }
+        }
+        if (next != 0) {
+            armFor(next);
+        }
+        // handlers may send more commands, so only now
+        for (PendingCommand pending : overdue) {
+            dispatchError(pending.callback, MessageFormat.format(
+                    L10N.getString("err.command_timeout"), Long.valueOf(pending.timeoutMs)));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -658,6 +824,12 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         // the command leaves the queue when the last one has arrived.
         final String subscriptionKind;
         int confirmationsDue;
+        // When its reply is overdue (a Ticker time); 0 for never. Once it
+        // is, the handler has been told and timedOut is set: the reply
+        // still due is read and thrown away.
+        long deadlineNanos;
+        long timeoutMs;
+        boolean timedOut;
 
         PendingCommand(Object callback, SentCommand sent, String subscriptionKind,
                        int confirmationsDue) {
@@ -698,13 +870,6 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 pendingCommands.poll();
             }
         }
-    }
-
-    private static int argCountOf(SentCommand command) {
-        if (command.getBinaryArgs() != null) {
-            return command.getBinaryArgs().length;
-        }
-        return command.getTextArgs() != null ? command.getTextArgs().length : 0;
     }
 
     private SentCommand remember(Object callback, String command,

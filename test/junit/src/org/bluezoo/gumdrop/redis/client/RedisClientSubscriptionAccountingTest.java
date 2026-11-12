@@ -42,7 +42,7 @@ import static org.junit.Assert.*;
  */
 public class RedisClientSubscriptionAccountingTest {
 
-    private static final class Quiet implements MessageHandler {
+    static final class Quiet implements MessageHandler {
         @Override
         public void handleMessage(String channel, byte[] message) {
         }

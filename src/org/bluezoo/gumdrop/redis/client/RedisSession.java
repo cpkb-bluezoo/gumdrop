@@ -1109,6 +1109,38 @@ public interface RedisSession {
      */
     void evalsha(String sha1, int numKeys, String[] keys, String[] args, ArrayResultHandler handler);
 
+    /**
+     * Executes a Lua script, failing with a {@code TIMEOUT} error if no
+     * reply has arrived after {@code timeout}. A script may legitimately
+     * run longer than the connection's default command timeout.
+     *
+     * @param script the Lua script
+     * @param numKeys the number of keys
+     * @param keys the keys
+     * @param args additional arguments
+     * @param timeout how long to wait, replacing the default; zero for no
+     *                timeout
+     * @param handler receives the script result
+     * @throws IllegalArgumentException if {@code timeout} is negative
+     */
+    void eval(String script, int numKeys, String[] keys, String[] args, java.time.Duration timeout,
+              ArrayResultHandler handler);
+
+    /**
+     * Executes a cached script by SHA1 hash, with its own timeout.
+     *
+     * @param sha1 the script SHA1 hash
+     * @param numKeys the number of keys
+     * @param keys the keys
+     * @param args additional arguments
+     * @param timeout how long to wait, replacing the default; zero for no
+     *                timeout
+     * @param handler receives the script result
+     * @throws IllegalArgumentException if {@code timeout} is negative
+     */
+    void evalsha(String sha1, int numKeys, String[] keys, String[] args, java.time.Duration timeout,
+                 ArrayResultHandler handler);
+
     // ─────────────────────────────────────────────────────────────────────────
     // Server
     // ─────────────────────────────────────────────────────────────────────────
@@ -1300,5 +1332,31 @@ public interface RedisSession {
      * @param args the arguments as byte arrays
      */
     void command(ArrayResultHandler handler, String command, byte[]... args);
+
+    /**
+     * Sends a raw command with string arguments and its own timeout: the
+     * handler gets a {@code TIMEOUT} error if no reply has arrived after
+     * {@code timeout}, and a reply that comes later is discarded.
+     *
+     * @param timeout how long to wait, replacing the connection's default;
+     *                zero for no timeout
+     * @param handler receives the result
+     * @param command the command name
+     * @param args the arguments
+     * @throws IllegalArgumentException if {@code timeout} is negative
+     */
+    void command(java.time.Duration timeout, ArrayResultHandler handler, String command, String... args);
+
+    /**
+     * Sends a raw command with byte array arguments and its own timeout.
+     *
+     * @param timeout how long to wait, replacing the connection's default;
+     *                zero for no timeout
+     * @param handler receives the result
+     * @param command the command name
+     * @param args the arguments as byte arrays
+     * @throws IllegalArgumentException if {@code timeout} is negative
+     */
+    void command(java.time.Duration timeout, ArrayResultHandler handler, String command, byte[]... args);
 
 }
