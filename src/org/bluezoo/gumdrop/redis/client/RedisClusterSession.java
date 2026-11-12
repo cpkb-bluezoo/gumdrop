@@ -107,6 +107,13 @@ final class RedisClusterSession extends AbstractRedisSession {
     // connections of its own: one for ordinary channels and patterns, and
     // one per node for the sharded channels that node owns.
     private PushHandler pushHandler;
+
+    // How long a command may wait for its reply (0: no limit) and how many
+    // may be waiting on one connection (0: no limit); applied to every
+    // connection as it comes up.
+    private long commandTimeoutMs;
+    private int maxPending = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
+
     private Subscriber plain;
 
     // Keyspace notifications are published only on the node that owns the
@@ -154,6 +161,23 @@ final class RedisClusterSession extends AbstractRedisSession {
     /** Runs a task on the session's loop after a delay. */
     interface Scheduler {
         void schedule(long delayMs, Runnable task);
+    }
+
+    /**
+     * Sets how long a command may wait for its reply when it names no
+     * timeout of its own: on a connection, and while it waits for one to
+     * come up. 0 (the default) is no limit.
+     */
+    void setCommandTimeoutMillis(long millis) {
+        this.commandTimeoutMs = Math.max(0, millis);
+    }
+
+    /**
+     * Sets how many commands may wait at once on one connection, and for
+     * one to come up. Further commands fail at once. 0 is no limit.
+     */
+    void setMaxPending(int max) {
+        this.maxPending = Math.max(0, max);
     }
 
     void setClock(Clock clock) {
@@ -943,6 +967,8 @@ final class RedisClusterSession extends AbstractRedisSession {
             handler = connection;
             handler.setRedirectListener(new SubscriptionErrors());
             handler.setPushHandler(pushHandler);
+            handler.setCommandTimeoutMillis(commandTimeoutMs);
+            handler.setMaxPending(maxPending);
             ready = true;
             restore();
         }
@@ -1160,8 +1186,35 @@ final class RedisClusterSession extends AbstractRedisSession {
                 fail(command, lastFailure);
                 return;
             }
+            if (maxPending > 0 && command.getCallback() != null && queue.size() >= maxPending) {
+                fail(command, MessageFormat.format(
+                        RedisClientProtocolHandler.L10N.getString("err.too_many_pending"),
+                        Integer.valueOf(maxPending)));
+                return;
+            }
             queue.add(command);
+            limitWait(command);
             open();
+        }
+
+        // A command waiting for a connection that does not come up must not
+        // wait for ever: it times out like one sent on a connection would.
+        private void limitWait(final SentCommand command) {
+            long timeout = command.getTimeoutMs() >= 0 ? command.getTimeoutMs() : commandTimeoutMs;
+            if (timeout <= 0 || scheduler == null || command.getCallback() == null) {
+                return;
+            }
+            final long waited = timeout;
+            scheduler.schedule(timeout, new Runnable() {
+                @Override
+                public void run() {
+                    if (queue.remove(command)) {
+                        fail(command, MessageFormat.format(
+                                RedisClientProtocolHandler.L10N.getString("err.command_timeout"),
+                                Long.valueOf(waited)));
+                    }
+                }
+            });
         }
 
         /** Starts connecting unless a connection is up, on its way, or backing off. */
@@ -1192,6 +1245,8 @@ final class RedisClusterSession extends AbstractRedisSession {
             handler.setRedirectListener(new Redirects(this));
             handler.setResultSession(RedisClusterSession.this);
             handler.setPushHandler(pushHandler);
+            handler.setCommandTimeoutMillis(commandTimeoutMs);
+            handler.setMaxPending(maxPending);
             ready = true;
             SentCommand next;
             while ((next = queue.poll()) != null) {

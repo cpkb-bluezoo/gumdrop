@@ -218,6 +218,35 @@ public class RedisClusterClientTest {
     }
 
     @Test
+    public void theTimeoutAndCapOptionsReachTheSession() {
+        client.commandTimeout(java.time.Duration.ofMillis(750)).maxPendingCommands(1);
+        discover();
+        Bulk first = new Bulk();
+        Bulk second = new Bulk();
+        ready.session.get("foo", first);
+        ready.session.get("foo", second);
+        // the second finds the first still waiting for a connection and a cap of one
+        assertEquals(1, second.events.size());
+        assertTrue(second.events.get(0), second.events.get(0).startsWith("error:OVERLOAD"));
+    }
+
+    @Test
+    public void invalidTimeoutAndCapAreRefused() {
+        try {
+            client.commandTimeout(java.time.Duration.ofMillis(-1));
+            fail();
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+        try {
+            client.maxPendingCommands(-1);
+            fail();
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
+
+    @Test
     public void keyspaceSubscriptionNeedsAConnectedClient() {
         Errors h = new Errors();
         client.subscribeKeyspace("__keyspace@0__:*", h);

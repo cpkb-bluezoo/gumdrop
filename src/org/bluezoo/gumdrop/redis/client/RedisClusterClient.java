@@ -80,6 +80,8 @@ public class RedisClusterClient {
     private String password;
     private int protocol = 2;
     private PushHandler pushHandler;
+    private java.time.Duration commandTimeout = java.time.Duration.ZERO;
+    private int maxPendingCommands = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
 
     private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
@@ -221,6 +223,46 @@ public class RedisClusterClient {
         current.subscribeKeyspace(pattern, handler);
     }
 
+    /**
+     * Sets how long a command may wait for its reply, for every command
+     * that names no timeout of its own, on every node connection and while
+     * it waits for a connection to come up. When it expires the command's
+     * handler gets an error beginning {@code TIMEOUT}, once, on the loop the
+     * connection runs on, and a reply that arrives later is discarded.
+     * Commands that wait on the server on purpose (blocking pops, blocking
+     * stream reads) are allowed their own wait on top of it. The default is
+     * no timeout.
+     *
+     * @param timeout the timeout; zero for none
+     * @return this client
+     * @throws IllegalArgumentException if negative
+     */
+    public RedisClusterClient commandTimeout(java.time.Duration timeout) {
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("negative timeout: " + timeout);
+        }
+        this.commandTimeout = timeout;
+        return this;
+    }
+
+    /**
+     * Sets the most commands that may wait at once on one node connection,
+     * and for a connection to come up. A command sent beyond that fails at
+     * once, with an error beginning {@code OVERLOAD}, instead of queueing
+     * without limit. The default is 65536.
+     *
+     * @param max the cap; 0 for none
+     * @return this client
+     * @throws IllegalArgumentException if negative
+     */
+    public RedisClusterClient maxPendingCommands(int max) {
+        if (max < 0) {
+            throw new IllegalArgumentException("negative cap: " + max);
+        }
+        this.maxPendingCommands = max;
+        return this;
+    }
+
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }
@@ -290,6 +332,8 @@ public class RedisClusterClient {
                         session.setScheduler(scheduler);
                         session.setRefresher(refresher(nodes));
                         session.setPushHandler(pushHandler);
+                        session.setCommandTimeoutMillis(commandTimeout.toMillis());
+                        session.setMaxPending(maxPendingCommands);
                         // Connect to every master, and keep the seed connection
                         // until one of those has settled: Gumdrop stops a
                         // runtime with no connection at all.
