@@ -91,6 +91,7 @@ public class UpstreamRelayHandlerEncryptedTest {
     private static final class MockTransport implements DnsClientTransport {
         final UpstreamRelayHandler.Transport kind;
         DnsClientTransportHandler handler;
+        SelectorLoop openedOn;
         int port;
         boolean closed;
         final List<byte[]> sent = new ArrayList<byte[]>();
@@ -105,6 +106,7 @@ public class UpstreamRelayHandlerEncryptedTest {
                          DnsClientTransportHandler handler) throws IOException {
             this.handler = handler;
             this.port = port;
+            this.openedOn = loop;
         }
 
         @Override
@@ -513,5 +515,114 @@ public class UpstreamRelayHandlerEncryptedTest {
         MockTimer last = t.timers.get(t.timers.size() - 1);
         last.fire();
         assertEquals("the held-back query failed", -1, outcome[0]);
+    }
+
+    // ── one connection per loop ──
+
+    private Capture askOn(SelectorLoop on, int id, String name) {
+        Capture c = new Capture();
+        handler.handleQuery(DnsMessage.createQuery(id, name, DnsType.A), on, c);
+        return c;
+    }
+
+    @Test
+    public void eachLoopGetsItsOwnConnectionToAnUpstream() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        SelectorLoop a = new InlineSelectorLoop();
+        SelectorLoop b = new InlineSelectorLoop();
+        askOn(a, 1, "a1.example.com");
+        askOn(b, 2, "b1.example.com");
+        askOn(a, 3, "a2.example.com");
+        askOn(b, 4, "b2.example.com");
+        assertEquals("one connection per loop", 2, source.created.size());
+        assertNotSame(source.created.get(0).openedOn, source.created.get(1).openedOn);
+        assertSame("each connection is opened on the loop of its queries",
+                a, source.created.get(0).openedOn);
+        assertSame(b, source.created.get(1).openedOn);
+    }
+
+    @Test
+    public void relayedQueriesAreSpreadOverTheLoopsTheyArriveOn() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        int loops = 4;
+        SelectorLoop[] on = new SelectorLoop[loops];
+        for (int i = 0; i < loops; i++) {
+            on[i] = new InlineSelectorLoop();
+        }
+        for (int q = 0; q < 400; q++) {
+            askOn(on[q % loops], 1 + q, "q" + q + ".example.com");
+        }
+        assertEquals(loops, source.created.size());
+        for (MockTransport t : source.created) {
+            t.handler.onConnected();
+            assertEquals("an even share on each connection", 100, t.sent.size());
+        }
+    }
+
+    @Test
+    public void aFailureOnOneLoopsConnectionLeavesTheOthersAlone() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        SelectorLoop a = new InlineSelectorLoop();
+        SelectorLoop b = new InlineSelectorLoop();
+        Capture onA = askOn(a, 1, "a.example.com");
+        Capture onB = askOn(b, 2, "b.example.com");
+        MockTransport ta = source.created.get(0);
+        MockTransport tb = source.created.get(1);
+        ta.handler.onConnected();
+        tb.handler.onConnected();
+        ta.handler.onError(new java.io.IOException("reset"));
+        // a's connection is gone and held off; b's carries on
+        assertEquals(0, onB.calls);
+        tb.handler.onReceive(answer(tb.sentQuery(0), "192.0.2.5").serialize());
+        assertEquals(1, onB.calls);
+        assertFalse(tb.closed);
+        // and a new query on b is not held off by a's failure
+        askOn(b, 3, "b2.example.com");
+        assertEquals(2, tb.sent.size());
+    }
+
+    @Test
+    public void stoppingClosesTheConnectionOfEveryLoop() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        askOn(new InlineSelectorLoop(), 1, "a.example.com");
+        askOn(new InlineSelectorLoop(), 2, "b.example.com");
+        askOn(new InlineSelectorLoop(), 3, "c.example.com");
+        handler.stop();
+        assertEquals(3, source.created.size());
+        for (MockTransport t : source.created) {
+            assertTrue(t.closed);
+        }
+    }
+
+    @Test
+    public void concurrentFirstUseOfALoopMakesOneUpstream() throws Exception {
+        relay(UpstreamRelayHandler.Transport.DOT, "192.0.2.1");
+        final SelectorLoop a = new InlineSelectorLoop();
+        final SelectorLoop b = new InlineSelectorLoop();
+        final java.util.Set<Object> seenA = java.util.Collections.synchronizedSet(new HashSet<Object>());
+        final java.util.Set<Object> seenB = java.util.Collections.synchronizedSet(new HashSet<Object>());
+        final java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(8);
+        for (int i = 0; i < 8; i++) {
+            Thread t = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        go.await();
+                        seenA.add(handler.encryptedUpstreamFor(0, a));
+                        seenB.add(handler.encryptedUpstreamFor(0, b));
+                    } catch (InterruptedException e) {
+                        // fall through
+                    } finally {
+                        done.countDown();
+                    }
+                }
+            });
+            t.start();
+        }
+        go.countDown();
+        done.await();
+        assertEquals(1, seenA.size());
+        assertEquals(1, seenB.size());
     }
 }

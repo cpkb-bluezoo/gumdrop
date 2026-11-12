@@ -138,8 +138,37 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private TlsConfig tls;
     private EncryptedUpstream.TransportSource encryptedTransportSource;
     private EncryptedUpstream.Clock clock;
-    private final java.util.Map<Integer, EncryptedUpstream> encryptedUpstreams =
-            new java.util.HashMap<Integer, EncryptedUpstream>();
+    // One connection to each upstream per loop, so that a query is sent on the
+    // loop it arrived on, with no hand-off to another thread. Read without a
+    // lock; written under creationLock.
+    private final java.util.concurrent.ConcurrentHashMap<UpstreamKey, EncryptedUpstream>
+            encryptedUpstreams = new java.util.concurrent.ConcurrentHashMap<UpstreamKey, EncryptedUpstream>();
+    private final Object creationLock = new Object();
+
+    /** An upstream server, as served from one loop. */
+    private static final class UpstreamKey {
+        final int index;
+        final SelectorLoop loop;
+
+        UpstreamKey(int index, SelectorLoop loop) {
+            this.index = index;
+            this.loop = loop;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof UpstreamKey)) {
+                return false;
+            }
+            UpstreamKey other = (UpstreamKey) o;
+            return index == other.index && loop == other.loop;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * index + System.identityHashCode(loop);
+        }
+    }
     private final java.util.Set<InetSocketAddress> implicitPorts =
             new java.util.HashSet<InetSocketAddress>();
 
@@ -320,7 +349,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             validationResolver = null;
         }
         chainValidator = null;
-        synchronized (encryptedUpstreams) {
+        synchronized (creationLock) {
             for (EncryptedUpstream upstream : encryptedUpstreams.values()) {
                 upstream.close();
             }
@@ -659,10 +688,14 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 effectiveLoop, callback);
     }
 
-    private EncryptedUpstream encryptedUpstream(int index, SelectorLoop loop) {
-        synchronized (encryptedUpstreams) {
-            EncryptedUpstream upstream =
-                    encryptedUpstreams.get(Integer.valueOf(index));
+    EncryptedUpstream encryptedUpstreamFor(int index, SelectorLoop loop) {
+        UpstreamKey key = new UpstreamKey(index, loop);
+        EncryptedUpstream existing = encryptedUpstreams.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (creationLock) {
+            EncryptedUpstream upstream = encryptedUpstreams.get(key);
             if (upstream == null) {
                 InetSocketAddress addr = upstreamServers.get(index);
                 final TlsConfig config = tls;
@@ -688,7 +721,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 upstream = new EncryptedUpstream(transport, addr,
                         upstreamPort(addr), loop, source, time,
                         UPSTREAM_TIMEOUT_MS);
-                encryptedUpstreams.put(Integer.valueOf(index), upstream);
+                encryptedUpstreams.put(key, upstream);
             }
             return upstream;
         }
@@ -746,7 +779,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         void start() {
             if (transport != Transport.UDP) {
-                encryptedUpstream(index, loop).query(queryData,
+                encryptedUpstreamFor(index, loop).query(queryData,
                         upstreamQuery.getQuestions(),
                         new EncryptedUpstream.Result() {
                             @Override

@@ -45,7 +45,8 @@ import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 
 /**
  * A persistent DoT (RFC 7858) or DoQ (RFC 9250) connection to one upstream
- * server, shared by every query the relay sends there. Queries are pipelined
+ * server, shared by every query the relay sends there from one loop (the
+ * relay keeps one of these per upstream per loop). Queries are pipelined
  * over the connection and matched to their responses by ID.
  *
  * <p>The connection is opened lazily by the first query and reopened by the
@@ -118,9 +119,15 @@ final class EncryptedUpstream {
      * connection failed, the query timed out, or the answer did not match.
      * The connection gives the query an ID of its own, different from that
      * of every other query in flight on it, so the {@code data} may carry
-     * any ID; it is replaced on the wire. May be called from any thread.
+     * any ID; it is replaced on the wire. May be called from any thread;
+     * from the connection's own loop it runs at once.
      */
     void query(final byte[] data, final List<DnsQuestion> questions, final Result result) {
+        if (Thread.currentThread() == loop.getThread()) {
+            // already where the connection lives: no hand-off
+            queryOnLoop(data, questions, result);
+            return;
+        }
         loop.invokeLater(new Runnable() {
             @Override
             public void run() {
