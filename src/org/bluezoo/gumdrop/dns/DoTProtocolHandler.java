@@ -88,6 +88,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
     private boolean readPaused;
     private boolean closed;
 
+    // what handlers keep for this connection; released when it closes
+    private final ConnectionAttributes attributes = new ConnectionAttributes();
+
     DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer server) {
         this(server, "dot");
     }
@@ -214,6 +217,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
     @Override
     public void disconnected() {
         closed = true;
+        attributes.close();
         if (LOGGER.isLoggable(Level.FINE)) {
             SocketAddress remote = (endpoint != null)
                     ? endpoint.getRemoteAddress() : null;
@@ -293,9 +297,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     /** The context of the connection a message arrived on. */
     private DnsQueryContext queryContext() {
-        return DnsQueryContext.of(metricsTransport, DnsQueryTransport.FRAMED_TCP,
+        return new DefaultDnsQueryContext(metricsTransport, DnsQueryTransport.FRAMED_TCP,
                 endpoint.getRemoteAddress(), endpoint.getLocalAddress(),
-                securityOf(endpoint));
+                securityOf(endpoint), attributes);
     }
 
     /** Security parameters of a secure endpoint; null for plain TCP. */

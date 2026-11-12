@@ -33,7 +33,9 @@ import org.bluezoo.gumdrop.SecurityInfo;
  *
  * <p>A context is an immutable snapshot taken when the query was received.
  * It remains valid after the underlying connection has closed, so a handler
- * that answers asynchronously may keep it.
+ * that answers asynchronously may keep it. The one thing that is not a
+ * snapshot is the {@linkplain #getConnectionAttribute connection attributes},
+ * which a handler uses to keep state for the connection.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.dns.server.DnsQueryHandler#handleQuery(DnsMessage,
@@ -70,6 +72,76 @@ public interface DnsQueryContext {
      * {@code null} for plaintext transports.
      */
     SecurityInfo getSecurityInfo();
+
+    /**
+     * Returns what a handler stored for the connection under {@code key} with
+     * {@link #setConnectionAttribute}, or {@code null} if nothing is stored,
+     * the connection has closed, or the query has no connection.
+     *
+     * <p>The attributes belong to the connection and are shared by every
+     * context of its queries, so something worked out for the first query
+     * (a parsed client identity, say) is there for the rest. They are
+     * released when the connection closes. They are not synchronised: use
+     * them only on the connection's selector loop, the one passed to
+     * {@code handleQuery}.
+     *
+     * <p>Which queries have a connection: DoT and DNS over TCP, one
+     * connection each. A UDP or DTLS datagram has none, so nothing is ever
+     * stored and this returns {@code null}. In DoQ each query has a stream
+     * of its own, so its attributes last for the query only.
+     *
+     * @param key the key
+     * @param <T> the type of the value
+     * @return the value, or {@code null}
+     */
+    default <T> T getConnectionAttribute(Key<T> key) {
+        return null;
+    }
+
+    /**
+     * Stores a value for the connection under {@code key}, replacing any
+     * earlier one; {@code null} removes it. Does nothing if the query has no
+     * connection (see {@link #getConnectionAttribute}) or the connection has
+     * closed.
+     *
+     * @param key the key
+     * @param value the value, or {@code null} to remove
+     * @param <T> the type of the value
+     */
+    default <T> void setConnectionAttribute(Key<T> key, T value) {
+    }
+
+    /**
+     * A typed key for a connection attribute. Keys are compared by identity,
+     * so two keys never collide, whatever their names: declare each as a
+     * constant.
+     *
+     * @param <T> the type of the values stored under it
+     */
+    final class Key<T> {
+
+        private final String name;
+
+        private Key(String name) {
+            this.name = name;
+        }
+
+        /**
+         * Creates a key.
+         *
+         * @param name a name, for diagnostics only
+         * @param <T> the type of the values stored under it
+         * @return a new key, equal to no other
+         */
+        public static <T> Key<T> of(String name) {
+            return new Key<T>(name);
+        }
+
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
 
     /**
      * Creates a context.

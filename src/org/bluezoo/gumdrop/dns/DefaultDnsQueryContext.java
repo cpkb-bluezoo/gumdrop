@@ -37,10 +37,22 @@ final class DefaultDnsQueryContext implements DnsQueryContext {
     private final SocketAddress remote;
     private final SocketAddress local;
     private final SecurityInfo security;
+    private final ConnectionAttributes attributes;
 
     DefaultDnsQueryContext(String transportName, DnsQueryTransport transport,
                            SocketAddress remote, SocketAddress local,
                            SecurityInfo security) {
+        this(transportName, transport, remote, local, security, null);
+    }
+
+    /**
+     * @param attributes the attributes of the connection the query arrived
+     *                   on, or null if it has none
+     */
+    DefaultDnsQueryContext(String transportName, DnsQueryTransport transport,
+                           SocketAddress remote, SocketAddress local,
+                           SecurityInfo security, ConnectionAttributes attributes) {
+        this.attributes = attributes;
         if (transport == null) {
             throw new NullPointerException("transport");
         }
@@ -74,5 +86,17 @@ final class DefaultDnsQueryContext implements DnsQueryContext {
     @Override
     public SecurityInfo getSecurityInfo() {
         return security;
+    }
+
+    @Override
+    public <T> T getConnectionAttribute(Key<T> key) {
+        return attributes != null ? attributes.get(key) : null;
+    }
+
+    @Override
+    public <T> void setConnectionAttribute(Key<T> key, T value) {
+        if (attributes != null) {
+            attributes.set(key, value);
+        }
     }
 }

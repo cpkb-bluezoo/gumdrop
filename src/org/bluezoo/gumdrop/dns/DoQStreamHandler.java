@@ -77,6 +77,10 @@ final class DoQStreamHandler implements ProtocolHandler {
     static final long DOQ_EXCESSIVE_LOAD = 0x4;
 
     private final org.bluezoo.gumdrop.dns.server.DnsServer server;
+
+    // A DoQ query has a stream of its own, so what handlers keep lasts for
+    // the query; it is released with this handler.
+    private final ConnectionAttributes attributes = new ConnectionAttributes();
     private Endpoint endpoint;
     private final ByteArrayOutputStream accumulator =
             new ByteArrayOutputStream(512);
@@ -290,8 +294,8 @@ final class DoQStreamHandler implements ProtocolHandler {
 
     /** The context of the connection a message arrived on. */
     private DnsQueryContext queryContext() {
-        return DnsQueryContext.of("doq", DnsQueryTransport.FRAMED_TCP,
+        return new DefaultDnsQueryContext("doq", DnsQueryTransport.FRAMED_TCP,
                 endpoint.getRemoteAddress(), endpoint.getLocalAddress(),
-                endpoint.getSecurityInfo());
+                endpoint.getSecurityInfo(), attributes);
     }
 }

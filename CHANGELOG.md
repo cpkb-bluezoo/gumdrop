@@ -114,6 +114,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   each query starts) and `dns.server.connection.backpressure` (times a
   connection was stopped at its limit), labelled by transport.
   Closes #595.
+- **DNS: per-connection attributes on `DnsQueryContext`, and a cached peer
+  chain.** `DnsQueryContext.getConnectionAttribute(Key)` and
+  `setConnectionAttribute(Key, value)` let a handler keep state for the
+  connection a query arrived on, such as a client identity parsed from its
+  certificate, so that it is worked out once rather than for every query.
+  `DnsQueryContext.Key.of(name)` makes a typed key, compared by identity. The
+  attributes are shared by all the queries on a DoT or DNS-over-TCP
+  connection, start empty on a new connection, and are released when it
+  closes (a context kept by a handler cannot bring them back). A UDP or DTLS
+  datagram has no connection, so nothing is kept and `get` returns null; in
+  DoQ each query has a stream of its own, so they last for the query. Use
+  them only on the connection's selector loop.
+  `SecurityInfo.getPeerCertificateChain()` returns the peer's chain as an
+  unmodifiable list built once per handshake and returned as it is, instead
+  of the fresh array `getPeerCertificates()` makes on every call.
+  Closes #596.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

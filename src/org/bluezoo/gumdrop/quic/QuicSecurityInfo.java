@@ -117,6 +117,17 @@ final class QuicSecurityInfo implements SecurityInfo {
         return peerCertificates;
     }
 
+    private volatile java.util.List<Certificate> peerChain;
+
+    @Override
+    public java.util.List<Certificate> getPeerCertificateChain() {
+        if (peerChain == null && peerCertificates != null) {
+            peerChain = java.util.Collections.unmodifiableList(
+                    java.util.Arrays.asList(peerCertificates.clone()));
+        }
+        return peerChain;
+    }
+
     @Override
     public Certificate[] getLocalCertificates() {
         return null;
