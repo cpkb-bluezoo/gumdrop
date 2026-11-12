@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.quic.tls;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
@@ -480,6 +481,17 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      */
     public boolean isHandshakeProcessingBusy() {
         return asyncOffload.isBusy();
+    }
+
+    /**
+     * Returns the certificate chain the client presented, leaf first, valid
+     * once the handshake has finished; {@code null} if the client presented
+     * none (when client authentication was not required).
+     *
+     * @return the client's certificate chain, or null
+     */
+    public List<X509Certificate> getClientCertificateChain() {
+        return engine.getPeerCertificateChain();
     }
 
     /**

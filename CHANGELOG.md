@@ -130,6 +130,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   unmodifiable list built once per handshake and returned as it is, instead
   of the fresh array `getPeerCertificates()` makes on every call.
   Closes #596.
+- **QUIC and DoQ: the client's certificate chain on the server.** A QUIC
+  server that requires client certificates now reports the chain the client
+  presented from `SecurityInfo.getPeerCertificates()` (and
+  `getPeerCertificateChain()`), as a DoT server does, and the server name the
+  client asked for from `getServerName()`. It is known when the handshake
+  finishes, so it is on the connection and on every stream of it, and a DoQ
+  `DnsQueryHandler` sees it in `DnsQueryContext.getSecurityInfo()` for every
+  query. The client side of QUIC can now present a certificate: a factory's
+  own credentials are what its client connections offer to a server that
+  asks for one. As for TLS, a certificate for client authentication only is
+  accepted and one for server authentication only is refused, and a client
+  with none is refused. Closes #597.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

@@ -993,6 +993,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         factory.applyEchClientSettings(tlsEngine);
         X509TrustManager trustManager = factory.getTrustManager();
         tlsEngine.setTrustManager(trustManager);
+        // what the factory is configured with as its own certificate is what
+        // this client offers a server that asks for one
+        tlsEngine.setClientCredentials(factory.getServerCredentials());
         if (!factory.isVerifyHostnameEnabled()) {
             tlsEngine.setVerifyHostname(false);
         }

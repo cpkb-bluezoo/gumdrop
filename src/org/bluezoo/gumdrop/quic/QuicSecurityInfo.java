@@ -36,11 +36,13 @@ import org.bluezoo.gumdrop.tls.CipherSuite;
  * {@link SecurityInfo} backed by the QUIC connection's negotiated TLS 1.3
  * state. QUIC always uses TLS 1.3, so the protocol is always "QUICv1".
  *
- * <p>Not yet available: the server side has no client certificate chain
- * accessor (mutual TLS is not exercised), so {@link #getPeerCertificates}
- * is only ever populated on the client side. {@link #getApplicationProtocol}
- * is the protocol ALPN settled on (such as "h3"), or {@code null} if none
- * was configured.
+ * <p>{@link #getPeerCertificates} is the peer's chain: the server's, as seen
+ * by a client, and the client's, as seen by a server that asked for one
+ * (null if it did not, so none was presented). It is known from the moment
+ * the handshake finishes, which is when this is created, so every stream of
+ * the connection sees it. {@link #getServerName} is the server name the
+ * client asked for. {@link #getApplicationProtocol} is the protocol ALPN
+ * settled on (such as "h3"), or {@code null} if none was configured.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SecurityInfo
@@ -77,7 +79,9 @@ final class QuicSecurityInfo implements SecurityInfo {
         this.namedGroup = group != null ? group.getName() : null;
         this.applicationProtocol = tlsEngine.getNegotiatedApplicationProtocol();
         this.serverName = tlsEngine.getPeerServerName();
-        this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
+        this.peerCertificates = isServer
+                ? toArray(((QuicTlsServerEngine) tlsEngine).getClientCertificateChain())
+                : toArray(((QuicTlsClientEngine) tlsEngine).getServerCertificateChain());
         this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
         this.earlyDataAccepted = earlyDataAccepted;
         this.sessionResumed = tlsEngine.isResumed();
@@ -158,8 +162,7 @@ final class QuicSecurityInfo implements SecurityInfo {
         return earlyDataAccepted;
     }
 
-    private static Certificate[] parsePeerCerts(QuicTlsClientEngine clientEngine) {
-        List<X509Certificate> chain = clientEngine.getServerCertificateChain();
+    private static Certificate[] toArray(List<X509Certificate> chain) {
         if (chain == null || chain.isEmpty()) {
             return null;
         }

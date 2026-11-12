@@ -232,6 +232,17 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     }
 
     /**
+     * Sets the certificate this client presents if the server asks for one
+     * (mutual TLS). Without it, a server that requires client
+     * authentication refuses the handshake.
+     *
+     * @param credentials the client's certificate chain and key, or null for none
+     */
+    public void setClientCredentials(org.bluezoo.gumdrop.tls.ServerCredentials credentials) {
+        config.setClientCredentials(credentials);
+    }
+
+    /**
      * Disables hostname verification of the peer's certificate against
      * the server name presented in the handshake. See
      * {@link HandshakeConfig#setVerifyHostname} for when callers should
