@@ -79,6 +79,7 @@ public class RedisClusterClient {
     private String username;
     private String password;
     private int protocol = 2;
+    private PushHandler pushHandler;
 
     private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
@@ -177,6 +178,21 @@ public class RedisClusterClient {
         return this;
     }
 
+    /**
+     * Sets the handler for RESP3 pushes that are not Pub/Sub deliveries,
+     * such as client-side caching invalidations, from every node connection.
+     * Needs {@link #protocol(int) protocol 3}. It is called on the loop the
+     * connection runs on. The session's
+     * {@link RedisSession#setPushHandler(PushHandler)} changes it later.
+     *
+     * @param handler the handler
+     * @return this client
+     */
+    public RedisClusterClient pushHandler(PushHandler handler) {
+        this.pushHandler = handler;
+        return this;
+    }
+
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }
@@ -245,6 +261,7 @@ public class RedisClusterClient {
                         session = new RedisClusterSession(map, nodes);
                         session.setScheduler(scheduler);
                         session.setRefresher(refresher(nodes));
+                        session.setPushHandler(pushHandler);
                         // Connect to every master, and keep the seed connection
                         // until one of those has settled: Gumdrop stops a
                         // runtime with no connection at all.

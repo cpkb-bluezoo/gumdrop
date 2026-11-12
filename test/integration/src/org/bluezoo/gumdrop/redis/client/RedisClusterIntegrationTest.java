@@ -75,8 +75,8 @@ public class RedisClusterIntegrationTest {
     private Gumdrop gumdrop;
     private SelectorLoop loop;
     private RedisClusterClient client;
-    private RedisClusterSession session;
-    private final String prefix = "gd-cluster-" + System.nanoTime() + "-";
+    protected RedisClusterSession session;
+    protected final String prefix = "gd-cluster-" + System.nanoTime() + "-";
 
     /** The RESP version the client negotiates; subclasses rerun every test with another. */
     protected int protocol() {
@@ -131,11 +131,11 @@ public class RedisClusterIntegrationTest {
 
     // ── blocking helpers: run on the loop, wait on the test thread ──
 
-    private void onLoop(Runnable task) {
+    protected void onLoop(Runnable task) {
         loop.invokeLater(task);
     }
 
-    private String set(final String key, final String value) throws Exception {
+    protected String set(final String key, final String value) throws Exception {
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicReference<String> out = new AtomicReference<String>();
         onLoop(new Runnable() {
@@ -160,7 +160,7 @@ public class RedisClusterIntegrationTest {
         return out.get();
     }
 
-    private String get(final String key) throws Exception {
+    protected String get(final String key) throws Exception {
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicReference<String> out = new AtomicReference<String>();
         onLoop(new Runnable() {

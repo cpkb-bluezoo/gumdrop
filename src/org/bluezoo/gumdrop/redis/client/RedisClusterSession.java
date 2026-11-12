@@ -106,6 +106,7 @@ final class RedisClusterSession extends AbstractRedisSession {
     // Subscribed connections cannot carry other commands, so Pub/Sub has
     // connections of its own: one for ordinary channels and patterns, and
     // one per node for the sharded channels that node owns.
+    private PushHandler pushHandler;
     private Subscriber plain;
     private final Map<ClusterNode, Subscriber> shardSubscribers =
             new HashMap<ClusterNode, Subscriber>();
@@ -500,6 +501,26 @@ final class RedisClusterSession extends AbstractRedisSession {
         deliverError(handler, "ERR RESET is not supported by a cluster session", this);
     }
 
+    // ── pushes ──
+
+    @Override
+    public void setPushHandler(PushHandler handler) {
+        pushHandler = handler;
+        for (NodeConnection c : connections.values()) {
+            if (c.handler != null) {
+                c.handler.setPushHandler(handler);
+            }
+        }
+        if (plain != null && plain.handler != null) {
+            plain.handler.setPushHandler(handler);
+        }
+        for (Subscriber sub : shardSubscribers.values()) {
+            if (sub.handler != null) {
+                sub.handler.setPushHandler(handler);
+            }
+        }
+    }
+
     // ── Pub/Sub ──
 
     /** The wait after the given number of failures in a row. */
@@ -827,6 +848,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             failures = 0;
             handler = connection;
             handler.setRedirectListener(new SubscriptionErrors());
+            handler.setPushHandler(pushHandler);
             ready = true;
             restore();
         }
@@ -1075,6 +1097,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             handler = connection;
             handler.setRedirectListener(new Redirects(this));
             handler.setResultSession(RedisClusterSession.this);
+            handler.setPushHandler(pushHandler);
             ready = true;
             SentCommand next;
             while ((next = queue.poll()) != null) {

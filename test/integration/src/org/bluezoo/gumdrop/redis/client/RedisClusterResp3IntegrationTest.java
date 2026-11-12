@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.redis.client;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
@@ -66,5 +68,36 @@ public class RedisClusterResp3IntegrationTest extends RedisClusterIntegrationTes
             nodes.add(field(info, "laddr"));
         }
         assertTrue("every master was asked: " + nodes, nodes.size() >= 3);
+    }
+
+    @Test
+    public void anInvalidationFromClientSideCachingReachesThePushHandler() throws Exception {
+        final LinkedBlockingQueue<List<Object>> pushes = new LinkedBlockingQueue<List<Object>>();
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.setPushHandler(new PushHandler() {
+                    @Override
+                    public void onPush(String kind, List<Object> payload) {
+                        if (kind.equals("invalidate")) {
+                            pushes.add(payload);
+                        }
+                    }
+                });
+            }
+        });
+        // tracking is per connection; a command naming no key goes to the
+        // connections in turn, so a few of them reach every master
+        for (int i = 0; i < 12; i++) {
+            command("CLIENT", "TRACKING", "ON");
+        }
+        String key = prefix + "tracked";
+        assertEquals("OK", set(key, "1"));
+        assertEquals("1", get(key));
+        assertEquals("OK", set(key, "2"));
+        List<Object> payload = pushes.poll(10, TimeUnit.SECONDS);
+        assertNotNull("no invalidation arrived", payload);
+        assertTrue(payload.toString(), payload.get(0) instanceof List);
+        assertTrue(payload.toString(), ((List<?>) payload.get(0)).contains(key));
     }
 }

@@ -26,6 +26,7 @@ import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -111,6 +112,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // Offered every error reply; while set, sent commands are remembered
     // so that the listener can send them again. Null for a plain connection.
     private RedirectListener redirectListener;
+
+    // Receives the pushes that are not Pub/Sub deliveries. May be null.
+    private PushHandler pushHandler;
 
     /**
      * Creates a Redis client endpoint handler.
@@ -214,6 +218,11 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
      * Installs, or with null removes, the listener offered every error
      * reply before the command's result handler.
      */
+    @Override
+    public void setPushHandler(PushHandler handler) {
+        this.pushHandler = handler;
+    }
+
     void setRedirectListener(RedirectListener listener) {
         this.redirectListener = listener;
     }
@@ -285,10 +294,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         // RESP3 Push type — server-initiated out-of-band data
         if (response.isPush()) {
             List<RespValue> pushData = response.asPush();
-            if (pushData != null && !pushData.isEmpty() && messageHandler != null) {
+            if (pushData != null && !pushData.isEmpty()) {
                 String type = pushData.get(0).asString();
-                if (type != null) {
-                    handlePubSubMessage(type, pushData);
+                if (type != null && !handlePubSubMessage(type, pushData)) {
+                    deliverPush(type, pushData);
                 }
             }
             return;
@@ -313,6 +322,46 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             return;
         }
         dispatchResponse(pending, response);
+    }
+
+    // A push nothing else claimed goes to the push handler, if there is one.
+    private void deliverPush(String kind, List<RespValue> push) {
+        PushHandler h = pushHandler;
+        if (h == null) {
+            return;
+        }
+        List<Object> payload = new ArrayList<Object>(push.size() - 1);
+        for (int i = 1; i < push.size(); i++) {
+            payload.add(toJava(push.get(i)));
+        }
+        h.onPush(kind, payload);
+    }
+
+    // Plain Java values for a push payload, as PushHandler documents.
+    private static Object toJava(RespValue value) {
+        if (value == null || value.isNull()) {
+            return null;
+        } else if (value.isInteger()) {
+            return Long.valueOf(value.asLong());
+        } else if (value.isDouble()) {
+            return Double.valueOf(value.asDouble());
+        } else if (value.isBoolean()) {
+            return Boolean.valueOf(value.asBoolean());
+        } else if (value.isArray() || value.isSet() || value.isPush()) {
+            List<RespValue> items = value.asArray();
+            List<Object> out = new ArrayList<Object>(items.size());
+            for (RespValue item : items) {
+                out.add(toJava(item));
+            }
+            return out;
+        } else if (value.isMap()) {
+            Map<Object, Object> out = new LinkedHashMap<Object, Object>();
+            for (Map.Entry<RespValue, RespValue> e : value.asMap().entrySet()) {
+                out.put(toJava(e.getKey()), toJava(e.getValue()));
+            }
+            return out;
+        }
+        return value.asString();
     }
 
     // RESP spec — "Pub/Sub": push messages are 3-element arrays

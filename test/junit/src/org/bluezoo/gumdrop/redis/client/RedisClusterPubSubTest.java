@@ -645,4 +645,56 @@ public class RedisClusterPubSubTest {
         reply(r, ":2\r\n");
         assertEquals("[value:2]", c.events.toString());
     }
+
+    // ── generic pushes ──
+
+    private static final class Pushes implements PushHandler {
+        final List<String> kinds = new ArrayList<String>();
+
+        @Override
+        public void onPush(String kind, List<Object> payload) {
+            kinds.add(kind);
+        }
+    }
+
+    private static final String INVALIDATE = ">2\r\n$10\r\ninvalidate\r\n*1\r\n$3\r\nfoo\r\n";
+
+    @Test
+    public void pushesFromEveryNodeConnectionReachThePushHandler() {
+        Pushes pushes = new Pushes();
+        session.setPushHandler(pushes);
+        session.get("foo", new Ignore());
+        session.get("bar", new Ignore());
+        Request c = up(C, 0);
+        Request a = up(A, 0);
+        reply(c, INVALIDATE);
+        reply(a, INVALIDATE);
+        assertEquals(2, pushes.kinds.size());
+    }
+
+    @Test
+    public void aConnectionOpenedLaterGetsThePushHandlerToo() {
+        Pushes pushes = new Pushes();
+        session.get("foo", new Ignore());
+        Request c = up(C, 0);
+        reply(c, INVALIDATE);
+        assertEquals(0, pushes.kinds.size());
+        session.setPushHandler(pushes);
+        reply(c, INVALIDATE);
+        assertEquals("the connection already open", 1, pushes.kinds.size());
+        session.get("bar", new Ignore());
+        reply(up(A, 0), INVALIDATE);
+        assertEquals("the connection opened afterwards", 2, pushes.kinds.size());
+    }
+
+    @Test
+    public void pubSubConnectionsDeliverOtherPushesToo() {
+        Pushes pushes = new Pushes();
+        session.setPushHandler(pushes);
+        session.subscribe(new Rec(), "news");
+        session.ssubscribe(new Rec(), "foo");
+        reply(up(connector.requests.get(0)), INVALIDATE);
+        reply(up(connector.requests.get(1)), INVALIDATE);
+        assertEquals(2, pushes.kinds.size());
+    }
 }

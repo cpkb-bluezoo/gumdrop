@@ -937,6 +937,20 @@ public interface RedisSession {
     void zincrby(String key, double increment, String member, BulkResultHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
+    // RESP3 pushes
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sets the handler for RESP3 pushes that are not Pub/Sub deliveries,
+     * such as the {@code invalidate} push of {@code CLIENT TRACKING}. It is
+     * called on the connection's selector loop. On a cluster session it
+     * applies to every node connection. Passing null removes it.
+     *
+     * @param handler the handler, or null for none
+     */
+    void setPushHandler(PushHandler handler);
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Pub/Sub
     // ─────────────────────────────────────────────────────────────────────────
 
