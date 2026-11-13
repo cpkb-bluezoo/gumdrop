@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-13
+
 ### Added
 
 - **Redis Cluster client.** `RedisClusterClient` connects to a Redis or Valkey
@@ -253,8 +255,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     control, rate limits and `SmtpListener.isXclientAuthorized` keep judging
     it, not the address the header asserts, so restrict a PROXY listener to
     the relay's address ranges.
-
-### Changed
 
 ### Changed
 

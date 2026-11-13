@@ -11,7 +11,7 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-core</artifactId>
-    <version>3.1.1</version>
+    <version>3.2.0</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop Core</name>
