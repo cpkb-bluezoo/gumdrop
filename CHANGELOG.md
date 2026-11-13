@@ -148,6 +148,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   run, even if it was due in the same turn of the loop; repeating timers run on
   a fixed grid and, if the loop falls behind, run once and rejoin it.
   Closes #598.
+- **Redis Cluster: `WAIT` on the connection that carried the write.** `WAIT`
+  counts the replicas that have acknowledged the writes made on the
+  connection it is sent on, and a cluster session sent it, as a command with
+  no key, to any node, so its answer proved nothing. `RedisSession.waitReplicas`
+  and `waitAof` take a key naming the slot whose writes to wait for. On a
+  cluster session the `WAIT` is bound to the last command sent for that slot:
+  it goes on the same connection straight after it, pinned there, and is never
+  moved, redirected or retried. It fails, rather than be answered by a
+  connection that did not carry the write, if that connection has gone or the
+  slot has moved since the write, if the write is answered `MOVED` or `ASK`
+  while it waits (the node's late answer is discarded), and if the connection is
+  lost before the answer. `CLUSTERDOWN` and `TRYAGAIN` reach the handler. The
+  client deadline is the command timeout plus the `WAIT`'s own, and a `WAIT`
+  counts against the cap on pending commands. A `WAIT` or `WAITAOF` inside
+  `MULTI` now fails at once, since the server does not block on it there. On a
+  single node the key is ignored. `RedisSession.commandForKey` sends any
+  command to the primary of the slot of a given key (the keys of the command
+  itself must agree with it), following `MOVED` and `ASK`.
+  Closes #599.
 
 - **NNTP news reader server (RFC 3977).** New `gumdrop-nntp` module:
   `NntpServer.compose()` with `NntpListener` (port 119, or 563 with implicit

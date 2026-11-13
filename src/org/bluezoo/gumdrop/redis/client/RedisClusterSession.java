@@ -70,6 +70,10 @@ final class RedisClusterSession extends AbstractRedisSession {
             "CROSSSLOT Keys in request don't hash to the same slot";
     private static final String SLOT_NOT_SERVED = "CLUSTERDOWN Hash slot not served";
     private static final String NO_NODES = "CLUSTERDOWN No cluster nodes are known";
+    private static final String WAIT_MOVED =
+            "ERR WAIT target moved: the connection that carried the write is gone, or the write was redirected";
+    private static final String WAIT_IN_MULTI =
+            "ERR WAIT is not allowed inside MULTI: the server does not block on it there";
 
     private static final String TOO_MANY_MOVES =
             "ERR Too many redirects for a sharded subscription";
@@ -115,6 +119,15 @@ final class RedisClusterSession extends AbstractRedisSession {
     private int maxPending = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
     private long healthCheckMs;
     private long maxBackoffMs = MAX_BACKOFF_MS;
+
+    // What the session last sent for each slot, and on which connection, so
+    // that a WAIT can tell whether the connection it would go on is the one
+    // that carried the write. Allocated when first needed.
+    private ClusterNode[] markedNode;
+    private long[] markedIdentity;
+    private int nextConnectionUid;
+    // The WAITs sent and not yet answered, by the slot of the write they follow.
+    private final Map<Integer, List<BoundWait>> boundWaits = new HashMap<Integer, List<BoundWait>>();
 
     private Subscriber plain;
 
@@ -379,10 +392,14 @@ final class RedisClusterSession extends AbstractRedisSession {
             unwatch(command);
             return;
         } else if (inTransaction) {
-            routeInTransaction(command);
+            if (name.equals("WAIT") || name.equals("WAITAOF")) {
+                fail(command, WAIT_IN_MULTI);
+            } else {
+                routeInTransaction(command);
+            }
             return;
         }
-        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        int slot = slotOf(command);
         ClusterNode node;
         if (slot == ClusterCommandKeys.CROSS_SLOT) {
             fail(command, CROSS_SLOT);
@@ -399,8 +416,218 @@ final class RedisClusterSession extends AbstractRedisSession {
                 fail(command, SLOT_NOT_SERVED);
                 return;
             }
+            mark(slot, node);
         }
         connection(node).submit(command);
+    }
+
+    // The slot a command goes to: that of its keys, or the one it was told
+    // to be sent to (the keys it has must agree).
+    private static int slotOf(SentCommand command) {
+        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        int forced = command.getRoutingSlot();
+        if (forced < 0 || slot == ClusterCommandKeys.CROSS_SLOT) {
+            return slot;
+        }
+        if (slot != ClusterCommandKeys.NO_KEY && slot != forced) {
+            return ClusterCommandKeys.CROSS_SLOT;
+        }
+        return forced;
+    }
+
+    // ── WAIT, and commands routed by key ──
+
+    private void mark(int slot, ClusterNode node) {
+        if (markedNode == null) {
+            markedNode = new ClusterNode[ClusterSlots.SLOT_COUNT];
+            markedIdentity = new long[ClusterSlots.SLOT_COUNT];
+        }
+        markedNode[slot] = node;
+        markedIdentity[slot] = connection(node).writeIdentity();
+    }
+
+    // Whether a command sent now to the node of a slot goes on the connection
+    // that carried the last command sent for the slot (or there was none).
+    private boolean sameConnectionAsLastWrite(int slot, ClusterNode node) {
+        if (markedNode == null || markedNode[slot] == null) {
+            return true;
+        }
+        return markedNode[slot].equals(node)
+                && markedIdentity[slot] == connection(node).writeIdentity();
+    }
+
+    @Override
+    void sendCommandForKey(Object callback, long timeoutMs, String routingKey, String command,
+                           String[] text, byte[][] binary) {
+        SentCommand sent = new SentCommand(callback, command, text, binary)
+                .withTimeout(timeoutMs)
+                .withRoutingSlot(ClusterSlots.slot(routingKey.getBytes(UTF_8)));
+        route(sent);
+    }
+
+    @Override
+    public void waitReplicas(String slotKey, int numReplicas, long timeoutMs, IntegerResultHandler handler) {
+        sendWait(new ReplicasWait(ClusterSlots.slot(slotKey.getBytes(UTF_8)), handler), "WAIT",
+                new String[] { String.valueOf(numReplicas), String.valueOf(timeoutMs) });
+    }
+
+    @Override
+    public void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs,
+                        ArrayResultHandler handler) {
+        sendWait(new AofWait(ClusterSlots.slot(slotKey.getBytes(UTF_8)), handler), "WAITAOF",
+                new String[] { String.valueOf(numLocal), String.valueOf(numReplicas),
+                    String.valueOf(timeoutMs) });
+    }
+
+    // Sends a WAIT on the connection that carried the writes for its slot,
+    // pinned there: never moved, redirected or retried.
+    private void sendWait(BoundWait wait, String command, String[] args) {
+        String refusal = null;
+        ClusterNode node = null;
+        if (closed) {
+            refusal = RedisClientProtocolHandler.L10N.getString("err.not_connected");
+        } else if (inTransaction) {
+            refusal = WAIT_IN_MULTI;
+        } else {
+            node = map.nodeFor(wait.slot);
+            if (node == null) {
+                refusal = SLOT_NOT_SERVED;
+            } else if (!sameConnectionAsLastWrite(wait.slot, node)) {
+                refusal = WAIT_MOVED;
+            }
+        }
+        if (refusal != null) {
+            wait.finished = true;
+            wait.deliverError(refusal);
+            return;
+        }
+        wait.node = node;
+        List<BoundWait> list = boundWaits.get(Integer.valueOf(wait.slot));
+        if (list == null) {
+            list = new ArrayList<BoundWait>();
+            boundWaits.put(Integer.valueOf(wait.slot), list);
+        }
+        list.add(wait);
+        connection(node).submit(new SentCommand(wait, command, args, null).pinned());
+    }
+
+    // The writes a slot's WAITs follow have been redirected: those sent on
+    // the connection to the node they came from can no longer mean anything.
+    private void failBoundWaits(int slot, ClusterNode from) {
+        List<BoundWait> list = boundWaits.get(Integer.valueOf(slot));
+        if (list == null) {
+            return;
+        }
+        for (BoundWait wait : new ArrayList<BoundWait>(list)) {
+            if (from.equals(wait.node)) {
+                wait.failMoved();
+            }
+        }
+    }
+
+    /** A WAIT in flight: the slot of the writes it follows, and where it was sent. */
+    private abstract class BoundWait {
+        final int slot;
+        ClusterNode node;
+        boolean finished;
+
+        BoundWait(int slot) {
+            this.slot = slot;
+        }
+
+        abstract void deliverError(String error);
+
+        void release() {
+            List<BoundWait> list = boundWaits.get(Integer.valueOf(slot));
+            if (list != null) {
+                list.remove(this);
+                if (list.isEmpty()) {
+                    boundWaits.remove(Integer.valueOf(slot));
+                }
+            }
+        }
+
+        // the write it follows was redirected: fail now, and ignore the node's answer
+        void failMoved() {
+            if (!finished) {
+                finished = true;
+                release();
+                deliverError(WAIT_MOVED);
+            }
+        }
+    }
+
+    private final class ReplicasWait extends BoundWait implements IntegerResultHandler {
+        private final IntegerResultHandler delegate;
+
+        ReplicasWait(int slot, IntegerResultHandler delegate) {
+            super(slot);
+            this.delegate = delegate;
+        }
+
+        @Override
+        void deliverError(String error) {
+            delegate.handleError(error, RedisClusterSession.this);
+        }
+
+        @Override
+        public void handleResult(long result, RedisSession s) {
+            if (!finished) {
+                finished = true;
+                release();
+                delegate.handleResult(result, RedisClusterSession.this);
+            }
+        }
+
+        @Override
+        public void handleError(String error, RedisSession s) {
+            if (!finished) {
+                finished = true;
+                release();
+                delegate.handleError(error, RedisClusterSession.this);
+            }
+        }
+    }
+
+    private final class AofWait extends BoundWait implements ArrayResultHandler {
+        private final ArrayResultHandler delegate;
+
+        AofWait(int slot, ArrayResultHandler delegate) {
+            super(slot);
+            this.delegate = delegate;
+        }
+
+        @Override
+        void deliverError(String error) {
+            delegate.handleError(error, RedisClusterSession.this);
+        }
+
+        @Override
+        public void handleResult(List<org.bluezoo.gumdrop.redis.codec.RespValue> values, RedisSession s) {
+            if (!finished) {
+                finished = true;
+                release();
+                delegate.handleResult(values, RedisClusterSession.this);
+            }
+        }
+
+        @Override
+        public void handleNull(RedisSession s) {
+            if (!finished) {
+                finished = true;
+                release();
+                delegate.handleNull(RedisClusterSession.this);
+            }
+        }
+
+        @Override
+        public void handleError(String error, RedisSession s) {
+            if (!finished) {
+                finished = true;
+                release();
+                delegate.handleError(error, RedisClusterSession.this);
+            }
+        }
     }
 
     // ── transactions and watches ──
@@ -426,7 +653,7 @@ final class RedisClusterSession extends AbstractRedisSession {
     }
 
     private void routeInTransaction(SentCommand command) {
-        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        int slot = slotOf(command);
         if (slot == ClusterCommandKeys.CROSS_SLOT) {
             fail(command, CROSS_SLOT);
             return;
@@ -1209,6 +1436,13 @@ final class RedisClusterSession extends AbstractRedisSession {
         private boolean ready;
         private boolean connecting;
 
+        // Which connection a command written now would be on: this object's
+        // number, and the count of connections it has made (a failed attempt
+        // counts, since commands waiting for it are failed with it). A
+        // command written while the connection is not up will be on the next.
+        private final long uid = ++nextConnectionUid;
+        private int made;
+
         // after a failed attempt, no new one until retryNotBefore
         private int failures;
         private long retryNotBefore;
@@ -1228,6 +1462,11 @@ final class RedisClusterSession extends AbstractRedisSession {
                     out.add(command);
                 }
             }
+        }
+
+        /** Identifies the connection a command submitted now would be written on. */
+        long writeIdentity() {
+            return (uid << 32) | (ready ? made : made + 1);
         }
 
         void submit(SentCommand command) {
@@ -1297,6 +1536,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             }
             failures = 0;
             retryNotBefore = 0;
+            made++;
             handler = connection;
             handler.setRedirectListener(new Redirects(this));
             handler.setResultSession(RedisClusterSession.this);
@@ -1316,6 +1556,7 @@ final class RedisClusterSession extends AbstractRedisSession {
         public void failed(Exception cause) {
             connecting = false;
             ready = false;
+            made++;
             backOff(MessageFormat.format(
                     RedisClientProtocolHandler.L10N.getString("err.cluster_connect_failed"),
                     node.getAddress(), cause != null ? cause.getMessage() : ""));
@@ -1403,6 +1644,13 @@ final class RedisClusterSession extends AbstractRedisSession {
             if (!redirect.isAsk()) {
                 map.set(redirect.getSlot(), target);
                 requestRefresh();
+            }
+            int slot = slotOf(command);
+            if (slot >= 0) {
+                // a WAIT sent behind this write on this connection would be
+                // answered by a node that does not have it
+                failBoundWaits(slot, from);
+                mark(slot, target);
             }
             connection(target).submit(command.redirected(redirect.isAsk()));
             return true;

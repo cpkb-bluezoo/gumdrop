@@ -1284,7 +1284,11 @@ public interface RedisSession {
     /**
      * Sends a raw command with string arguments.
      *
-     * <p>Use this for commands not covered by specific methods.
+     * <p>Use this for commands not covered by specific methods. A command
+     * with no key goes to any node of a cluster, which is not what
+     * {@code WAIT} or {@code WAITAOF} need: use {@link #waitReplicas} and
+     * {@link #waitAof}, and {@link #commandForKey} for anything else that
+     * must go to a particular slot's node.
      *
      * @param handler receives the result
      * @param command the command name
@@ -1326,5 +1330,87 @@ public interface RedisSession {
      * @throws IllegalArgumentException if {@code timeout} is negative
      */
     void command(java.time.Duration timeout, ArrayResultHandler handler, String command, byte[]... args);
+
+    /**
+     * Sends {@code WAIT numReplicas timeoutMs}, which blocks until at least
+     * {@code numReplicas} replicas have acknowledged every write made on the
+     * connection it is sent on, or {@code timeoutMs} has passed, and tells
+     * the handler how many did. Getting fewer than asked for is a result,
+     * not an error.
+     *
+     * <p>That count means something only if the {@code WAIT} runs on the
+     * primary that took the write and on the same connection, so on a
+     * cluster session it is not routed like a command with no key. It is
+     * bound to the writes this session has made for the slot of
+     * {@code slotKey} (a hash tag such as {@code {pool}} names the slot of
+     * the keys that carry it): it is sent on the connection that carried the
+     * last of them, straight after it, and never moved, redirected or retried.
+     * It fails, and nothing is sent, if that connection is gone or the slot
+     * has moved since the write; it fails if the write is answered
+     * {@code MOVED} or {@code ASK} while it is waiting, and a late answer
+     * from the old node is discarded; it fails if the connection is lost
+     * before the answer, and it is never sent on another connection, which
+     * has not seen the write. {@code CLUSTERDOWN} and {@code TRYAGAIN} reach
+     * the handler as they are. With no write made for the slot, it goes to the
+     * primary now serving it. Called inside {@code MULTI} it fails at once,
+     * since the server does not block on {@code WAIT} there. On a single node
+     * the key is ignored and this is the plain command.
+     *
+     * <p>The client deadline is the command timeout plus {@code timeoutMs}
+     * (none if {@code timeoutMs} is 0, which blocks for ever on the server),
+     * and a {@code WAIT} counts against the cap on pending commands.
+     *
+     * @param slotKey a key of the slot whose writes to wait for
+     * @param numReplicas how many replicas must have acknowledged
+     * @param timeoutMs how long the server waits, in milliseconds
+     * @param handler receives the number of replicas that acknowledged
+     */
+    void waitReplicas(String slotKey, int numReplicas, long timeoutMs, IntegerResultHandler handler);
+
+    /**
+     * Sends {@code WAITAOF numLocal numReplicas timeoutMs}, which blocks until
+     * the writes made on the connection have been fsynced to the append-only
+     * file of this many local and replica nodes, or the timeout passes, and
+     * gives the handler {@code [local, replicas]}. Routed, bound to the write
+     * and failed exactly as {@link #waitReplicas} is.
+     *
+     * @param slotKey a key of the slot whose writes to wait for
+     * @param numLocal 0 or 1: whether the primary must have fsynced them
+     * @param numReplicas how many replicas must have fsynced them
+     * @param timeoutMs how long the server waits, in milliseconds
+     * @param handler receives {@code [local, replicas]}
+     */
+    void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs, ArrayResultHandler handler);
+
+    /**
+     * Sends a command to the primary that serves the slot of
+     * {@code routingKey}, whether or not the command names a key of its own,
+     * so that a command such as {@code CLIENT ID} can be put on the connection
+     * to a chosen slot's node. If the command has keys, they must hash to the
+     * same slot, or it fails with {@code CROSSSLOT}. It follows {@code MOVED}
+     * and {@code ASK} as a keyed command does. On a single node the key is
+     * ignored and this is {@link #command(ArrayResultHandler, String, String...)}.
+     *
+     * @param routingKey a key of the slot to send it to
+     * @param handler receives the result
+     * @param command the command name
+     * @param args the arguments
+     */
+    void commandForKey(String routingKey, ArrayResultHandler handler, String command, String... args);
+
+    /**
+     * As {@link #commandForKey(String, ArrayResultHandler, String, String...)},
+     * with binary-safe arguments and its own timeout.
+     *
+     * @param routingKey a key of the slot to send it to
+     * @param timeout how long to wait for the reply, replacing the
+     *                connection's default; zero for no timeout
+     * @param handler receives the result
+     * @param command the command name
+     * @param args the arguments as byte arrays
+     * @throws IllegalArgumentException if {@code timeout} is negative
+     */
+    void commandForKey(String routingKey, java.time.Duration timeout, ArrayResultHandler handler,
+                       String command, byte[]... args);
 
 }

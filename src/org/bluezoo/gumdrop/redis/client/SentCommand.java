@@ -37,15 +37,17 @@ final class SentCommand {
     private final boolean asking;
     private final boolean pinned;
     private final long timeoutMs;
+    private final int routingSlot;
 
     SentCommand(Object callback, String command, String[] textArgs, byte[][] binaryArgs) {
-        this(callback, command, textArgs, binaryArgs, 0, false, false, CommandTimeouts.DEFAULT);
+        this(callback, command, textArgs, binaryArgs, 0, false, false, CommandTimeouts.DEFAULT, -1);
     }
 
     private SentCommand(Object callback, String command, String[] textArgs,
                         byte[][] binaryArgs, int redirects, boolean asking, boolean pinned,
-                        long timeoutMs) {
+                        long timeoutMs, int routingSlot) {
         this.timeoutMs = timeoutMs;
+        this.routingSlot = routingSlot;
         this.callback = callback;
         this.command = command;
         this.textArgs = textArgs;
@@ -73,13 +75,13 @@ final class SentCommand {
     /** This command after one more redirect, to be preceded by {@code ASKING} if {@code asking}. */
     SentCommand redirected(boolean asking) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects + 1, asking, pinned, timeoutMs);
+                redirects + 1, asking, pinned, timeoutMs, routingSlot);
     }
 
     /** This command marked as one that must not be redirected. */
     SentCommand pinned() {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, true, timeoutMs);
+                redirects, asking, true, timeoutMs, routingSlot);
     }
 
     /**
@@ -89,11 +91,25 @@ final class SentCommand {
      */
     SentCommand withTimeout(long timeoutMs) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, pinned, timeoutMs);
+                redirects, asking, pinned, timeoutMs, routingSlot);
     }
 
     long getTimeoutMs() {
         return timeoutMs;
+    }
+
+    /**
+     * A copy sent to the node of the given slot whether or not the command
+     * names a key of its own (those must agree with it).
+     */
+    SentCommand withRoutingSlot(int slot) {
+        return new SentCommand(callback, command, textArgs, binaryArgs,
+                redirects, asking, pinned, timeoutMs, slot);
+    }
+
+    /** The slot the command is to be sent to whatever its keys, or -1 for the slot of its keys. */
+    int getRoutingSlot() {
+        return routingSlot;
     }
 
     /** The arguments as bytes (text in UTF-8); empty if there are none. */

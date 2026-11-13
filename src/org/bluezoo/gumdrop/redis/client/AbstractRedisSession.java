@@ -975,6 +975,41 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
+    public void waitReplicas(String slotKey, int numReplicas, long timeoutMs, IntegerResultHandler h) {
+        sendCommand(h, "WAIT", new String[] { String.valueOf(numReplicas), String.valueOf(timeoutMs) });
+    }
+
+    @Override
+    public void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs, ArrayResultHandler h) {
+        sendCommand(h, "WAITAOF", new String[] {
+            String.valueOf(numLocal), String.valueOf(numReplicas), String.valueOf(timeoutMs) });
+    }
+
+    @Override
+    public void commandForKey(String routingKey, ArrayResultHandler h, String command, String... args) {
+        sendCommandForKey(h, CommandTimeouts.DEFAULT, routingKey, command, args, null);
+    }
+
+    @Override
+    public void commandForKey(String routingKey, java.time.Duration timeout, ArrayResultHandler h,
+                              String command, byte[]... args) {
+        sendCommandForKey(h, timeoutMillis(timeout), routingKey, command, null, args);
+    }
+
+    /**
+     * Sends a command to the node of the slot of {@code routingKey}. A
+     * session over one node has no slots, so the key is ignored.
+     */
+    void sendCommandForKey(Object callback, long timeoutMs, String routingKey, String command,
+                           String[] text, byte[][] binary) {
+        if (text != null) {
+            sendCommand(callback, timeoutMs, command, text);
+        } else {
+            sendCommand(callback, timeoutMs, command, binary);
+        }
+    }
+
+    @Override
     public void command(java.time.Duration timeout, ArrayResultHandler h, String command, String... args) {
         sendCommand(h, timeoutMillis(timeout), command, args);
     }
