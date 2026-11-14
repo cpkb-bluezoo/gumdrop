@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.quic;
 
 /**
  * The names of qlog events and of the fields of their data, taken verbatim
- * from draft-ietf-quic-qlog-quic-events-13, so the transport has one
+ * from draft-ietf-quic-qlog-quic-events-14, so the transport has one
  * vocabulary and it is the draft's. The qlog exporter writes the fields as
  * they are, so a name here is also what a consumer of the telemetry records
  * sees.
@@ -54,6 +54,7 @@ final class QlogEvents {
     static final String STREAM_STATE_UPDATED = "quic:stream_state_updated";
     static final String STREAM_DATA_MOVED = "quic:stream_data_moved";
     static final String DATAGRAM_DATA_MOVED = "quic:datagram_data_moved";
+    static final String DATAGRAM_DROPPED = "quic:datagram_dropped";
     static final String PARAMETERS_RESTORED = "quic:parameters_restored";
     static final String ALPN_INFORMATION = "quic:alpn_information";
 
@@ -67,9 +68,10 @@ final class QlogEvents {
     static final String DST_CID = "dst_cid";
 
     // connection_closed
-    static final String OWNER = "owner";
-    static final String CONNECTION_CODE = "connection_code";
-    static final String APPLICATION_CODE = "application_code";
+    static final String INITIATOR = "initiator";
+    static final String CONNECTION_ERROR = "connection_error";
+    static final String APPLICATION_ERROR = "application_error";
+    static final String ERROR_CODE = "error_code";
     static final String REASON = "reason";
     static final String TRIGGER = "trigger";
 
@@ -176,8 +178,8 @@ final class QlogEvents {
     static final String STREAM_CLOSED = "closed";
     static final String LOCATION_APPLICATION = "application";
     static final String LOCATION_TRANSPORT = "transport";
-    static final String OWNER_LOCAL = "local";
-    static final String OWNER_REMOTE = "remote";
+    static final String INITIATOR_LOCAL = "local";
+    static final String INITIATOR_REMOTE = "remote";
     static final String PACKET_TYPE_INITIAL = "initial";
     static final String PACKET_TYPE_HANDSHAKE = "handshake";
     static final String PACKET_TYPE_1RTT = "1RTT";
@@ -186,5 +188,37 @@ final class QlogEvents {
     static final String TRIGGER_APPLICATION = "application";
     static final String TRIGGER_STATELESS_RESET = "stateless_reset";
     static final String TRIGGER_VERSION_MISMATCH = "version_mismatch";
+    static final String DIRECTION = "direction";
+    static final String DIRECTION_SENDING = "sending";
+    static final String DIRECTION_RECEIVING = "receiving";
+    static final String TRIGGER_TOO_LARGE = "too_large";
+    static final String TRIGGER_NO_HANDLER = "no_handler";
     static final String TRIGGER_TIME_THRESHOLD = "time_threshold";
+
+    /** The value of {@code application_error} when the QUIC layer cannot name an application's code. */
+    static final String ERROR_UNKNOWN = "unknown";
+
+    private static final String[] TRANSPORT_ERRORS = {
+        "no_error", "internal_error", "connection_refused", "flow_control_error",
+        "stream_limit_error", "stream_state_error", "final_size_error", "frame_encoding_error",
+        "transport_parameter_error", "connection_id_limit_error", "protocol_violation", "invalid_token",
+        "application_error", "crypto_buffer_exceeded", "key_update_error", "aead_limit_reached",
+        "no_viable_path"
+    };
+
+    /**
+     * The qlog name of a transport error code: the RFC 9000 name for
+     * 0x00 to 0x10, {@code crypto_error_0x1NN} for a TLS alert (0x100 to
+     * 0x1ff), otherwise {@code unknown}, in which case the number goes in
+     * {@code error_code}.
+     */
+    static String transportErrorName(long code) {
+        if (code >= 0 && code < TRANSPORT_ERRORS.length) {
+            return TRANSPORT_ERRORS[(int) code];
+        }
+        if (code >= 0x100 && code <= 0x1ff) {
+            return "crypto_error_0x" + Long.toHexString(code);
+        }
+        return ERROR_UNKNOWN;
+    }
 }

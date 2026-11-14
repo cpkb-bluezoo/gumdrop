@@ -197,7 +197,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                 return;
             }
             if (H3Qlog.on(quicConnection)) {
-                H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_REMOTE, streamId, qlogStreamType());
+                H3Qlog.streamTypeSet(quicConnection, H3Qlog.INITIATOR_REMOTE, streamId, qlogStreamType());
             }
             if (kind == StreamKind.CONTROL) {
                 parser = new H3Parser(this);
@@ -404,7 +404,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         }
         settingsReceived = true;
         if (H3Qlog.on(quicConnection)) {
-            H3Qlog.parametersSet(quicConnection, H3Qlog.OWNER_REMOTE, settings);
+            H3Qlog.parametersSet(quicConnection, H3Qlog.INITIATOR_REMOTE, settings);
         }
         listener.settingsReceived(settings);
     }

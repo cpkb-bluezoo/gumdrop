@@ -384,7 +384,7 @@ public class QuicLoopbackQlogPacketEventsTest {
         String serverCid = QlogJson.hex(server.conn.getOurConnectionId());
         boolean found = false;
         for (Map<String, String> u : events("client", "quic:connection_id_updated")) {
-            if ("remote".equals(u.get("owner")) && serverCid.equals(u.get("new"))) {
+            if ("remote".equals(u.get("initiator")) && serverCid.equals(u.get("new"))) {
                 found = true;
             }
         }
@@ -442,7 +442,7 @@ public class QuicLoopbackQlogPacketEventsTest {
             if ("0".equals(m.get("stream_id")) && "application".equals(m.get("from"))) {
                 assertEquals("transport", m.get("to"));
                 assertEquals("0", m.get("offset"));
-                assertEquals("3", m.get("length"));
+                assertEquals("3", m.get("raw.length"));
                 sent = true;
             }
         }
@@ -451,7 +451,7 @@ public class QuicLoopbackQlogPacketEventsTest {
         for (Map<String, String> m : events("server", "quic:stream_data_moved")) {
             if ("0".equals(m.get("stream_id")) && "transport".equals(m.get("from"))) {
                 assertEquals("application", m.get("to"));
-                assertEquals("3", m.get("length"));
+                assertEquals("3", m.get("raw.length"));
                 delivered = true;
             }
         }
@@ -497,12 +497,36 @@ public class QuicLoopbackQlogPacketEventsTest {
         assertEquals(1, sent.size());
         assertEquals("application", sent.get(0).get("from"));
         assertEquals("transport", sent.get(0).get("to"));
-        assertEquals("5", sent.get(0).get("length"));
+        assertEquals("5", sent.get(0).get("raw.length"));
         List<Map<String, String>> got = events("server", "quic:datagram_data_moved");
         assertEquals(1, got.size());
         assertEquals("transport", got.get(0).get("from"));
         assertEquals("application", got.get(0).get("to"));
-        assertEquals("5", got.get(0).get("length"));
+        assertEquals("5", got.get(0).get("raw.length"));
+    }
+
+    @Test
+    public void aDatagramTooLargeToSendIsReportedAsDropped() throws Exception {
+        connect();
+        assertFalse(client.conn.sendDatagram(ByteBuffer.wrap(new byte[100000])));
+        List<Map<String, String>> dropped = events("client", "quic:datagram_dropped");
+        assertEquals(1, dropped.size());
+        assertEquals("sending", dropped.get(0).get("direction"));
+        assertEquals("too_large", dropped.get(0).get("trigger"));
+        assertEquals("100000", dropped.get(0).get("raw.length"));
+        assertTrue(events("client", "quic:datagram_data_moved").isEmpty());
+    }
+
+    @Test
+    public void aDatagramNobodyListensForIsReportedAsDropped() throws Exception {
+        connect();
+        assertTrue(client.conn.sendDatagram(ByteBuffer.wrap(new byte[] {1, 2, 3})));
+        lb.pump();
+        List<Map<String, String>> dropped = events("server", "quic:datagram_dropped");
+        assertEquals(1, dropped.size());
+        assertEquals("receiving", dropped.get(0).get("direction"));
+        assertEquals("no_handler", dropped.get(0).get("trigger"));
+        assertEquals("3", dropped.get(0).get("raw.length"));
     }
 
     @Test
@@ -560,7 +584,7 @@ public class QuicLoopbackQlogPacketEventsTest {
             List<Map<String, String>> restored = events("client", "quic:parameters_restored");
             assertEquals(1, restored.size());
             assertTrue(restored.get(0).containsKey("initial_max_data"));
-            assertFalse(restored.get(0).containsKey("owner"));
+            assertFalse(restored.get(0).containsKey("initiator"));
         } finally {
             SessionTicketCache.clear();
         }

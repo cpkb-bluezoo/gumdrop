@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.quic;
  * Builds the {@code frames} array of a qlog {@code packet_sent} or
  * {@code packet_received} event, one frame at a time as the packet is
  * written or read. The frame types and their fields are those of
- * draft-ietf-quic-qlog-quic-events-13 section 5; a frame the draft does not
+ * draft-ietf-quic-qlog-quic-events-14 section 5; a frame the draft does not
  * define (such as the ACK frequency frames) is written as an unknown frame
  * with its type code.
  *

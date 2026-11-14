@@ -6,6 +6,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **qlog: event schema URIs and field names follow quic-events-14 and
+  h3-events-14.** The event schema URIs in the trace header carry the draft
+  suffix the drafts require (`urn:ietf:params:qlog:events:quic-14`, `http3-14`
+  and `http-14`) instead of the bare RFC forms, which a draft implementation
+  must not use; the revision is one constant, `QlogAttributes.EVENTS_DRAFT`.
+  Field names that had drifted from the drafts are renamed:
+  - QUIC: `owner` is `initiator`; `connection_closed` reports
+    `connection_error` (the RFC 9000 error name) or `application_error`
+    (`unknown`) with the number in `error_code`, instead of `connection_code`
+    and `application_code`; `stream_data_moved` and `datagram_data_moved`
+    carry `raw.length` instead of `length`.
+  - HTTP/3: `stream_type_set` has `initiator` and `stream_type` (was `owner`
+    and `new`); `parameters_set` has `initiator`, `max_field_section_size`,
+    `extended_connect` and `h3_datagram` as numbers, and `unknown_settings`
+    (was `owner`, `max_header_list_size`, `enable_connect_protocol` and
+    `h3_datagram` as booleans, `additional_settings`); datagram events carry
+    `raw.length`; `priority_updated` has `stream_id` or `push_id`; unknown
+    frames have `frame_type_bytes`, unknown capsules `capsule_type_value`
+    and `raw.length`; DATA frames carry `raw.length`; SETTINGS frame entries
+    use the `settings_` names, and unknown settings are `unknown` with
+    `name_bytes`.
+  - New `quic:datagram_dropped` for a DATAGRAM too large to send and for one
+    received when nothing is listening.
+  Anything reading these traces by the old names must change. Closes #600.
+
 ## [3.2.0] - 2026-11-13
 
 ### Added

@@ -85,7 +85,8 @@ public final class QlogExporter implements TelemetryExporter {
 
     /** The revision of the qlog drafts the files follow. */
     public static final String QLOG_REVISION = "draft-ietf-quic-qlog-main-schema-15, "
-            + "draft-ietf-quic-qlog-quic-events-13, draft-ietf-quic-qlog-h3-events-13";
+            + "draft-ietf-quic-qlog-quic-events-" + QlogAttributes.EVENTS_DRAFT
+            + ", draft-ietf-quic-qlog-h3-events-" + QlogAttributes.EVENTS_DRAFT;
 
     private static final long IDLE_NANOS = 60_000_000_000L;
     private static final DateTimeFormatter ISO_MILLIS =

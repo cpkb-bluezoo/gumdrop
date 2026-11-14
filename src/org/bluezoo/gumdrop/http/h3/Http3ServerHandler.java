@@ -257,8 +257,8 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
                 controlStream = endpoint;
                 if (H3Qlog.on(quicConnection)) {
                     long id = ((QuicStreamEndpoint) endpoint).getStreamId();
-                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_LOCAL, id, H3Qlog.STREAM_TYPE_CONTROL);
-                    H3Qlog.parametersSet(quicConnection, H3Qlog.OWNER_LOCAL, settings);
+                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.INITIATOR_LOCAL, id, H3Qlog.STREAM_TYPE_CONTROL);
+                    H3Qlog.parametersSet(quicConnection, H3Qlog.INITIATOR_LOCAL, settings);
                     H3Qlog.frameCreated(quicConnection, id, H3Qlog.settingsFrame(settings));
                 }
                 int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
@@ -300,7 +300,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             public void connected(Endpoint endpoint) {
                 qpackEncoderStream = endpoint;
                 if (H3Qlog.on(quicConnection)) {
-                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_LOCAL,
+                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.INITIATOR_LOCAL,
                             ((QuicStreamEndpoint) endpoint).getStreamId(), H3Qlog.STREAM_TYPE_QPACK_ENCODE);
                 }
                 ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
@@ -330,7 +330,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             public void connected(Endpoint endpoint) {
                 qpackDecoderStream = endpoint;
                 if (H3Qlog.on(quicConnection)) {
-                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_LOCAL,
+                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.INITIATOR_LOCAL,
                             ((QuicStreamEndpoint) endpoint).getStreamId(), H3Qlog.STREAM_TYPE_QPACK_DECODE);
                 }
                 ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
@@ -418,7 +418,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             highestClientStreamId = streamId;
         }
         if (H3Qlog.on(quicConnection)) {
-            H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_REMOTE, streamId, H3Qlog.STREAM_TYPE_REQUEST);
+            H3Qlog.streamTypeSet(quicConnection, H3Qlog.INITIATOR_REMOTE, streamId, H3Qlog.STREAM_TYPE_REQUEST);
         }
         return new H3Stream(this, qpackEncoder, qpackDecoder);
     }

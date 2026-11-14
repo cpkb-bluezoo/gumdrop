@@ -124,14 +124,15 @@ public class QlogExporterTest {
         assertEquals("urn:ietf:params:qlog:file:sequential", header.get("file_schema"));
         assertEquals("application/qlog+json-seq", header.get("serialization_format"));
         assertEquals("server", header.get("trace.vantage_point.type"));
-        assertEquals("urn:ietf:params:qlog:events:quic", header.get("trace.event_schemas.0"));
-        assertEquals("urn:ietf:params:qlog:events:http3", header.get("trace.event_schemas.1"));
-        assertEquals("urn:ietf:params:qlog:events:http", header.get("trace.event_schemas.2"));
+        assertEquals("urn:ietf:params:qlog:events:quic-14", header.get("trace.event_schemas.0"));
+        assertEquals("urn:ietf:params:qlog:events:http3-14", header.get("trace.event_schemas.1"));
+        assertEquals("urn:ietf:params:qlog:events:http-14", header.get("trace.event_schemas.2"));
         assertEquals("aa01", header.get("trace.common_fields.group_id"));
         assertEquals("relative_to_epoch", header.get("trace.common_fields.time_format"));
         assertEquals("system", header.get("trace.common_fields.reference_time.clock_type"));
         assertEquals("2023-11-14T22:13:20.000Z", header.get("trace.common_fields.reference_time.epoch"));
-        assertTrue(header.containsKey("trace.description"));
+        assertTrue(header.get("trace.description").contains("quic-events-14"));
+        assertTrue(header.get("trace.description").contains("h3-events-14"));
     }
 
     @Test

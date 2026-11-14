@@ -195,8 +195,8 @@ public class QuicLoopbackQlogTest {
             boolean remote = false;
             for (LogRecord r : parameters) {
                 Map<String, String> data = FlatJson.flatten(r.getBody());
-                local |= "local".equals(data.get("owner"));
-                remote |= "remote".equals(data.get("owner"));
+                local |= "local".equals(data.get("initiator"));
+                remote |= "remote".equals(data.get("initiator"));
                 assertTrue(data.containsKey("initial_max_data"));
                 assertTrue(data.containsKey("max_ack_delay"));
             }
@@ -280,11 +280,14 @@ public class QuicLoopbackQlogTest {
         assertEquals(1, remote.size());
         Map<String, String> l = FlatJson.flatten(local.get(0).getBody());
         Map<String, String> r = FlatJson.flatten(remote.get(0).getBody());
-        assertEquals("local", l.get("owner"));
-        assertEquals("42", l.get("application_code"));
+        assertEquals("local", l.get("initiator"));
+        assertEquals("unknown", l.get("application_error"));
+        assertEquals("42", l.get("error_code"));
+        assertFalse(l.containsKey("connection_error"));
         assertEquals("bye", l.get("reason"));
-        assertEquals("remote", r.get("owner"));
-        assertEquals("42", r.get("application_code"));
+        assertEquals("remote", r.get("initiator"));
+        assertEquals("unknown", r.get("application_error"));
+        assertEquals("42", r.get("error_code"));
     }
 
     @Test

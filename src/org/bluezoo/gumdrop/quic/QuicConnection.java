@@ -886,7 +886,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         if (qlog != null) {
             qlogConnectionStarted();
             qlog.emit(QlogEvents.PARAMETERS_SET, nowNanos(),
-                    qlogParameters(QlogEvents.OWNER_LOCAL, localTransportParameters));
+                    qlogParameters(QlogEvents.INITIATOR_LOCAL, localTransportParameters));
             qlogRecoveryParameters();
             qlogTupleAssigned();
         }
@@ -968,7 +968,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     private static QlogJson qlogParameters(String owner, TransportParameters p) {
         QlogJson data = QlogJson.object();
         if (owner != null) {
-            data.put(QlogEvents.OWNER, owner);
+            data.put(QlogEvents.INITIATOR, owner);
         }
         if (p.getOriginalDestinationConnectionId() != null) {
             data.putHex(QlogEvents.ORIGINAL_DESTINATION_CONNECTION_ID, p.getOriginalDestinationConnectionId());
@@ -1196,7 +1196,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     private void qlogConnectionIdUpdated(String owner, byte[] old, byte[] updated) {
         QlogJson data = QlogJson.object();
-        data.put(QlogEvents.OWNER, owner);
+        data.put(QlogEvents.INITIATOR, owner);
         if (old != null) {
             data.putHex(QlogEvents.OLD, old);
         }
@@ -1243,10 +1243,22 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             data.put(QlogEvents.STREAM_ID, streamId);
             data.put(QlogEvents.OFFSET, offset);
         }
-        data.put(QlogEvents.LENGTH, length);
+        data.beginObject(QlogEvents.RAW).put(QlogEvents.LENGTH, length).endObject();
         data.put(QlogEvents.FROM, from);
         data.put(QlogEvents.TO, to);
         qlog.emit(event, nowNanos(), data);
+    }
+
+    // A datagram the application handed over or the peer sent that goes no further.
+    private void qlogDatagramDropped(String direction, int length, String trigger) {
+        if (qlog == null) {
+            return;
+        }
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.DIRECTION, direction);
+        data.beginObject(QlogEvents.RAW).put(QlogEvents.LENGTH, length).endObject();
+        data.put(QlogEvents.TRIGGER, trigger);
+        qlog.emit(QlogEvents.DATAGRAM_DROPPED, nowNanos(), data);
     }
 
     private void qlogCongestionState(boolean lost) {
@@ -1273,10 +1285,14 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
         qlogClosedLogged = true;
         QlogJson data = QlogJson.object();
-        data.put(QlogEvents.OWNER, owner);
+        data.put(QlogEvents.INITIATOR, owner);
         if (deferredCloseIsError) {
-            data.put(deferredCloseApplicationError ? QlogEvents.APPLICATION_CODE : QlogEvents.CONNECTION_CODE,
-                    deferredCloseErrorCode);
+            if (deferredCloseApplicationError) {
+                data.put(QlogEvents.APPLICATION_ERROR, QlogEvents.ERROR_UNKNOWN);
+            } else {
+                data.put(QlogEvents.CONNECTION_ERROR, QlogEvents.transportErrorName(deferredCloseErrorCode));
+            }
+            data.put(QlogEvents.ERROR_CODE, deferredCloseErrorCode);
             if (deferredCloseReason != null && !deferredCloseReason.isEmpty()) {
                 data.put(QlogEvents.REASON, deferredCloseReason);
             }
@@ -1520,6 +1536,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         int encoded = QuicFrameWriter.datagramLength(copy.length);
         if (peerTransportParameters != null) {
             if (peerMaxDatagramFrameSize <= 0 || encoded > peerMaxDatagramFrameSize) {
+                qlogDatagramDropped(QlogEvents.DIRECTION_SENDING, copy.length, QlogEvents.TRIGGER_TOO_LARGE);
                 return false;
             }
         }
@@ -2459,7 +2476,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
     // Initial arrives (see peerConnectionId and serverInitialSourceConnectionId).
     private void learnPeerConnectionId(byte[] scid) {
         if (qlog != null) {
-            qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, scid);
+            qlogConnectionIdUpdated(QlogEvents.INITIATOR_REMOTE, peerConnectionId, scid);
         }
         peerConnectionId = scid;
     }
@@ -2505,7 +2522,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
         closed = true;
         deferredCloseIsError = true;
-        qlogConnectionClosed(QlogEvents.OWNER_LOCAL, QlogEvents.TRIGGER_VERSION_MISMATCH);
+        qlogConnectionClosed(QlogEvents.INITIATOR_LOCAL, QlogEvents.TRIGGER_VERSION_MISMATCH);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
@@ -2588,7 +2605,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         retryToken = retry.getRetryToken();
         expectedRetrySourceConnectionId = retry.getSourceConnectionId();
         if (qlog != null) {
-            qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, retry.getSourceConnectionId());
+            qlogConnectionIdUpdated(QlogEvents.INITIATOR_REMOTE, peerConnectionId, retry.getSourceConnectionId());
         }
         // Provisional: the server's Initial may carry another (see
         // serverInitialSourceConnectionId).
@@ -3257,7 +3274,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                 ConnectionIdEntry replacement = connectionIdManager.getActivePeerConnectionId();
                 if (replacement != null) {
                     if (qlog != null) {
-                        qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, replacement.getConnectionId());
+                        qlogConnectionIdUpdated(QlogEvents.INITIATOR_REMOTE, peerConnectionId, replacement.getConnectionId());
                     }
                     peerConnectionId = replacement.getConnectionId();
                     activePeerConnectionIdSequence = replacement.getSequenceNumber();
@@ -3426,6 +3443,8 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
                             QlogEvents.LOCATION_TRANSPORT, QlogEvents.LOCATION_APPLICATION);
                 }
                 datagramHandler.datagramReceived(ByteBuffer.wrap(copy));
+            } else {
+                qlogDatagramDropped(QlogEvents.DIRECTION_RECEIVING, data.remaining(), QlogEvents.TRIGGER_NO_HANDLER);
             }
         }
 
@@ -4339,7 +4358,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             if (!Arrays.equals(attempt.destinationConnectionId, peerConnectionId)) {
                 connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
                 if (qlog != null) {
-                    qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, attempt.destinationConnectionId);
+                    qlogConnectionIdUpdated(QlogEvents.INITIATOR_REMOTE, peerConnectionId, attempt.destinationConnectionId);
                 }
                 peerConnectionId = attempt.destinationConnectionId;
                 activePeerConnectionIdSequence = attempt.destinationConnectionIdSequence;
@@ -4354,7 +4373,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             if (fresh != null && !Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
                 connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
                 if (qlog != null) {
-                    qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, fresh.getConnectionId());
+                    qlogConnectionIdUpdated(QlogEvents.INITIATOR_REMOTE, peerConnectionId, fresh.getConnectionId());
                 }
                 peerConnectionId = fresh.getConnectionId();
                 activePeerConnectionIdSequence = fresh.getSequenceNumber();
@@ -5293,7 +5312,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             if (qf != null) {
                 qf.newConnectionId(entry.getSequenceNumber(), connectionIdManager.getRetirePriorTo(),
                         entry.getConnectionId(), entry.getStatelessResetToken());
-                qlogConnectionIdUpdated(QlogEvents.OWNER_LOCAL, null, entry.getConnectionId());
+                qlogConnectionIdUpdated(QlogEvents.INITIATOR_LOCAL, null, entry.getConnectionId());
             }
         }
         for (long sequenceNumber : retiresToSend) {
@@ -5733,7 +5752,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             return;
         }
         closed = true;
-        qlogConnectionClosed(closedByPeer ? QlogEvents.OWNER_REMOTE : QlogEvents.OWNER_LOCAL, null);
+        qlogConnectionClosed(closedByPeer ? QlogEvents.INITIATOR_REMOTE : QlogEvents.INITIATOR_LOCAL, null);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
@@ -5779,7 +5798,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
             return;
         }
         closed = true;
-        qlogConnectionClosed(QlogEvents.OWNER_LOCAL, null);
+        qlogConnectionClosed(QlogEvents.INITIATOR_LOCAL, null);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
@@ -5816,7 +5835,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         }
         closed = true;
         deferredCloseIsError = true;
-        qlogConnectionClosed(QlogEvents.OWNER_REMOTE, QlogEvents.TRIGGER_STATELESS_RESET);
+        qlogConnectionClosed(QlogEvents.INITIATOR_REMOTE, QlogEvents.TRIGGER_STATELESS_RESET);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
@@ -6025,7 +6044,7 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
         peerMinAckDelayMicros = transportParameters.hasMinAckDelay() ? transportParameters.getMinAckDelay() : -1;
         if (qlog != null) {
             qlog.emit(QlogEvents.PARAMETERS_SET, nowNanos(),
-                    qlogParameters(QlogEvents.OWNER_REMOTE, transportParameters));
+                    qlogParameters(QlogEvents.INITIATOR_REMOTE, transportParameters));
         }
         if (transportParameters.isVersionInformationMalformed()) {
             closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "malformed version_information");

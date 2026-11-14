@@ -200,7 +200,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         this.endpoint = endpoint;
         this.streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
         if (H3Qlog.on(H3Qlog.sinkOf(endpoint))) {
-            H3Qlog.streamTypeSet(H3Qlog.sinkOf(endpoint), H3Qlog.OWNER_LOCAL, streamId, H3Qlog.STREAM_TYPE_REQUEST);
+            H3Qlog.streamTypeSet(H3Qlog.sinkOf(endpoint), H3Qlog.INITIATOR_LOCAL, streamId, H3Qlog.STREAM_TYPE_REQUEST);
         }
         if (connection != null && pendingRequestHeaders != null) {
             connection.completePreparedRequest(this);

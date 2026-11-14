@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.testsupport.QlogCapture;
 import org.junit.Test;
 
 /**
- * The HTTP/3 and HTTP capsule qlog events (draft-ietf-quic-qlog-h3-events-13).
+ * The HTTP/3 and HTTP capsule qlog events (draft-ietf-quic-qlog-h3-events-14).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -74,21 +74,21 @@ public class H3QlogTest {
         boolean encoder = false;
         boolean decoder = false;
         for (Map<String, String> t : types) {
-            assertEquals("local", t.get("owner"));
-            control |= "control".equals(t.get("new"));
-            encoder |= "qpack_encode".equals(t.get("new"));
-            decoder |= "qpack_decode".equals(t.get("new"));
+            assertEquals("local", t.get("initiator"));
+            control |= "control".equals(t.get("stream_type"));
+            encoder |= "qpack_encode".equals(t.get("stream_type"));
+            decoder |= "qpack_decode".equals(t.get("stream_type"));
         }
         assertTrue(types.toString(), control && encoder && decoder);
 
         List<Map<String, String>> parameters = capture.events("http3:parameters_set");
         assertEquals(1, parameters.size());
         Map<String, String> p = parameters.get(0);
-        assertEquals("local", p.get("owner"));
-        assertEquals("true", p.get("enable_connect_protocol"));
-        assertEquals("true", p.get("h3_datagram"));
+        assertEquals("local", p.get("initiator"));
+        assertEquals("1", p.get("extended_connect"));
+        assertEquals("1", p.get("h3_datagram"));
         assertTrue(p.containsKey("max_table_capacity"));
-        assertTrue(p.containsKey("max_header_list_size"));
+        assertTrue(p.containsKey("max_field_section_size"));
 
         List<Map<String, String>> created = capture.events("http3:frame_created");
         assertEquals("settings", created.get(0).get("frame.frame_type"));
@@ -107,7 +107,7 @@ public class H3QlogTest {
 
         boolean request = false;
         for (Map<String, String> t : capture.events("http3:stream_type_set")) {
-            request |= "request".equals(t.get("new")) && "remote".equals(t.get("owner"));
+            request |= "request".equals(t.get("stream_type")) && "remote".equals(t.get("initiator"));
         }
         assertTrue(request);
 
@@ -122,7 +122,7 @@ public class H3QlogTest {
                     }
                 }
             }
-            if ("data".equals(fp.get("frame.frame_type")) && "2".equals(fp.get("frame.length"))) {
+            if ("data".equals(fp.get("frame.frame_type")) && "2".equals(fp.get("frame.raw.length"))) {
                 data = true;
             }
         }
@@ -142,7 +142,7 @@ public class H3QlogTest {
                             && "200".equals(fc.get("frame.headers." + i + ".value"));
                 }
             }
-            body |= "data".equals(fc.get("frame.frame_type")) && "3".equals(fc.get("frame.length"));
+            body |= "data".equals(fc.get("frame.frame_type")) && "3".equals(fc.get("frame.raw.length"));
         }
         assertTrue(status);
         assertTrue(body);
@@ -177,35 +177,55 @@ public class H3QlogTest {
         byte[] fv = "u=2".getBytes();
         ByteBuffer pu = ByteBuffer.allocate(H3Writer.priorityUpdateRequestLength(4, fv.length));
         H3Writer.writePriorityUpdateRequest(pu, 4, fv);
-        ByteBuffer settings = ByteBuffer.allocate(H3Writer.settingsLength(new long[] {1, 100, 6, 2000, 0x33, 1}));
-        H3Writer.writeSettings(settings, new long[] {1, 100, 6, 2000, 0x33, 1});
+        ByteBuffer settings = ByteBuffer.allocate(H3Writer.settingsLength(new long[] {1, 100, 6, 2000, 0x33, 1, 0x99, 7}));
+        H3Writer.writeSettings(settings, new long[] {1, 100, 6, 2000, 0x33, 1, 0x99, 7});
         ByteBuffer goaway = ByteBuffer.allocate(H3Writer.goawayLength(8));
         H3Writer.writeGoaway(goaway, 8);
         s.receive(ByteBuffer.wrap(H3ServerFlowTest.concat(new byte[] {0x00}, settings.array(), pu.array(),
                 goaway.array())));
 
         List<Map<String, String>> types = capture.events("http3:stream_type_set");
-        assertEquals("remote", types.get(0).get("owner"));
-        assertEquals("control", types.get(0).get("new"));
+        assertEquals("remote", types.get(0).get("initiator"));
+        assertEquals("control", types.get(0).get("stream_type"));
 
         Map<String, String> p = capture.events("http3:parameters_set").get(0);
-        assertEquals("remote", p.get("owner"));
+        assertEquals("remote", p.get("initiator"));
         assertEquals("100", p.get("max_table_capacity"));
-        assertEquals("2000", p.get("max_header_list_size"));
-        assertEquals("true", p.get("h3_datagram"));
+        assertEquals("2000", p.get("max_field_section_size"));
+        assertEquals("1", p.get("h3_datagram"));
+
+        assertEquals("unknown", p.get("unknown_settings.0.name"));
+        assertEquals("153", p.get("unknown_settings.0.name_bytes"));
+        assertEquals("7", p.get("unknown_settings.0.value"));
+        assertFalse(p.containsKey("additional_settings"));
 
         boolean settingsFrame = false;
         boolean goawayFrame = false;
+        boolean unknownFrame = false;
         for (Map<String, String> fp : capture.events("http3:frame_parsed")) {
+            if ("settings".equals(fp.get("frame.frame_type"))) {
+                assertEquals("settings_qpack_max_table_capacity", fp.get("frame.settings.0.name"));
+                assertEquals("settings_max_field_section_size", fp.get("frame.settings.1.name"));
+                assertEquals("settings_h3_datagram", fp.get("frame.settings.2.name"));
+                assertEquals("unknown", fp.get("frame.settings.3.name"));
+                assertEquals("153", fp.get("frame.settings.3.name_bytes"));
+            }
+            if ("unknown".equals(fp.get("frame.frame_type"))) {
+                assertEquals("984832", fp.get("frame.frame_type_bytes"));
+                assertFalse(fp.containsKey("frame.raw_frame_type"));
+                unknownFrame = true;
+            }
             settingsFrame |= "settings".equals(fp.get("frame.frame_type"));
             goawayFrame |= "goaway".equals(fp.get("frame.frame_type")) && "8".equals(fp.get("frame.id"));
         }
         assertTrue(settingsFrame);
         assertTrue(goawayFrame);
+        assertTrue(unknownFrame);
 
         Map<String, String> priority = capture.events("http3:priority_updated").get(0);
-        assertEquals("request", priority.get("type"));
-        assertEquals("4", priority.get("id"));
+        assertEquals("4", priority.get("stream_id"));
+        assertFalse(priority.containsKey("push_id"));
+        assertFalse(priority.containsKey("type"));
         assertEquals("u=2", priority.get("new"));
     }
 
@@ -225,14 +245,14 @@ public class H3QlogTest {
         f.server.sendHttpDatagram(4, new byte[] {1, 2, 3});
         Map<String, String> created = capture.events("http3:datagram_created").get(0);
         assertEquals("1", created.get("quarter_stream_id"));
-        assertEquals("3", created.get("payload_length"));
+        assertEquals("3", created.get("raw.length"));
 
         Method on = Http3ServerHandler.class.getDeclaredMethod("onHttpDatagram", ByteBuffer.class);
         on.setAccessible(true);
         on.invoke(f.server, ByteBuffer.wrap(H3Datagram.encode(8, new byte[] {9, 9})));
         Map<String, String> parsed = capture.events("http3:datagram_parsed").get(0);
         assertEquals("2", parsed.get("quarter_stream_id"));
-        assertEquals("2", parsed.get("payload_length"));
+        assertEquals("2", parsed.get("raw.length"));
     }
 
     @Test
@@ -249,15 +269,15 @@ public class H3QlogTest {
         List<Map<String, String>> parsed = capture.events("http:capsule_parsed");
         assertEquals(2, parsed.size());
         assertEquals("datagram", parsed.get(0).get("capsule.capsule_type"));
-        assertEquals("3", parsed.get(0).get("capsule.payload_length"));
+        assertEquals("3", parsed.get(0).get("capsule.raw.length"));
         assertEquals("unknown", parsed.get(1).get("capsule.capsule_type"));
-        assertEquals("23", parsed.get(1).get("capsule.raw_capsule_type"));
+        assertEquals("23", parsed.get(1).get("capsule.capsule_type_value"));
         assertEquals(QlogAttributes.SCHEMA_HTTP, capture.schemaOf("http:capsule_parsed"));
 
         assertTrue(stream.sendCapsule(0x17, ByteBuffer.wrap(new byte[] {5})));
         List<Map<String, String>> created = capture.events("http:capsule_created");
         assertEquals(1, created.size());
-        assertEquals("23", created.get(0).get("capsule.raw_capsule_type"));
+        assertEquals("23", created.get(0).get("capsule.capsule_type_value"));
         assertTrue(created.get(0).get("stream_id") != null);
     }
 
@@ -266,10 +286,10 @@ public class H3QlogTest {
         QuicConnection conn = connection(false);
         Http3ClientHandler h = new Http3ClientHandler(conn);
         Map<String, String> parameters = capture.events("http3:parameters_set").get(0);
-        assertEquals("local", parameters.get("owner"));
+        assertEquals("local", parameters.get("initiator"));
         boolean control = false;
         for (Map<String, String> t : capture.events("http3:stream_type_set")) {
-            control |= "control".equals(t.get("new")) && "local".equals(t.get("owner"));
+            control |= "control".equals(t.get("stream_type")) && "local".equals(t.get("initiator"));
         }
         assertTrue(control);
 
@@ -277,7 +297,7 @@ public class H3QlogTest {
         h.sendRequest(H3ClientFlowTest.request("GET"), rec);
         boolean request = false;
         for (Map<String, String> t : capture.events("http3:stream_type_set")) {
-            request |= "request".equals(t.get("new")) && "local".equals(t.get("owner"));
+            request |= "request".equals(t.get("stream_type")) && "local".equals(t.get("initiator"));
         }
         assertTrue(request);
         boolean method = false;
@@ -304,7 +324,7 @@ public class H3QlogTest {
                             && "200".equals(fp.get("frame.headers." + i + ".value"));
                 }
             }
-            body |= "data".equals(fp.get("frame.frame_type")) && "3".equals(fp.get("frame.length"));
+            body |= "data".equals(fp.get("frame.frame_type")) && "3".equals(fp.get("frame.raw.length"));
         }
         assertTrue(status);
         assertTrue(body);

@@ -44,12 +44,20 @@ public final class QlogAttributes {
     /** The vantage point: {@code client} or {@code server}. */
     public static final String VANTAGE_POINT = "qlog.vantage_point";
 
+    /**
+     * The revision of the two event drafts (quic-events and h3-events) the
+     * event schema URIs and field names follow. While they are drafts, each
+     * schema URI must end in {@code -} and this number; once they are RFCs
+     * the bare URIs are the identifiers and this goes.
+     */
+    static final int EVENTS_DRAFT = 14;
+
     /** draft-ietf-quic-qlog-quic-events: the QUIC event schema. */
-    public static final String SCHEMA_QUIC = "urn:ietf:params:qlog:events:quic";
+    public static final String SCHEMA_QUIC = "urn:ietf:params:qlog:events:quic-" + EVENTS_DRAFT;
 
     /** draft-ietf-quic-qlog-h3-events: the HTTP/3 event schema. */
-    public static final String SCHEMA_HTTP3 = "urn:ietf:params:qlog:events:http3";
+    public static final String SCHEMA_HTTP3 = "urn:ietf:params:qlog:events:http3-" + EVENTS_DRAFT;
 
     /** draft-ietf-quic-qlog-h3-events: the HTTP event schema (capsules). */
-    public static final String SCHEMA_HTTP = "urn:ietf:params:qlog:events:http";
+    public static final String SCHEMA_HTTP = "urn:ietf:params:qlog:events:http-" + EVENTS_DRAFT;
 }
