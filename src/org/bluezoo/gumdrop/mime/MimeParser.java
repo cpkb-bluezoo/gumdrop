@@ -1052,12 +1052,18 @@ public class MimeParser {
 	 * RFC 2045 §5 / RFC 2046 §5.1.1 — a Content-Type header has been read:
 	 * a multipart type with a valid boundary starts a multipart body.
 	 */
-	private void boundaryFound(String primaryType, String boundary) {
+	private void boundaryFound(String primaryType, String boundary) throws MimeParseException {
 		if ("multipart".equalsIgnoreCase(primaryType)) {
 			// check boundary matches RFC 2046 spec
 			if (boundary != null && MimeUtils.isValidBoundary(boundary)) {
 				if (boundarySet) {
 					boundaries.removeLast(); // duplicate Content-Type
+				}
+				int maxDepth = limits.getMaxNestingDepth();
+				if (maxDepth > 0 && boundaries.size() >= maxDepth) {
+					String msg = MessageFormat.format(
+						L10N.getString("err.nesting_too_deep"), Integer.toString(maxDepth));
+					throw new MimeParseException(msg, locator);
 				}
 				boundaries.addLast(boundary);
 				boundarySet = true;

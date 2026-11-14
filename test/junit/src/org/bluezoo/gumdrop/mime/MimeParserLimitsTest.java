@@ -208,4 +208,61 @@ public class MimeParserLimitsTest {
             }
         }
     }
+
+    /** Opens {@code depth} nested multiparts, then an entity with a plain body. */
+    private static String nested(int depth) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < depth; i++) {
+            sb.append("Content-Type: multipart/mixed; boundary=\"b").append(i).append("\"\r\n\r\n");
+            sb.append("--b").append(i).append("\r\n");
+        }
+        sb.append("Content-Type: text/plain\r\n\r\nx\r\n");
+        return sb.toString();
+    }
+
+    @Test
+    public void defaultNestingDepthIsSet() {
+        assertEquals(ParserLimits.DEFAULT_MAX_NESTING_DEPTH, new ParserLimits().getMaxNestingDepth());
+        assertTrue(ParserLimits.DEFAULT_MAX_NESTING_DEPTH > 0);
+        assertTrue(ParserLimits.unlimited().getMaxNestingDepth() <= 0);
+    }
+
+    @Test
+    public void nestingAtTheLimitIsAccepted() throws Exception {
+        MimeParser parser = parser();
+        int depth = parser.getLimits().getMaxNestingDepth();
+        parser.receive(buffer(nested(depth), 1 << 17));
+    }
+
+    @Test
+    public void nestingOverTheLimitIsRejected() throws Exception {
+        MimeParser parser = parser();
+        int depth = parser.getLimits().getMaxNestingDepth() + 1;
+        try {
+            parser.receive(buffer(nested(depth), 1 << 17));
+            fail("nesting over the limit must be rejected");
+        } catch (MimeParseException expected) {
+            assertFalse(expected instanceof HeaderLineTooLongException);
+        }
+    }
+
+    @Test
+    public void nestingLimitIsConfigurable() throws Exception {
+        MimeParser parser = parser();
+        parser.getLimits().setMaxNestingDepth(3);
+        try {
+            parser.receive(buffer(nested(4), 1 << 17));
+            fail("nesting over the configured limit must be rejected");
+        } catch (MimeParseException expected) {
+            // ok
+        }
+    }
+
+    @Test
+    public void zeroNestingLimitMeansNone() throws Exception {
+        MimeParser parser = parser();
+        parser.getLimits().setMaxNestingDepth(0);
+        parser.receive(buffer(nested(500), 1 << 17));
+    }
+
 }

@@ -44,10 +44,14 @@ public final class ParserLimits {
 	/** The default longest element of a structured RFC 5322 header. */
 	public static final int DEFAULT_MAX_ELEMENT_LENGTH = 4096;
 
+	/** The default deepest nesting of multipart entities. */
+	public static final int DEFAULT_MAX_NESTING_DEPTH = 64;
+
 	private int maxHeaderLineLength = DEFAULT_MAX_HEADER_LINE_LENGTH;
 	private int maxHeaderNameLength = DEFAULT_MAX_HEADER_NAME_LENGTH;
 	private int maxTokenLength = DEFAULT_MAX_TOKEN_LENGTH;
 	private int maxElementLength = DEFAULT_MAX_ELEMENT_LENGTH;
+	private int maxNestingDepth = DEFAULT_MAX_NESTING_DEPTH;
 
 	/**
 	 * Returns limits with no limit set at all.
@@ -59,6 +63,7 @@ public final class ParserLimits {
 		limits.maxHeaderNameLength = 0;
 		limits.maxTokenLength = 0;
 		limits.maxElementLength = 0;
+		limits.maxNestingDepth = 0;
 		return limits;
 	}
 
@@ -135,6 +140,25 @@ public final class ParserLimits {
 	 */
 	public void setMaxElementLength(int maxElementLength) {
 		this.maxElementLength = maxElementLength;
+	}
+
+	/**
+	 * Returns the deepest nesting of multipart entities. The parser keeps one
+	 * boundary for each level that is open, so without a limit a message of
+	 * nothing but nested multiparts makes it hold memory in proportion to the
+	 * size of the message.
+	 * @return the limit, or zero or less for none (default 64)
+	 */
+	public int getMaxNestingDepth() {
+		return maxNestingDepth;
+	}
+
+	/**
+	 * Sets the deepest nesting of multipart entities.
+	 * @param maxNestingDepth the limit, or zero or less for none
+	 */
+	public void setMaxNestingDepth(int maxNestingDepth) {
+		this.maxNestingDepth = maxNestingDepth;
 	}
 
 }
