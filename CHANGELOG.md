@@ -374,7 +374,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   accrues from the time the timer actually fires. ACKs, probes and connection
   close are not paced. The congestion window now also stops growing while the
   sender is limited by its application or the peer's flow control rather than
-  by the window, and qlog `recovery:metrics_updated` reports `pacing_rate`.
+  by the window, and qlog `quic:recovery_metrics_updated` reports `pacing_rate`.
 - **QUIC receive windows tuned to the round-trip time** (RFC 9000 section
   4.2). A stream or connection window starts at the configured initial limit
   and doubles each time the peer fills half of it within two round trips, up

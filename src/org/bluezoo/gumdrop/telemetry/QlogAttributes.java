@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.telemetry;
  * {@link LogLevel#QLOG}: the record's key is the namespaced event name,
  * such as {@code quic:packet_lost}, its body is the event's {@code data}
  * object as JSON, and these name the rest
- * (draft-ietf-quic-qlog-main-schema-14 section 5.4).
+ * (draft-ietf-quic-qlog-main-schema-15).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

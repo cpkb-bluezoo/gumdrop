@@ -23,12 +23,14 @@ package org.bluezoo.gumdrop.telemetry;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.text.MessageFormat;
+import java.time.DateTimeException;
 import java.time.format.DateTimeFormatter;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -48,7 +50,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 
 /**
  * Writes the log records of level {@link LogLevel#QLOG} as qlog files
- * (draft-ietf-quic-qlog-main-schema-14, JSON-SEQ serialisation): one file
+ * (draft-ietf-quic-qlog-main-schema-15, JSON-SEQ serialisation): one file
  * per connection, named {@code {group id}_{vantage point}.sqlog}. Traces,
  * metrics and records of other levels are not its business and are ignored.
  *
@@ -56,7 +58,11 @@ import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
  * and continues with one record per event ({@code time}, {@code name},
  * {@code data}); each record is a 0x1E byte, the JSON text and a newline.
  * Event times are written in milliseconds relative to the trace's
- * reference time, the time of the first event, to the microsecond.
+ * reference time, the time of the first event, to the microsecond. A file
+ * is closed when its connection closes or has been quiet for a minute; an
+ * event arriving after that reopens it and appends, with the reference
+ * time read back from the header already in the file, so the exporter
+ * keeps no memory of connections it has finished with.
  *
  * <p>Records are queued and written by a thread of the exporter's own, so
  * the transport never waits on a file. The queue is large, because a trace
@@ -78,7 +84,7 @@ public final class QlogExporter implements TelemetryExporter {
     public static final int DEFAULT_QUEUE_SIZE = 65536;
 
     /** The revision of the qlog drafts the files follow. */
-    public static final String QLOG_REVISION = "draft-ietf-quic-qlog-main-schema-14, "
+    public static final String QLOG_REVISION = "draft-ietf-quic-qlog-main-schema-15, "
             + "draft-ietf-quic-qlog-quic-events-13, draft-ietf-quic-qlog-h3-events-13";
 
     private static final long IDLE_NANOS = 60_000_000_000L;
@@ -91,8 +97,6 @@ public final class QlogExporter implements TelemetryExporter {
     private final Object writeLock = new Object();
     // files being written, by file stem
     private final Map<String, TraceFile> open = new HashMap<String, TraceFile>();
-    // reference times of files written and since closed, by file stem
-    private final Map<String, Long> finished = new HashMap<String, Long>();
     private final Thread thread;
     private volatile boolean running = true;
 
@@ -189,12 +193,10 @@ public final class QlogExporter implements TelemetryExporter {
         }
         drain();
         synchronized (writeLock) {
-            for (Iterator<Map.Entry<String, TraceFile>> i = open.entrySet().iterator(); i.hasNext();) {
-                Map.Entry<String, TraceFile> entry = i.next();
-                entry.getValue().close();
-                finished.put(entry.getKey(), Long.valueOf(entry.getValue().referenceNanos));
-                i.remove();
+            for (TraceFile file : open.values()) {
+                file.close();
             }
+            open.clear();
         }
         long lost = dropped.get();
         if (lost > 0) {
@@ -244,7 +246,6 @@ public final class QlogExporter implements TelemetryExporter {
                 Map.Entry<String, TraceFile> entry = i.next();
                 if (nowNanos - entry.getValue().lastWriteNanos >= IDLE_NANOS) {
                     entry.getValue().close();
-                    finished.put(entry.getKey(), Long.valueOf(entry.getValue().referenceNanos));
                     i.remove();
                 }
             }
@@ -281,8 +282,7 @@ public final class QlogExporter implements TelemetryExporter {
         String stem = group + "_" + vantage;
         TraceFile file = open.get(stem);
         if (file == null) {
-            Long reference = finished.get(stem);
-            file = openFile(stem, group, vantage, reference, record.getTimeUnixNano());
+            file = openFile(stem, group, vantage, record.getTimeUnixNano());
             if (file == null) {
                 return;
             }
@@ -291,20 +291,21 @@ public final class QlogExporter implements TelemetryExporter {
         file.writeEvent(record, name);
         if ("quic:connection_closed".equals(name)) {
             file.close();
-            finished.put(stem, Long.valueOf(file.referenceNanos));
             open.remove(stem);
         }
     }
 
-    private TraceFile openFile(String stem, String group, String vantage, Long reference, long firstNanos) {
+    private TraceFile openFile(String stem, String group, String vantage, long firstNanos) {
         try {
             Files.createDirectories(directory);
             Path path = directory.resolve(stem + ".sqlog");
+            // a file closed earlier is continued from its own header
+            long reference = Files.exists(path) ? referenceFromHeader(path) : -1L;
             OutputStream out = new BufferedOutputStream(Files.newOutputStream(path,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND));
             TraceFile file;
-            if (reference != null) {
-                file = new TraceFile(out, reference.longValue());
+            if (reference >= 0) {
+                file = new TraceFile(out, reference);
             } else {
                 // the reference time is the first event's, to the millisecond
                 file = new TraceFile(out, Math.floorDiv(firstNanos, 1_000_000L) * 1_000_000L);
@@ -315,6 +316,51 @@ public final class QlogExporter implements TelemetryExporter {
             logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.qlog_open_failed"),
                     stem, e.getMessage()));
             return null;
+        }
+    }
+
+    /**
+     * Reads the reference time back from the header record of a file
+     * written earlier, as nanoseconds since the Unix epoch, or -1 if the
+     * file has no header this exporter wrote.
+     */
+    static long referenceFromHeader(Path path) {
+        byte[] head = new byte[2048];
+        int length = 0;
+        try {
+            InputStream in = Files.newInputStream(path);
+            try {
+                int n;
+                while (length < head.length && (n = in.read(head, length, head.length - length)) > 0) {
+                    length += n;
+                }
+            } finally {
+                in.close();
+            }
+        } catch (IOException e) {
+            return -1L;
+        }
+        // only the first record, which the header is
+        int end = 0;
+        while (end < length && head[end] != '\n') {
+            end++;
+        }
+        String record = new String(head, 0, end, StandardCharsets.UTF_8);
+        String marker = "\"epoch\":\"";
+        int at = record.indexOf(marker);
+        if (at < 0) {
+            return -1L;
+        }
+        int start = at + marker.length();
+        int close = record.indexOf('"', start);
+        if (close < 0) {
+            return -1L;
+        }
+        try {
+            Instant epoch = Instant.from(ISO_MILLIS.parse(record.substring(start, close)));
+            return epoch.toEpochMilli() * 1_000_000L;
+        } catch (DateTimeException e) {
+            return -1L;
         }
     }
 

@@ -270,6 +270,30 @@ public class QlogExporterTest {
     }
 
     @Test
+    public void aNewExporterAppendsToAnExistingFileWithItsOriginalReferenceTime() throws Exception {
+        QlogExporter first = new QlogExporter(dir, 1000, false);
+        first.export(event(T0, "aa01", "server", "quic:connection_started", "{}"));
+        first.export(event(T0 + 5, "aa01", "server", "quic:connection_closed", "{}"));
+        first.shutdown();
+        // the reference time lives in the file, not in the exporter that wrote it
+        QlogExporter second = new QlogExporter(dir, 1000, false);
+        second.export(event(T0 + 2_500_000L, "aa01", "server", "quic:packet_lost", "{}"));
+        second.shutdown();
+        List<String> lines = records(file("aa01_server.sqlog"));
+        assertEquals(4, lines.size());
+        int headers = 0;
+        for (String line : lines) {
+            if (FlatJson.flatten(line).containsKey("file_schema")) {
+                headers++;
+            }
+        }
+        assertEquals(1, headers);
+        Map<String, String> late = FlatJson.flatten(lines.get(3));
+        assertEquals("quic:packet_lost", late.get("name"));
+        assertEquals(2.5, Double.parseDouble(late.get("time")), 1e-9);
+    }
+
+    @Test
     public void idleFilesAreClosed() throws Exception {
         QlogExporter e = new QlogExporter(dir, 1000, false);
         e.export(event(T0, "aa01", "server", "quic:connection_started", "{}"));
