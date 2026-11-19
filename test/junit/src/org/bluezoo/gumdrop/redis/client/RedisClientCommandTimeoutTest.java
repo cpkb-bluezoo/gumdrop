@@ -203,6 +203,38 @@ public class RedisClientCommandTimeoutTest {
 
     // ── timeouts ──
 
+    /**
+     * A deep pipeline whose commands expire one per timer fire must cost
+     * work proportional to the commands, not to commands times fires: the
+     * timer handler used to examine every pending command on each fire,
+     * which for this burst is over a billion examinations.
+     */
+    @Test
+    public void expiringADeepPipelineOneDeadlineAtATimeIsNotQuadratic() {
+        int n = 60000;
+        handler.setCommandTimeoutMillis(100000);
+        Bulk b = new Bulk();
+        for (int i = 0; i < n; i++) {
+            session.get("k", b);
+            advance(1);
+        }
+        // to just before the first deadline, then one deadline per fire
+        advance(100000 - n - 1);
+        int fires = 0;
+        while (b.events.size() < n && fires < n + 10) {
+            advance(1);
+            Timer t = endpoint.timers.get(endpoint.timers.size() - 1);
+            if (t.cancelled) {
+                break;
+            }
+            t.cancelled = true;
+            t.task.run();
+            fires++;
+        }
+        assertEquals(n, b.events.size());
+        assertTrue("examined " + handler.expireExamined(), handler.expireExamined() <= 3L * n);
+    }
+
     @Test
     public void withoutATimeoutNothingIsScheduled() {
         session.get("k", new Bulk());

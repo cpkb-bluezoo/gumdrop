@@ -28,8 +28,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -93,6 +95,26 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     // Pending command callbacks (FIFO)
     private final Deque<PendingCommand> pendingCommands;
+
+    // The pending commands that have a deadline and have not yet timed out,
+    // earliest first (ties in the order sent). Deadlines are not in queue
+    // order, as a command can name its own timeout and a blocking command
+    // waits longer, so the queue itself cannot say which is due next. A
+    // command leaves this set when it is answered or when it times out.
+    private final TreeSet<PendingCommand> deadlines = new TreeSet<PendingCommand>(
+            new Comparator<PendingCommand>() {
+                @Override
+                public int compare(PendingCommand a, PendingCommand b) {
+                    long d = a.deadlineNanos - b.deadlineNanos;
+                    if (d != 0) {
+                        return d < 0 ? -1 : 1;
+                    }
+                    return a.sequence < b.sequence ? -1 : a.sequence == b.sequence ? 0 : 1;
+                }
+            });
+    private long nextSequence;
+    // Test seam: how many pending commands expire() has examined in all.
+    private long expireExamined;
 
     // Pub/Sub state
     private boolean pubSubMode = false;
@@ -252,6 +274,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             }
         }
         pendingCommands.clear();
+        deadlines.clear();
         if (!unanswered.isEmpty()) {
             listener.connectionLost(unanswered);
         }
@@ -262,6 +285,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     private void failPending(String error) {
         List<PendingCommand> waiting = new ArrayList<PendingCommand>(pendingCommands);
         pendingCommands.clear();
+        deadlines.clear();
         for (PendingCommand pending : waiting) {
             if (!pending.timedOut && !pending.internal && pending.callback != null) {
                 dispatchError(pending.callback, error);
@@ -317,6 +341,11 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         this.healthIntervalMs = Math.max(0, millis);
     }
 
+    /** Test seam: how many pending commands expire() has examined in all. */
+    long expireExamined() {
+        return expireExamined;
+    }
+
     /** Test seam: the clock deadlines are measured against. */
     void setTicker(Ticker ticker) {
         this.ticker = ticker;
@@ -369,6 +398,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         decoder.reset();
         releasePending();
         pendingCommands.clear();
+        deadlines.clear();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -405,6 +435,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         
         // Regular command response
         PendingCommand pending = pendingCommands.poll();
+        if (pending != null) {
+            deadlines.remove(pending);
+        }
         if (pending == null) {
             events().warn("warn.response_no_pending").attr("response", String.valueOf(response)).emit();
             return;
@@ -716,9 +749,11 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             // from now on the server owes us an answer
             quietSinceNanos = ticker.nanos();
         }
+        pending.sequence = nextSequence++;
         pendingCommands.add(pending);
         endpoint.send(buf);
         if (pending.deadlineNanos != 0) {
+            deadlines.add(pending);
             armFor(pending.deadlineNanos);
         }
         armHealth();
@@ -869,20 +904,17 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
         long now = ticker.nanos();
         List<PendingCommand> overdue = new ArrayList<PendingCommand>();
-        long next = 0;
-        for (PendingCommand pending : pendingCommands) {
-            if (pending.timedOut || pending.deadlineNanos == 0) {
-                continue;
+        while (!deadlines.isEmpty()) {
+            PendingCommand first = deadlines.first();
+            expireExamined++;
+            if (first.deadlineNanos - now <= 0) {
+                deadlines.pollFirst();
+                first.timedOut = true;
+                overdue.add(first);
+            } else {
+                armFor(first.deadlineNanos);
+                break;
             }
-            if (pending.deadlineNanos - now <= 0) {
-                pending.timedOut = true;
-                overdue.add(pending);
-            } else if (next == 0 || pending.deadlineNanos - next < 0) {
-                next = pending.deadlineNanos;
-            }
-        }
-        if (next != 0) {
-            armFor(next);
         }
         // handlers may send more commands, so only now
         for (PendingCommand pending : overdue) {
@@ -961,6 +993,8 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         // is, the handler has been told and timedOut is set: the reply
         // still due is read and thrown away.
         long deadlineNanos;
+        // order sent, to break ties between equal deadlines
+        long sequence;
         long timeoutMs;
         boolean timedOut;
         // waits on the server on purpose (a blocking pop and the like)
@@ -1005,6 +1039,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if (head != null && kind.equals(head.subscriptionKind)) {
             if (--head.confirmationsDue <= 0) {
                 pendingCommands.poll();
+                deadlines.remove(head);
             }
         }
     }
