@@ -27,14 +27,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * A {@link RedisSession} over a whole Redis Cluster: each command is sent to
@@ -1431,7 +1434,24 @@ final class RedisClusterSession extends AbstractRedisSession {
     private final class NodeConnection implements NodeListener {
 
         private final ClusterNode node;
-        private final ArrayDeque<SentCommand> queue = new ArrayDeque<SentCommand>();
+        // The commands waiting for a connection, in the order given, and
+        // those among them with a deadline, earliest first. Each is in both
+        // so that one leaving (sent, or timed out) costs no scan of the
+        // queue, and one timer serves the lot.
+        private final LinkedHashSet<Waiting> queue = new LinkedHashSet<Waiting>();
+        private final TreeSet<Waiting> deadlines = new TreeSet<Waiting>(new Comparator<Waiting>() {
+            @Override
+            public int compare(Waiting a, Waiting b) {
+                if (a.deadline != b.deadline) {
+                    return a.deadline < b.deadline ? -1 : 1;
+                }
+                return a.sequence < b.sequence ? -1 : a.sequence == b.sequence ? 0 : 1;
+            }
+        });
+        private long waitSequence;
+        // when the soonest wake-up set for the waiting commands is due, or
+        // 0 if none is
+        private long wakeAt;
         private RedisClientProtocolHandler handler;
         private boolean ready;
         private boolean connecting;
@@ -1454,12 +1474,13 @@ final class RedisClusterSession extends AbstractRedisSession {
 
         /** Removes the commands waiting for this connection that can go elsewhere, into {@code out}. */
         void takeMovable(List<SentCommand> out) {
-            Iterator<SentCommand> it = queue.iterator();
+            Iterator<Waiting> it = queue.iterator();
             while (it.hasNext()) {
-                SentCommand command = it.next();
-                if (!command.isPinned()) {
+                Waiting waiting = it.next();
+                if (!waiting.command.isPinned()) {
                     it.remove();
-                    out.add(command);
+                    deadlines.remove(waiting);
+                    out.add(waiting.command);
                 }
             }
         }
@@ -1487,29 +1508,85 @@ final class RedisClusterSession extends AbstractRedisSession {
                         Integer.valueOf(maxPending)));
                 return;
             }
-            queue.add(command);
-            limitWait(command);
+            Waiting waiting = new Waiting(command, waitSequence++);
+            queue.add(waiting);
+            limitWait(waiting);
             open();
+        }
+
+        /** A command waiting for a connection, and when it has waited long enough. */
+        private final class Waiting {
+            final SentCommand command;
+            final long sequence;
+            // when it times out; 0 for never
+            long deadline;
+
+            Waiting(SentCommand command, long sequence) {
+                this.command = command;
+                this.sequence = sequence;
+            }
         }
 
         // A command waiting for a connection that does not come up must not
         // wait for ever: it times out like one sent on a connection would.
-        private void limitWait(final SentCommand command) {
+        // One wake-up serves every waiting command, set for the earliest
+        // deadline, so a command waits on no timer of its own and none holds
+        // it after it has gone.
+        private void limitWait(Waiting waiting) {
+            SentCommand command = waiting.command;
             long timeout = command.getTimeoutMs() >= 0 ? command.getTimeoutMs() : commandTimeoutMs;
             if (timeout <= 0 || scheduler == null || command.getCallback() == null) {
                 return;
             }
-            final long waited = timeout;
-            scheduler.schedule(timeout, new Runnable() {
+            waiting.deadline = clock.millis() + timeout;
+            deadlines.add(waiting);
+            wakeFor(waiting.deadline);
+        }
+
+        // Makes sure a wake-up will come no later than the time given.
+        private void wakeFor(final long due) {
+            if (wakeAt != 0 && wakeAt <= due) {
+                return;
+            }
+            wakeAt = due;
+            scheduler.schedule(Math.max(1, due - clock.millis()), new Runnable() {
                 @Override
                 public void run() {
-                    if (queue.remove(command)) {
-                        fail(command, MessageFormat.format(
-                                RedisClientProtocolHandler.L10N.getString("err.command_timeout"),
-                                Long.valueOf(waited)));
-                    }
+                    wake(due);
                 }
             });
+        }
+
+        // A wake-up has come: fails the waiting commands whose time is up,
+        // and sets the next for the earliest of the rest.
+        private void wake(long due) {
+            if (wakeAt == due) {
+                wakeAt = 0;
+            }
+            long now = clock.millis();
+            while (!deadlines.isEmpty() && deadlines.first().deadline <= now) {
+                Waiting overdue = deadlines.pollFirst();
+                queue.remove(overdue);
+                SentCommand command = overdue.command;
+                long timeout = command.getTimeoutMs() >= 0 ? command.getTimeoutMs() : commandTimeoutMs;
+                fail(command, MessageFormat.format(
+                        RedisClientProtocolHandler.L10N.getString("err.command_timeout"),
+                        Long.valueOf(timeout)));
+            }
+            if (wakeAt == 0 && !deadlines.isEmpty()) {
+                wakeFor(deadlines.first().deadline);
+            }
+        }
+
+        // Takes the waiting commands, in order, leaving none.
+        private List<SentCommand> takeWaiting() {
+            List<SentCommand> taken = new ArrayList<SentCommand>(queue.size());
+            for (Waiting waiting : queue) {
+                taken.add(waiting.command);
+            }
+            queue.clear();
+            deadlines.clear();
+            return taken;
         }
 
         /** Starts connecting unless a connection is up, on its way, or backing off. */
@@ -1545,8 +1622,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             handler.setMaxPending(maxPending);
             handler.setHealthCheckMillis(healthCheckMs);
             ready = true;
-            SentCommand next;
-            while ((next = queue.poll()) != null) {
+            for (SentCommand next : takeWaiting()) {
                 write(next);
             }
             settled();
@@ -1560,8 +1636,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             backOff(MessageFormat.format(
                     RedisClientProtocolHandler.L10N.getString("err.cluster_connect_failed"),
                     node.getAddress(), cause != null ? cause.getMessage() : ""));
-            SentCommand next;
-            while ((next = queue.poll()) != null) {
+            for (SentCommand next : takeWaiting()) {
                 fail(next, lastFailure);
             }
             requestRefresh();
@@ -1594,8 +1669,7 @@ final class RedisClusterSession extends AbstractRedisSession {
 
         void shutdown() {
             String message = RedisClientProtocolHandler.L10N.getString("err.not_connected");
-            SentCommand next;
-            while ((next = queue.poll()) != null) {
+            for (SentCommand next : takeWaiting()) {
                 fail(next, message);
             }
             if (handler != null) {

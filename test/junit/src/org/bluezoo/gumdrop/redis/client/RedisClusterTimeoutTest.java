@@ -221,6 +221,7 @@ public class RedisClusterTimeoutTest {
         session = new RedisClusterSession(SlotMap.parse(arr(range(0, 5460, 7000),
                 range(5461, 10922, 7001), range(10923, 16383, 7002)), "127.0.0.1"), connector);
         session.setScheduler(scheduler);
+        session.setClock(fixedClock(clockBase));
         now = 1000000000L;
     }
 
@@ -338,12 +339,88 @@ public class RedisClusterTimeoutTest {
         session.get("foo", waiting);
         assertEquals(1, scheduler.tasks.size());
         assertEquals(1000, scheduler.tasks.get(0).delay);
+        session.setClock(fixedClock(clockBase + 1000));
         scheduler.tasks.get(0).task.run();
         assertEquals(1, waiting.events.size());
         assertTrue(waiting.events.get(0), waiting.events.get(0).startsWith("error:TIMEOUT"));
         // and it is not sent when the connection does come up
         Request c = up(connector.requests.get(0));
         assertEquals(0, commandsWritten(c));
+    }
+
+    /**
+     * A deep queue of commands waiting for a connection must not cost a
+     * timer each: that held every command, with its arguments and handler,
+     * until its own timer fired, and each fire scanned the queue.
+     */
+    @Test
+    public void theWaitTimersDoNotGrowWithTheQueue() {
+        session.setCommandTimeoutMillis(1000);
+        for (int i = 0; i < 500; i++) {
+            session.get("foo", new Bulk());
+        }
+        assertEquals("one timer for the connection attempt", 1, scheduler.tasks.size());
+    }
+
+    @Test
+    public void waitingCommandsWithDifferentTimeoutsEachTimeOutOnce() {
+        Many slow = new Many();
+        Many quick = new Many();
+        Many middle = new Many();
+        session.command(Duration.ofSeconds(5), slow, "GET", "foo");
+        session.command(Duration.ofSeconds(1), quick, "GET", "foo");
+        session.command(Duration.ofSeconds(3), middle, "GET", "foo");
+        assertTrue("a timer for the earliest", scheduler.tasks.size() >= 1);
+        // the clock moves to each deadline in turn and the timers set for it run
+        int ran = 0;
+        long[] at = { 1000, 3000, 5000 };
+        Many[] expected = { quick, middle, slow };
+        for (int step = 0; step < at.length; step++) {
+            session.setClock(fixedClock(clockBase + at[step]));
+            int upto = scheduler.tasks.size(); // those set while running wait for their time
+            while (ran < upto) {
+                scheduler.tasks.get(ran++).task.run();
+            }
+            for (int i = 0; i < expected.length; i++) {
+                assertEquals("after " + at[step] + " ms, command " + i,
+                        i <= step ? 1 : 0, expected[i].events.size());
+            }
+        }
+        for (int i = 0; i < expected.length; i++) {
+            assertTrue(expected[i].events.get(0), expected[i].events.get(0).startsWith("error:TIMEOUT"));
+        }
+        // nothing is left to send when the connection comes up
+        Request c = up(connector.requests.get(0));
+        assertEquals(0, commandsWritten(c));
+    }
+
+    private long clockBase = 5000000L;
+
+    private static RedisClusterSession.Clock fixedClock(final long millis) {
+        return new RedisClusterSession.Clock() {
+            @Override
+            public long millis() {
+                return millis;
+            }
+        };
+    }
+
+    @Test
+    public void commandsSentWhenTheConnectionComesUpAreNotFailedByTheirTimers() {
+        session.setCommandTimeoutMillis(1000);
+        Bulk[] all = new Bulk[50];
+        for (int i = 0; i < all.length; i++) {
+            all[i] = new Bulk();
+            session.get("foo", all[i]);
+        }
+        Request c = up(connector.requests.get(0));
+        assertEquals(50, commandsWritten(c));
+        for (int i = 0; i < scheduler.tasks.size(); i++) {
+            scheduler.tasks.get(i).task.run();
+        }
+        for (int i = 0; i < all.length; i++) {
+            assertTrue(all[i].events.isEmpty());
+        }
     }
 
     @Test
