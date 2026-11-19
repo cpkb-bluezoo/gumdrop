@@ -138,3 +138,30 @@ jfr view hot-methods test/benchmark/results/prof/plain.jfr
 
 `profile.sh` runs the Gumdrop server under Java Flight Recorder for one load
 run; see the comments at the top of the script.
+
+## Redis client
+
+### RESP codec (no server needed)
+
+`run_redis_codec_bench.sh` measures `RespDecoder` and `RespEncoder` in
+isolation, on one thread, with no network. It needs only `ant jar`, not
+`setup.sh`:
+
+```bash
+ant jar
+test/benchmark/run_redis_codec_bench.sh
+```
+
+| Case | What it does |
+|---|---|
+| `decode-bulk-{1k,64k,1m}-chunk{512,16384}` | decode one bulk-string reply fed in chunks of 512 bytes or 16 KiB |
+| `decode-array100x1k-chunk{512,16384}` | decode an array of 100 bulk strings of 1 KiB, same chunking |
+| `encode-set-{16,64k}` | encode `SET key value` with a 16-byte or 64 KiB value |
+| `encode-get` | encode `GET key` |
+
+Each case is warmed up for half the measurement time, then run for
+`SECONDS_PER_CASE` (default 3). One CSV row per case goes to
+`results/redis-codec.csv`: operations per second, MB per second, bytes
+allocated per operation (the thread's own allocation counter) and CPU
+nanoseconds per operation. `JVM_ARGS` adds JVM options, for example
+`-Xlog:gc` or a JFR recording.
