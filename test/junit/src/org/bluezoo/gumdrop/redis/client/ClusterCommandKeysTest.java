@@ -326,4 +326,43 @@ public class ClusterCommandKeysTest {
         });
         assertTrue("allocated " + allocated + " bytes in 1000 calls, " + sink[0], allocated < 1024);
     }
+
+    /**
+     * A key count or the STREAMS token is read from the bytes of a binary
+     * argument, not from a string made of them for the purpose.
+     */
+    @Test
+    public void readingAKeyCountOrTheStreamsTokenFromBinaryArgumentsDoesNotMakeStrings() {
+        final SentCommand eval = new SentCommand(null, "EVAL", null,
+                args("return 1", "2", "{t}a", "{t}b"));
+        final SentCommand xread = new SentCommand(null, "XREAD", null,
+                args("COUNT", "2", "STREAMS", "{t}a", "{t}b", "0", "0"));
+        final int[] sink = new int[1];
+        long allocated = allocatedBy(new Runnable() {
+            public void run() {
+                sink[0] += ClusterCommandKeys.slotOf(eval) + ClusterCommandKeys.slotOf(xread);
+            }
+        });
+        // what remains is the view of the arguments and the list of key positions
+        assertTrue("allocated " + allocated + " bytes in 1000 calls, " + sink[0],
+                allocated <= 1000 * 120);
+    }
+
+    @Test
+    public void keyCountsAreReadLikeIntegerParseInt() {
+        assertSameSlotAsBytes("EVAL", "s", "+1", "{t}a");
+        assertSameSlotAsBytes("EVAL", "s", "01", "{t}a");
+        assertSameSlotAsBytes("EVAL", "s", "x", "{t}a");
+        assertSameSlotAsBytes("EVAL", "s", "-1", "{t}a");
+        assertSameSlotAsBytes("EVAL", "s", "99999999999", "{t}a");
+        assertSameSlotAsBytes("EVAL", "s", "", "{t}a");
+        assertSameSlotAsBytes("XREAD", "streams", "{t}a", "0");
+        assertSameSlotAsBytes("XREAD", "STREAMSX", "{t}a", "0");
+        assertSameSlotAsBytes("XREAD", "STREAM", "{t}a", "0");
+        assertSameSlotAsBytes("XREADGROUP", "GROUP", "g", "c", "STREAMS", "{t}a", ">");
+        assertArrayEquals(new int[] { 2 }, ClusterCommandKeys.keyPositions("EVAL", args("s", "1", "k")));
+        assertArrayEquals(new int[] { 2, 3 }, ClusterCommandKeys.keyPositions("EVAL", args("s", "+2", "a", "b", "c")));
+        assertArrayEquals(new int[0], ClusterCommandKeys.keyPositions("EVAL", args("s", "x", "a")));
+        assertArrayEquals(new int[0], ClusterCommandKeys.keyPositions("EVAL", args("s", "99999999999", "a")));
+    }
 }

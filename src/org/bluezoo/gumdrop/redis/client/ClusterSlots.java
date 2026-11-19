@@ -75,7 +75,8 @@ final class ClusterSlots {
                 to = close;
             }
         }
-        return crc16(key, from, to) % SLOT_COUNT;
+        // crc16 is 0..0xFFFF and the slot count a power of two
+        return crc16(key, from, to) & (SLOT_COUNT - 1);
     }
 
     private static int indexOf(byte[] data, byte value, int from) {

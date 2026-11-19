@@ -37,6 +37,7 @@ final class ClusterCommandKeys {
     static final int CROSS_SLOT = -2;
 
     private static final int[] NONE = new int[0];
+    private static final char[] STREAMS = { 'S', 'T', 'R', 'E', 'A', 'M', 'S' };
 
     private ClusterCommandKeys() {
     }
@@ -126,9 +127,14 @@ final class ClusterCommandKeys {
     private interface Args {
         int length();
 
-        // the argument as ASCII text, for the arguments that steer the
-        // choice of keys (a key count, the STREAMS token)
-        String ascii(int i);
+        // the argument as a key count, as Integer.parseInt reads it; false
+        // in countValid() if it is not one
+        int count(int i);
+
+        boolean countValid();
+
+        // whether the argument is the STREAMS token, in any case
+        boolean isStreams(int i);
 
         byte[] bytes(int i);
     }
@@ -144,8 +150,60 @@ final class ClusterCommandKeys {
             return args.length;
         }
 
-        public String ascii(int i) {
-            return new String(args[i], StandardCharsets.US_ASCII);
+        private boolean valid;
+
+        public boolean countValid() {
+            return valid;
+        }
+
+        // Integer.parseInt over the bytes, without a string
+        public int count(int i) {
+            valid = false;
+            byte[] a = args[i];
+            int n = a.length;
+            if (n == 0) {
+                return 0;
+            }
+            int j = 0;
+            boolean negative = false;
+            if (a[0] == '-' || a[0] == '+') {
+                negative = a[0] == '-';
+                j = 1;
+                if (n == 1) {
+                    return 0;
+                }
+            }
+            long result = 0;
+            for (; j < n; j++) {
+                int digit = a[j] - '0';
+                if (digit < 0 || digit > 9) {
+                    return 0;
+                }
+                result = result * 10 + digit;
+                if (result > 2147483648L) {
+                    return 0;
+                }
+            }
+            if (negative) {
+                result = -result;
+            } else if (result > Integer.MAX_VALUE) {
+                return 0;
+            }
+            valid = true;
+            return (int) result;
+        }
+
+        public boolean isStreams(int i) {
+            byte[] a = args[i];
+            if (a.length != STREAMS.length) {
+                return false;
+            }
+            for (int j = 0; j < a.length; j++) {
+                if (Character.toUpperCase((char) (a[j] & 0xFF)) != STREAMS[j]) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         public byte[] bytes(int i) {
@@ -164,8 +222,25 @@ final class ClusterCommandKeys {
             return args.length;
         }
 
-        public String ascii(int i) {
-            return args[i];
+        private boolean valid;
+
+        public boolean countValid() {
+            return valid;
+        }
+
+        public int count(int i) {
+            valid = false;
+            try {
+                int n = Integer.parseInt(args[i]);
+                valid = true;
+                return n;
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+
+        public boolean isStreams(int i) {
+            return args[i].equalsIgnoreCase("STREAMS");
         }
 
         public byte[] bytes(int i) {
@@ -191,9 +266,8 @@ final class ClusterCommandKeys {
                                  boolean withDestination) {
         int count = 0;
         if (args.length() > countAt) {
-            try {
-                count = Integer.parseInt(args.ascii(countAt));
-            } catch (NumberFormatException e) {
+            count = args.count(countAt);
+            if (!args.countValid()) {
                 count = 0;
             }
         }
@@ -212,8 +286,7 @@ final class ClusterCommandKeys {
     // of what follows the STREAMS token.
     private static int[] streamKeys(Args args) {
         for (int i = 0; i < args.length(); i++) {
-            String token = args.ascii(i);
-            if (token.equalsIgnoreCase("STREAMS")) {
+            if (args.isStreams(i)) {
                 int remaining = args.length() - i - 1;
                 return range(i + 1, i + 1 + remaining / 2, 1);
             }

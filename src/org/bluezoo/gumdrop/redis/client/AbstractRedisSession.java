@@ -407,32 +407,31 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     private String[] buildScanArgs(String cursor, String match, int count) {
-        ArrayList<String> args = new ArrayList<String>();
-        args.add(cursor);
-        if (match != null) {
-            args.add("MATCH");
-            args.add(match);
-        }
-        if (count > 0) {
-            args.add("COUNT");
-            args.add(String.valueOf(count));
-        }
-        return args.toArray(new String[0]);
+        return scanArgs(null, cursor, match, count);
     }
 
     private String[] buildKeyScanArgs(String key, String cursor, String match, int count) {
-        ArrayList<String> args = new ArrayList<String>();
-        args.add(key);
-        args.add(cursor);
+        return scanArgs(key, cursor, match, count);
+    }
+
+    // [key] cursor [MATCH pattern] [COUNT n], in an array of the size needed
+    private static String[] scanArgs(String key, String cursor, String match, int count) {
+        int size = 1 + (key != null ? 1 : 0) + (match != null ? 2 : 0) + (count > 0 ? 2 : 0);
+        String[] args = new String[size];
+        int n = 0;
+        if (key != null) {
+            args[n++] = key;
+        }
+        args[n++] = cursor;
         if (match != null) {
-            args.add("MATCH");
-            args.add(match);
+            args[n++] = "MATCH";
+            args[n++] = match;
         }
         if (count > 0) {
-            args.add("COUNT");
-            args.add(String.valueOf(count));
+            args[n++] = "COUNT";
+            args[n++] = String.valueOf(count);
         }
-        return args.toArray(new String[0]);
+        return args;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -463,9 +462,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void hmget(String key, ArrayResultHandler h, String... fields) {
         String[] args = new String[fields.length + 1];
         args[0] = key;
-        for (int i = 0; i < fields.length; i++) {
-            args[i + 1] = fields[i];
-        }
+        System.arraycopy(fields, 0, args, 1, fields.length);
         sendCommand(h, "HMGET", args);
     }
 
@@ -473,9 +470,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void hmset(String key, StringResultHandler h, String... fieldsAndValues) {
         String[] args = new String[fieldsAndValues.length + 1];
         args[0] = key;
-        for (int i = 0; i < fieldsAndValues.length; i++) {
-            args[i + 1] = fieldsAndValues[i];
-        }
+        System.arraycopy(fieldsAndValues, 0, args, 1, fieldsAndValues.length);
         sendCommand(h, "HMSET", args);
     }
 
@@ -498,9 +493,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void hdel(String key, IntegerResultHandler h, String... fields) {
         String[] args = new String[fields.length + 1];
         args[0] = key;
-        for (int i = 0; i < fields.length; i++) {
-            args[i + 1] = fields[i];
-        }
+        System.arraycopy(fields, 0, args, 1, fields.length);
         sendCommand(h, "HDEL", args);
     }
 
@@ -532,9 +525,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void lpush(String key, IntegerResultHandler h, String... values) {
         String[] args = new String[values.length + 1];
         args[0] = key;
-        for (int i = 0; i < values.length; i++) {
-            args[i + 1] = values[i];
-        }
+        System.arraycopy(values, 0, args, 1, values.length);
         sendCommand(h, "LPUSH", args);
     }
 
@@ -542,9 +533,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void rpush(String key, IntegerResultHandler h, String... values) {
         String[] args = new String[values.length + 1];
         args[0] = key;
-        for (int i = 0; i < values.length; i++) {
-            args[i + 1] = values[i];
-        }
+        System.arraycopy(values, 0, args, 1, values.length);
         sendCommand(h, "RPUSH", args);
     }
 
@@ -623,9 +612,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void sadd(String key, IntegerResultHandler h, String... members) {
         String[] args = new String[members.length + 1];
         args[0] = key;
-        for (int i = 0; i < members.length; i++) {
-            args[i + 1] = members[i];
-        }
+        System.arraycopy(members, 0, args, 1, members.length);
         sendCommand(h, "SADD", args);
     }
 
@@ -633,9 +620,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void srem(String key, IntegerResultHandler h, String... members) {
         String[] args = new String[members.length + 1];
         args[0] = key;
-        for (int i = 0; i < members.length; i++) {
-            args[i + 1] = members[i];
-        }
+        System.arraycopy(members, 0, args, 1, members.length);
         sendCommand(h, "SREM", args);
     }
 
@@ -702,9 +687,7 @@ abstract class AbstractRedisSession implements RedisSession {
     public void zrem(String key, IntegerResultHandler h, String... members) {
         String[] args = new String[members.length + 1];
         args[0] = key;
-        for (int i = 0; i < members.length; i++) {
-            args[i + 1] = members[i];
-        }
+        System.arraycopy(members, 0, args, 1, members.length);
         sendCommand(h, "ZREM", args);
     }
 
@@ -811,12 +794,8 @@ abstract class AbstractRedisSession implements RedisSession {
         String[] allArgs = new String[2 + keys.length + args.length];
         allArgs[0] = script;
         allArgs[1] = String.valueOf(numKeys);
-        for (int i = 0; i < keys.length; i++) {
-            allArgs[i + 2] = keys[i];
-        }
-        for (int i = 0; i < args.length; i++) {
-            allArgs[i + 2 + keys.length] = args[i];
-        }
+        System.arraycopy(keys, 0, allArgs, 2, keys.length);
+        System.arraycopy(args, 0, allArgs, 2 + keys.length, args.length);
         return allArgs;
     }
 
