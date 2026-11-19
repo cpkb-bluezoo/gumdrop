@@ -94,7 +94,36 @@ public class RespDecoder {
 
     private ByteBuffer buffer;
     private int parsePosition;
-    private int nestingDepth;
+
+    // The state machine. Everything below is what has been parsed of the
+    // value being read; none of it is parsed again.
+    private static final int STATE_TYPE = 0;
+    private static final int STATE_LINE = 1;
+    private static final int STATE_BODY = 2;
+    private static final int STATE_BODY_END = 3;
+    private static final int INITIAL_BODY_CAPACITY = 1024 * 1024;
+
+    private int state = STATE_TYPE;
+    // the type of the value whose line is being read, and where that line
+    // is in the buffer once found; lineScanned is how much of an
+    // incomplete one has been looked through already
+    private RespType lineType;
+    private int lineScanned;
+    private int lineStart;
+    private int lineLength;
+    // whether the last lineNumber() call read a number
+    private boolean numberValid;
+    // the body of a bulk string, verbatim string or blob error
+    private RespType bodyType;
+    private byte[] bodyData;
+    private int bodyLength;
+    private int bodyFilled;
+    private int bodyEndSeen;
+    // the arrays, maps, sets and pushes being built, outermost first
+    private final Frame[] frames = new Frame[MAX_NESTING_DEPTH];
+    private int depth;
+    // set once the data is malformed: it stays so
+    private RespException failure;
 
     /**
      * Creates a new RESP decoder with default buffer size.
@@ -208,27 +237,29 @@ public class RespDecoder {
     /**
      * Attempts to decode the next complete RESP value.
      *
-     * <p>If a complete value is available, it is returned and removed
-     * from the buffer. If the data is incomplete, returns null and
-     * the data is preserved for the next call.
+     * <p>The decoder is a resumable state machine: what has been parsed of
+     * an incomplete value (the elements of an array so far, the bytes of a
+     * bulk string so far) is kept, and consumed from the buffer, so each
+     * byte is parsed once however the reply is split across reads. A
+     * line is consumed only when it is complete.
      *
      * @return the next decoded value, or null if incomplete
-     * @throws RespException if the data is malformed
+     * @throws RespException if the data is malformed; the decoder then
+     * keeps failing with the same exception
      */
     public RespValue next() throws RespException {
-        if (!buffer.hasRemaining()) {
-            return null;
+        if (failure != null) {
+            throw failure;
         }
         buffer.position(parsePosition);
-        RespValue result = tryParse();
-        if (result != null) {
-            // Successfully parsed, update parse position
+        try {
+            return advance();
+        } catch (RespException e) {
+            failure = e;
+            throw e;
+        } finally {
             parsePosition = buffer.position();
-        } else {
-            // Incomplete, reset position
-            buffer.position(parsePosition);
         }
-        return result;
     }
 
     private void checkCollectionCount(int count) throws RespException {
@@ -236,18 +267,6 @@ public class RespDecoder {
             throw new RespException(MessageFormat.format(
                     L10N.getString("err.collection_too_large"), count));
         }
-    }
-
-    private void enterCompound() throws RespException {
-        nestingDepth++;
-        if (nestingDepth > MAX_NESTING_DEPTH) {
-            throw new RespException(MessageFormat.format(
-                    L10N.getString("err.nesting_too_deep"), nestingDepth));
-        }
-    }
-
-    private void leaveCompound() {
-        nestingDepth--;
     }
 
     private void checkBulkLength(int length) throws RespException {
@@ -258,440 +277,410 @@ public class RespDecoder {
     }
 
     /**
-     * Attempts to parse a RESP value from the current buffer position.
-     * Returns null if incomplete.
+     * Runs the state machine over the buffered bytes until a top-level
+     * value is complete or more bytes are needed.
      */
-    private RespValue tryParse() throws RespException {
-        if (!buffer.hasRemaining()) {
-            return null;
-        }
-        int startPos = buffer.position();
-        byte prefix = buffer.get();
-        RespType type = RespType.fromPrefix(prefix);
-        RespValue result;
-        switch (type) {
-            case SIMPLE_STRING:
-                result = parseSimpleString();
-                break;
-            case ERROR:
-                result = parseError();
-                break;
-            case INTEGER:
-                result = parseInteger();
-                break;
-            case BULK_STRING:
-                result = parseBulkString();
-                break;
-            case ARRAY:
-                result = parseArray();
-                break;
-            // RESP3 types
-            case MAP:
-                result = parseMap();
-                break;
-            case SET:
-                result = parseSet();
-                break;
-            case DOUBLE:
-                result = parseDouble();
-                break;
-            case BOOLEAN:
-                result = parseBoolean();
-                break;
-            case NULL:
-                result = parseNull();
-                break;
-            case PUSH:
-                result = parsePush();
-                break;
-            case VERBATIM_STRING:
-                result = parseVerbatimString();
-                break;
-            case BIG_NUMBER:
-                result = parseBigNumber();
-                break;
-            case BLOB_ERROR:
-                result = parseBlobError();
-                break;
-            default:
-                String msg = MessageFormat.format(L10N.getString("err.unknown_type"), type);
-                throw new RespException(msg);
-        }
-        if (result == null) {
-            // Incomplete, reset to start
-            buffer.position(startPos);
-        }
-        return result;
-    }
-
-    /**
-     * Parses a simple string (+...\r\n).
-     */
-    private RespValue parseSimpleString() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        return RespValue.simpleString(line);
-    }
-
-    /**
-     * Parses an error (-...\r\n).
-     */
-    private RespValue parseError() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        return RespValue.error(line);
-    }
-
-    /**
-     * Parses an integer (:...\r\n).
-     */
-    private RespValue parseInteger() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        try {
-            long value = Long.parseLong(line);
-            return RespValue.integer(value);
-        } catch (NumberFormatException e) {
-            String msg = MessageFormat.format(L10N.getString("err.invalid_integer"), line);
-            throw new RespException(msg, e);
-        }
-    }
-
-    /**
-     * Parses a bulk string ($length\r\ndata\r\n).
-     */
-    private RespValue parseBulkString() throws RespException {
-        String lengthLine = readLine();
-        if (lengthLine == null) {
-            return null;
-        }
-        int length;
-        try {
-            length = Integer.parseInt(lengthLine);
-        } catch (NumberFormatException e) {
-            String msg = MessageFormat.format(L10N.getString("err.invalid_bulk_string_length"), lengthLine);
-            throw new RespException(msg, e);
-        }
-        // Null bulk string
-        if (length < 0) {
-            return RespValue.nullValue();
-        }
-        checkBulkLength(length);
-        // Check if we have enough data
-        if (buffer.remaining() < length + 2) {
-            return null;
-        }
-        // Read the data
-        byte[] data = new byte[length];
-        buffer.get(data);
-        // Read trailing CRLF
-        if (buffer.remaining() < 2) {
-            return null;
-        }
-        byte cr = buffer.get();
-        byte lf = buffer.get();
-        if (cr != '\r' || lf != '\n') {
-            throw new RespException(L10N.getString("err.no_crlf_after_bulk_string"));
-        }
-        return RespValue.bulkString(data);
-    }
-
-    /**
-     * Parses an array (*count\r\n...).
-     */
-    private RespValue parseArray() throws RespException {
-        String countLine = readLine();
-        if (countLine == null) {
-            return null;
-        }
-        int count;
-        try {
-            count = Integer.parseInt(countLine);
-        } catch (NumberFormatException e) {
-            String msg = MessageFormat.format(L10N.getString("err.invalid_array_count"), countLine);
-            throw new RespException(msg, e);
-        }
-        // Null array
-        if (count < 0) {
-            return RespValue.nullValue();
-        }
-        checkCollectionCount(count);
-        // Empty array
-        if (count == 0) {
-            return RespValue.array(new ArrayList<RespValue>(0));
-        }
-        enterCompound();
-        try {
-            List<RespValue> elements = new ArrayList<RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
-            for (int i = 0; i < count; i++) {
-                RespValue element = tryParse();
-                if (element == null) {
-                    return null; // Incomplete
-                }
-                elements.add(element);
+    private RespValue advance() throws RespException {
+        while (true) {
+            RespValue complete;
+            switch (state) {
+                case STATE_TYPE:
+                    if (!buffer.hasRemaining()) {
+                        return null;
+                    }
+                    lineType = RespType.fromPrefix(buffer.get());
+                    lineScanned = 0;
+                    state = STATE_LINE;
+                    continue;
+                case STATE_LINE:
+                    if (!findLine()) {
+                        return null;
+                    }
+                    complete = onLine();
+                    break;
+                case STATE_BODY:
+                    if (!fillBody()) {
+                        return null;
+                    }
+                    state = STATE_BODY_END;
+                    bodyEndSeen = 0;
+                    continue;
+                default: // STATE_BODY_END
+                    if (!readBodyEnd()) {
+                        return null;
+                    }
+                    complete = finishBody();
+                    break;
             }
-            return RespValue.array(elements);
-        } finally {
-            leaveCompound();
+            if (complete != null) {
+                RespValue top = deliver(complete);
+                if (top != null) {
+                    return top;
+                }
+            }
+        }
+    }
+
+    /**
+     * Hands a completed value to the compound being built, completing
+     * that and the ones enclosing it in turn; returns the value if none is
+     * being built, null if more elements are due.
+     */
+    private RespValue deliver(RespValue value) {
+        RespValue v = value;
+        while (true) {
+            if (depth == 0) {
+                return v;
+            }
+            Frame frame = frames[depth - 1];
+            if (frame.type == RespType.MAP) {
+                if (frame.pendingKey == null) {
+                    frame.pendingKey = v;
+                    return null;
+                }
+                frame.entries.put(frame.pendingKey, v);
+                frame.pendingKey = null;
+            } else {
+                frame.elements.add(v);
+            }
+            if (--frame.remaining > 0) {
+                return null;
+            }
+            frames[--depth] = null;
+            v = frame.build();
+        }
+    }
+
+    /** One array, map, set or push being built. */
+    private static final class Frame {
+        final RespType type;
+        int remaining;
+        final List<RespValue> elements;
+        final Map<RespValue, RespValue> entries;
+        RespValue pendingKey;
+
+        Frame(RespType type, int count) {
+            this.type = type;
+            this.remaining = count;
+            int capacity = Math.min(count, INITIAL_CAPACITY_CAP);
+            if (type == RespType.MAP) {
+                this.elements = null;
+                this.entries = new LinkedHashMap<RespValue, RespValue>(capacity);
+            } else {
+                this.elements = new ArrayList<RespValue>(capacity);
+                this.entries = null;
+            }
+        }
+
+        RespValue build() {
+            switch (type) {
+                case MAP:
+                    return RespValue.map(entries);
+                case SET:
+                    return RespValue.set(elements);
+                case PUSH:
+                    return RespValue.push(elements);
+                default:
+                    return RespValue.array(elements);
+            }
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RESP3 type parsers
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // RESP3 — Map type: %count\r\n key1 value1 key2 value2 ...
-    private RespValue parseMap() throws RespException {
-        String countLine = readLine();
-        if (countLine == null) {
-            return null;
-        }
-        int count;
-        try {
-            count = Integer.parseInt(countLine);
-        } catch (NumberFormatException e) {
-            throw new RespException("Invalid map count: " + countLine, e);
-        }
-        if (count < 0) {
-            return RespValue.nullValue();
-        }
-        checkCollectionCount(count);
-        enterCompound();
-        try {
-            Map<RespValue, RespValue> entries = new LinkedHashMap<RespValue, RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
-            for (int i = 0; i < count; i++) {
-                RespValue key = tryParse();
-                if (key == null) {
-                    return null;
-                }
-                RespValue val = tryParse();
-                if (val == null) {
-                    return null;
-                }
-                entries.put(key, val);
-            }
-            return RespValue.map(entries);
-        } finally {
-            leaveCompound();
-        }
-    }
-
-    // RESP3 — Set type: ~count\r\n elem1 elem2 ...
-    private RespValue parseSet() throws RespException {
-        String countLine = readLine();
-        if (countLine == null) {
-            return null;
-        }
-        int count;
-        try {
-            count = Integer.parseInt(countLine);
-        } catch (NumberFormatException e) {
-            throw new RespException("Invalid set count: " + countLine, e);
-        }
-        if (count < 0) {
-            return RespValue.nullValue();
-        }
-        checkCollectionCount(count);
-        enterCompound();
-        try {
-            List<RespValue> elements = new ArrayList<RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
-            for (int i = 0; i < count; i++) {
-                RespValue element = tryParse();
-                if (element == null) {
-                    return null;
-                }
-                elements.add(element);
-            }
-            return RespValue.set(elements);
-        } finally {
-            leaveCompound();
-        }
-    }
-
-    // RESP3 — Double type: ,value\r\n (supports "inf", "-inf", "nan")
-    private RespValue parseDouble() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        double val;
-        if ("inf".equals(line)) {
-            val = Double.POSITIVE_INFINITY;
-        } else if ("-inf".equals(line)) {
-            val = Double.NEGATIVE_INFINITY;
-        } else if ("nan".equals(line)) {
-            val = Double.NaN;
-        } else {
-            try {
-                val = Double.parseDouble(line);
-            } catch (NumberFormatException e) {
-                throw new RespException("Invalid double value: " + line, e);
-            }
-        }
-        return RespValue.doubleValue(val);
-    }
-
-    // RESP3 — Boolean type: #t\r\n or #f\r\n
-    private RespValue parseBoolean() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        if ("t".equals(line)) {
-            return RespValue.booleanValue(true);
-        } else if ("f".equals(line)) {
-            return RespValue.booleanValue(false);
-        }
-        throw new RespException("Invalid boolean value: " + line);
-    }
-
-    // RESP3 — Null type: _\r\n
-    private RespValue parseNull() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        return RespValue.resp3Null();
-    }
-
-    // RESP3 — Push type: >count\r\n elem1 elem2 ... (same structure as Array)
-    private RespValue parsePush() throws RespException {
-        String countLine = readLine();
-        if (countLine == null) {
-            return null;
-        }
-        int count;
-        try {
-            count = Integer.parseInt(countLine);
-        } catch (NumberFormatException e) {
-            throw new RespException("Invalid push count: " + countLine, e);
-        }
-        if (count < 0) {
-            return RespValue.nullValue();
-        }
-        checkCollectionCount(count);
-        enterCompound();
-        try {
-            List<RespValue> elements = new ArrayList<RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
-            for (int i = 0; i < count; i++) {
-                RespValue element = tryParse();
-                if (element == null) {
-                    return null;
-                }
-                elements.add(element);
-            }
-            return RespValue.push(elements);
-        } finally {
-            leaveCompound();
-        }
-    }
-
-    // RESP3 — Verbatim string: =length\r\nenc:data\r\n (3-char encoding + ':' + data)
-    private RespValue parseVerbatimString() throws RespException {
-        String lengthLine = readLine();
-        if (lengthLine == null) {
-            return null;
-        }
-        int length;
-        try {
-            length = Integer.parseInt(lengthLine);
-        } catch (NumberFormatException e) {
-            throw new RespException("Invalid verbatim string length: " + lengthLine, e);
-        }
-        if (length < 0) {
-            return RespValue.nullValue();
-        }
-        checkBulkLength(length);
-        if (buffer.remaining() < length + 2) {
-            return null;
-        }
-        byte[] raw = new byte[length];
-        buffer.get(raw);
-        byte cr = buffer.get();
-        byte lf = buffer.get();
-        if (cr != '\r' || lf != '\n') {
-            throw new RespException("Missing CRLF after verbatim string");
-        }
-        String encoding = "txt";
-        byte[] data = raw;
-        if (length >= 4 && raw[3] == ':') {
-            encoding = new String(raw, 0, 3, UTF_8);
-            data = new byte[length - 4];
-            System.arraycopy(raw, 4, data, 0, data.length);
-        }
-        return RespValue.verbatimString(encoding, data);
-    }
-
-    // RESP3 — Big number: (value\r\n
-    private RespValue parseBigNumber() throws RespException {
-        String line = readLine();
-        if (line == null) {
-            return null;
-        }
-        return RespValue.bigNumber(line);
-    }
-
-    // RESP3 — Blob error: !length\r\ndata\r\n (same structure as Bulk String)
-    private RespValue parseBlobError() throws RespException {
-        String lengthLine = readLine();
-        if (lengthLine == null) {
-            return null;
-        }
-        int length;
-        try {
-            length = Integer.parseInt(lengthLine);
-        } catch (NumberFormatException e) {
-            throw new RespException("Invalid blob error length: " + lengthLine, e);
-        }
-        if (length < 0) {
-            return RespValue.nullValue();
-        }
-        checkBulkLength(length);
-        if (buffer.remaining() < length + 2) {
-            return null;
-        }
-        byte[] data = new byte[length];
-        buffer.get(data);
-        byte cr = buffer.get();
-        byte lf = buffer.get();
-        if (cr != '\r' || lf != '\n') {
-            throw new RespException("Missing CRLF after blob error");
-        }
-        return RespValue.blobError(data);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Line reading
+    // Lines
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Reads a line terminated by CRLF.
-     * Returns null if incomplete.
+     * Looks for the end of the current line, from where the last look
+     * stopped. On success {@code lineStart} and {@code lineLength} locate
+     * it (the buffer is not advanced). A line that is still incomplete is
+     * left in the buffer.
      */
-    private String readLine() throws RespException {
+    private boolean findLine() throws RespException {
         int start = buffer.position();
         int limit = buffer.limit();
-        int crIndex = findCrLf(start, limit);
+        int from = start + Math.max(0, lineScanned - 1);
+        int crIndex = findCrLf(from, limit);
         if (crIndex < 0) {
-            // Incomplete line
-            return null;
+            lineScanned = limit - start;
+            if (lineScanned > MAX_INLINE_LENGTH) {
+                throw new RespException(MessageFormat.format(
+                        L10N.getString("err.line_too_long"), lineScanned));
+            }
+            return false;
         }
         int length = crIndex - start;
         if (length > MAX_INLINE_LENGTH) {
-            String msg = MessageFormat.format(L10N.getString("err.line_too_long"), length);
+            throw new RespException(MessageFormat.format(
+                    L10N.getString("err.line_too_long"), length));
+        }
+        lineStart = start;
+        lineLength = length;
+        return true;
+    }
+
+    /** Moves past the current line and its CRLF. */
+    private void endLine() {
+        buffer.position(lineStart + lineLength + 2);
+        lineScanned = 0;
+        state = STATE_TYPE;
+    }
+
+    private String lineString() {
+        byte[] bytes = new byte[lineLength];
+        for (int i = 0; i < lineLength; i++) {
+            bytes[i] = buffer.get(lineStart + i);
+        }
+        return new String(bytes, UTF_8);
+    }
+
+    /**
+     * The current line as a number, read from the buffer without making a
+     * string of it. Whether it was one (the rules of {@link
+     * Long#parseLong(String)}, for ASCII digits) is left in
+     * {@code numberValid}.
+     */
+    private long lineNumber() {
+        numberValid = false;
+        int i = 0;
+        int end = lineLength;
+        boolean negative = false;
+        if (end == 0) {
+            return 0;
+        }
+        byte first = buffer.get(lineStart);
+        if (first == '-' || first == '+') {
+            negative = first == '-';
+            i = 1;
+            if (end == 1) {
+                return 0;
+            }
+        }
+        long limit = negative ? Long.MIN_VALUE : -Long.MAX_VALUE;
+        long multmin = limit / 10;
+        long result = 0;
+        for (; i < end; i++) {
+            int digit = buffer.get(lineStart + i) - '0';
+            if (digit < 0 || digit > 9 || result < multmin) {
+                return 0;
+            }
+            result *= 10;
+            if (result < limit + digit) {
+                return 0;
+            }
+            result -= digit;
+        }
+        numberValid = true;
+        return negative ? result : -result;
+    }
+
+    /** The current line as an int, as for {@link Integer#parseInt(String)}; false if it is not one. */
+    private boolean lineIsInt() {
+        long n = lineNumber();
+        return numberValid && n >= Integer.MIN_VALUE && n <= Integer.MAX_VALUE;
+    }
+
+    /** Handles the line of the type being read; returns the value if that completes one. */
+    private RespValue onLine() throws RespException {
+        switch (lineType) {
+            case SIMPLE_STRING: {
+                String line = lineString();
+                endLine();
+                return RespValue.simpleString(line);
+            }
+            case ERROR: {
+                String line = lineString();
+                endLine();
+                return RespValue.error(line);
+            }
+            case INTEGER: {
+                long n = lineNumber();
+                if (!numberValid) {
+                    String msg = MessageFormat.format(
+                            L10N.getString("err.invalid_integer"), lineString());
+                    throw new RespException(msg);
+                }
+                endLine();
+                return RespValue.integer(n);
+            }
+            case BULK_STRING:
+                return onLength(L10N.getString("err.invalid_bulk_string_length"), true);
+            case VERBATIM_STRING:
+                return onLength("Invalid verbatim string length: ", false);
+            case BLOB_ERROR:
+                return onLength("Invalid blob error length: ", false);
+            case ARRAY:
+                return onCount(L10N.getString("err.invalid_array_count"), true);
+            case MAP:
+                return onCount("Invalid map count: ", false);
+            case SET:
+                return onCount("Invalid set count: ", false);
+            case PUSH:
+                return onCount("Invalid push count: ", false);
+            case DOUBLE: {
+                String line = lineString();
+                endLine();
+                double val;
+                if ("inf".equals(line)) {
+                    val = Double.POSITIVE_INFINITY;
+                } else if ("-inf".equals(line)) {
+                    val = Double.NEGATIVE_INFINITY;
+                } else if ("nan".equals(line)) {
+                    val = Double.NaN;
+                } else {
+                    try {
+                        val = Double.parseDouble(line);
+                    } catch (NumberFormatException e) {
+                        throw new RespException("Invalid double value: " + line, e);
+                    }
+                }
+                return RespValue.doubleValue(val);
+            }
+            case BOOLEAN: {
+                String line = lineString();
+                endLine();
+                if ("t".equals(line)) {
+                    return RespValue.booleanValue(true);
+                } else if ("f".equals(line)) {
+                    return RespValue.booleanValue(false);
+                }
+                throw new RespException("Invalid boolean value: " + line);
+            }
+            case NULL:
+                endLine();
+                return RespValue.resp3Null();
+            case BIG_NUMBER: {
+                String line = lineString();
+                endLine();
+                return RespValue.bigNumber(line);
+            }
+            default:
+                throw new RespException(MessageFormat.format(
+                        L10N.getString("err.unknown_type"), lineType));
+        }
+    }
+
+    /**
+     * The length line of a bulk string, verbatim string or blob error:
+     * starts the body, or completes the null value of a negative length.
+     */
+    private RespValue onLength(String invalidMessage, boolean localised) throws RespException {
+        if (!lineIsInt()) {
+            String line = lineString();
+            String msg = localised ? MessageFormat.format(invalidMessage, line)
+                    : invalidMessage + line;
             throw new RespException(msg);
         }
-        byte[] lineBytes = new byte[length];
-        buffer.get(lineBytes);
-        buffer.get(); // Skip CR
-        buffer.get(); // Skip LF
-        return new String(lineBytes, UTF_8);
+        int length = (int) lineNumber();
+        endLine();
+        if (length < 0) {
+            return RespValue.nullValue();
+        }
+        checkBulkLength(length);
+        bodyType = lineType;
+        bodyLength = length;
+        bodyFilled = 0;
+        // when all of it is here, one array of the right size; otherwise
+        // grow with what arrives, so a length claimed by a peer that sends
+        // nothing costs nothing
+        int capacity = buffer.remaining() >= length + 2 ? length
+                : Math.min(length, INITIAL_BODY_CAPACITY);
+        bodyData = new byte[capacity];
+        state = STATE_BODY;
+        return null;
+    }
+
+    /**
+     * The count line of an array, map, set or push: starts building it,
+     * or completes the null value of a negative count or an empty array.
+     */
+    private RespValue onCount(String invalidMessage, boolean localised) throws RespException {
+        if (!lineIsInt()) {
+            String line = lineString();
+            String msg = localised ? MessageFormat.format(invalidMessage, line)
+                    : invalidMessage + line;
+            throw new RespException(msg);
+        }
+        int count = (int) lineNumber();
+        endLine();
+        if (count < 0) {
+            return RespValue.nullValue();
+        }
+        checkCollectionCount(count);
+        if (count == 0 && lineType == RespType.ARRAY) {
+            return RespValue.array(new ArrayList<RespValue>(0));
+        }
+        if (depth + 1 > MAX_NESTING_DEPTH) {
+            throw new RespException(MessageFormat.format(
+                    L10N.getString("err.nesting_too_deep"), depth + 1));
+        }
+        Frame frame = new Frame(lineType, count);
+        if (count == 0) {
+            return frame.build();
+        }
+        frames[depth++] = frame;
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Bodies
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Copies what has arrived of the body; true once all of it has. */
+    private boolean fillBody() {
+        int n = Math.min(bodyLength - bodyFilled, buffer.remaining());
+        if (n > 0) {
+            if (bodyData.length - bodyFilled < n) {
+                int capacity = (int) Math.min((long) bodyLength,
+                        Math.max(2L * bodyData.length, (long) bodyFilled + n));
+                byte[] grown = new byte[capacity];
+                System.arraycopy(bodyData, 0, grown, 0, bodyFilled);
+                bodyData = grown;
+            }
+            buffer.get(bodyData, bodyFilled, n);
+            bodyFilled += n;
+        }
+        return bodyFilled == bodyLength;
+    }
+
+    /** Reads the CRLF after a body; true once both bytes have been read. */
+    private boolean readBodyEnd() throws RespException {
+        while (bodyEndSeen < 2) {
+            if (!buffer.hasRemaining()) {
+                return false;
+            }
+            byte b = buffer.get();
+            if (b != (bodyEndSeen == 0 ? '\r' : '\n')) {
+                throw new RespException(bodyType == RespType.BULK_STRING
+                        ? L10N.getString("err.no_crlf_after_bulk_string")
+                        : bodyType == RespType.VERBATIM_STRING
+                                ? "Missing CRLF after verbatim string"
+                                : "Missing CRLF after blob error");
+            }
+            bodyEndSeen++;
+        }
+        return true;
+    }
+
+    private RespValue finishBody() {
+        byte[] data = bodyData;
+        bodyData = null;
+        state = STATE_TYPE;
+        switch (bodyType) {
+            case BLOB_ERROR:
+                return RespValue.blobError(data);
+            case VERBATIM_STRING:
+                // 3-character encoding, ':' and the data
+                if (data.length >= 4 && data[3] == ':') {
+                    String encoding = new String(data, 0, 3, UTF_8);
+                    byte[] text = new byte[data.length - 4];
+                    System.arraycopy(data, 4, text, 0, text.length);
+                    return RespValue.verbatimString(encoding, text);
+                }
+                return RespValue.verbatimString("txt", data);
+            default:
+                return RespValue.bulkString(data);
+        }
     }
 
     /**
@@ -735,7 +724,12 @@ public class RespDecoder {
         buffer = ByteBufferPool.acquire(DEFAULT_BUFFER_SIZE);
         buffer.flip();
         parsePosition = 0;
-        nestingDepth = 0;
+        state = STATE_TYPE;
+        lineScanned = 0;
+        bodyData = null;
+        java.util.Arrays.fill(frames, null);
+        depth = 0;
+        failure = null;
     }
 
     /**
