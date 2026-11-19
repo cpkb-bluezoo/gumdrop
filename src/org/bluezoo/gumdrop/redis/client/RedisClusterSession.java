@@ -753,19 +753,19 @@ final class RedisClusterSession extends AbstractRedisSession {
 
     /** A node to run a command that names no key: one already connected if possible. */
     private ClusterNode anyNode() {
-        List<ClusterNode> nodes = new ArrayList<ClusterNode>(map.nodes());
-        if (nodes.isEmpty()) {
+        int count = map.masterCount();
+        if (count == 0) {
             return null;
         }
-        int start = rotor++;
-        for (int i = 0; i < nodes.size(); i++) {
-            ClusterNode candidate = nodes.get((start + i) % nodes.size());
+        int start = rotor++ & Integer.MAX_VALUE;
+        for (int i = 0; i < count; i++) {
+            ClusterNode candidate = map.masterAt((start + i) % count);
             NodeConnection c = connections.get(candidate);
             if (c != null && c.ready) {
                 return candidate;
             }
         }
-        return nodes.get(start % nodes.size());
+        return map.masterAt(start % count);
     }
 
     private NodeConnection connection(ClusterNode node) {
@@ -1164,7 +1164,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             if (ready || connecting || retryScheduled || stopped || closed) {
                 return;
             }
-            if (!shard && !pinned && (node == null || !map.nodes().contains(node))) {
+            if (!shard && !pinned && (node == null || !map.serves(node))) {
                 node = anyNode();
                 if (node == null) {
                     failAll(NO_NODES);

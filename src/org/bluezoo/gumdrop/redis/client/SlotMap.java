@@ -21,12 +21,12 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.bluezoo.gumdrop.redis.codec.RespValue;
 
@@ -42,6 +42,10 @@ final class SlotMap {
     private final ClusterNode[] slots = new ClusterNode[ClusterSlots.SLOT_COUNT];
     private final Map<String, ClusterNode> known = new HashMap<String, ClusterNode>();
     private int assigned;
+    // the slots each master serves, in the order the masters first took one
+    private final Map<ClusterNode, int[]> slotCounts = new LinkedHashMap<ClusterNode, int[]>();
+    // the keys of slotCounts as an array; null when they have changed
+    private ClusterNode[] masters;
 
     SlotMap() {
     }
@@ -134,18 +138,38 @@ final class SlotMap {
 
     /** Records that {@code node} now serves {@code slot}. */
     void set(int slot, ClusterNode node) {
-        if (slots[slot] == null && node != null) {
+        ClusterNode old = slots[slot];
+        if (old == node) {
+            return;
+        }
+        if (old == null) {
             assigned++;
-        } else if (slots[slot] != null && node == null) {
+        } else {
+            release(old);
+        }
+        if (node == null) {
             assigned--;
+        } else {
+            int[] count = slotCounts.get(node);
+            if (count == null) {
+                count = new int[1];
+                slotCounts.put(node, count);
+                masters = null;
+            }
+            count[0]++;
         }
         slots[slot] = node;
     }
 
-    /**
-     * The known node at an address, or a new one if the map has none there.
-     * The same address always yields the same object.
-     */
+    // One slot fewer for the node; it stops being a master with none left.
+    private void release(ClusterNode node) {
+        int[] count = slotCounts.get(node);
+        if (--count[0] == 0) {
+            slotCounts.remove(node);
+            masters = null;
+        }
+    }
+
     ClusterNode node(String host, int port) {
         String key = ClusterNode.address(host, port);
         ClusterNode node = known.get(key);
@@ -158,16 +182,34 @@ final class SlotMap {
 
     /** The distinct masters that serve at least one slot. */
     Collection<ClusterNode> nodes() {
-        Set<ClusterNode> serving = new LinkedHashSet<ClusterNode>();
-        for (int i = 0; i < slots.length; i++) {
-            if (slots[i] != null) {
-                serving.add(slots[i]);
-            }
-        }
-        return serving;
+        return Arrays.asList(masters());
     }
 
-    /** True if every slot has a node. */
+    /** How many distinct masters serve at least one slot. */
+    int masterCount() {
+        return masters().length;
+    }
+
+    /** The master at the index, in the order they first took a slot. */
+    ClusterNode masterAt(int index) {
+        return masters()[index];
+    }
+
+    /** Whether the node serves at least one slot. */
+    boolean serves(ClusterNode node) {
+        return slotCounts.containsKey(node);
+    }
+
+    // The masters as an array, rebuilt only after one has come or gone.
+    private ClusterNode[] masters() {
+        ClusterNode[] current = masters;
+        if (current == null) {
+            current = slotCounts.keySet().toArray(new ClusterNode[0]);
+            masters = current;
+        }
+        return current;
+    }
+
     boolean isComplete() {
         return assigned == ClusterSlots.SLOT_COUNT;
     }

@@ -184,6 +184,71 @@ public class SlotMapTest {
     }
 
     @Test
+    public void mastersTrackTheSlotsAssigned() {
+        SlotMap map = new SlotMap();
+        assertEquals(0, map.masterCount());
+        ClusterNode a = map.node("10.0.0.1", 7000);
+        ClusterNode b = map.node("10.0.0.2", 7001);
+        assertFalse(map.serves(a));
+        map.set(0, a);
+        map.set(1, a);
+        map.set(2, b);
+        assertEquals(2, map.masterCount());
+        assertSame(a, map.masterAt(0));
+        assertSame(b, map.masterAt(1));
+        assertTrue(map.serves(a));
+        assertTrue(map.serves(b));
+        // a keeps one slot, so it is still a master
+        map.set(0, b);
+        assertEquals(2, map.masterCount());
+        assertTrue(map.serves(a));
+        // and then none
+        map.set(1, b);
+        assertEquals(1, map.masterCount());
+        assertFalse(map.serves(a));
+        assertSame(b, map.masterAt(0));
+        assertEquals(1, map.nodes().size());
+        // unassigning the last slot of b
+        map.set(0, null);
+        map.set(1, null);
+        map.set(2, null);
+        assertEquals(0, map.masterCount());
+        assertFalse(map.serves(b));
+        assertTrue(map.nodes().isEmpty());
+        // setting a slot to the node it already has changes nothing
+        map.set(5, a);
+        map.set(5, a);
+        assertEquals(1, map.masterCount());
+        map.set(5, null);
+        assertEquals(0, map.masterCount());
+    }
+
+    /**
+     * Choosing a node for a command that names no key (every cluster
+     * PUBLISH) must not scan the 16384 slots or allocate: it used to build
+     * a set of the masters from the whole slot table on each call.
+     */
+    @Test
+    public void choosingAMasterDoesNotAllocate() {
+        SlotMap map = SlotMap.parse(threeMasters(), "seed");
+        ClusterNode any = map.masterAt(0);
+        int sink = 0;
+        for (int i = 0; i < 100; i++) { // warm up
+            sink += map.masterCount() + (map.serves(any) ? 1 : 0) + map.masterAt(i % 3).getPort();
+        }
+        com.sun.management.ThreadMXBean mx =
+                (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        long id = Thread.currentThread().getId();
+        long before = mx.getThreadAllocatedBytes(id);
+        for (int i = 0; i < 1000; i++) {
+            sink += map.masterCount() + (map.serves(any) ? 1 : 0) + map.masterAt(i % 3).getPort();
+        }
+        long allocated = mx.getThreadAllocatedBytes(id) - before;
+        assertTrue("sink " + sink, sink > 0);
+        assertTrue("allocated " + allocated + " bytes", allocated < 1024);
+    }
+
+    @Test
     public void aNewMapIsEmpty() {
         SlotMap map = new SlotMap();
         assertNull(map.nodeFor(0));
