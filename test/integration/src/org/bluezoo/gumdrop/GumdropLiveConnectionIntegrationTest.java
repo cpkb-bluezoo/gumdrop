@@ -104,6 +104,7 @@ public class GumdropLiveConnectionIntegrationTest {
         final CountDownLatch dataLatch = new CountDownLatch(1);
         volatile int expect = 1;
         volatile String sendWhenSecure;
+        volatile String sendOnConnect;
         volatile boolean starttlsClientOnOk;
         final List<Exception> errors = Collections.synchronizedList(new ArrayList<Exception>());
 
@@ -142,6 +143,10 @@ public class GumdropLiveConnectionIntegrationTest {
         @Override
         public void connected(Endpoint ep) {
             endpoint = ep;
+            String early = sendOnConnect;
+            if (early != null) {
+                ep.send(ByteBuffer.wrap(early.getBytes(StandardCharsets.UTF_8)));
+            }
             connected.countDown();
         }
 
@@ -289,6 +294,29 @@ public class GumdropLiveConnectionIntegrationTest {
         await(client.secure);
         await(client.dataLatch);
         assertEquals("secret", client.received.toString());
+        closeOnLoop(client.endpoint);
+        await(client.disconnected);
+    }
+
+    /**
+     * A client that speaks first sends from connected(), before the TLS
+     * handshake has completed. With version negotiation in force that data
+     * was dropped, so the request was never sent and no reply came.
+     */
+    @Test
+    public void tlsClientSpeakingFirstBeforeHandshakeIsDelivered() throws Exception {
+        TestCertificates.Identity id = TestCertificates.ec256();
+        Path dir = tmp.getRoot().toPath();
+        Path cert = TestCertificates.writeCertificatePem(dir, "s.crt", id);
+        Path key = TestCertificates.writePrivateKeyPem(dir, "s.key", id);
+        TestListener l = new TestListener(false);
+        l.secure(true).tls(TlsConfig.pem(cert, key));
+        startListener(l);
+        Handler client = new Handler(false, false);
+        client.sendOnConnect = "early";
+        connect(tlsClientFactory(), l.boundPort, client);
+        await(client.dataLatch);
+        assertEquals("early", client.received.toString());
         closeOnLoop(client.endpoint);
         await(client.disconnected);
     }

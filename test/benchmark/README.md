@@ -165,3 +165,57 @@ Each case is warmed up for half the measurement time, then run for
 allocated per operation (the thread's own allocation counter) and CPU
 nanoseconds per operation. `JVM_ARGS` adds JVM options, for example
 `-Xlog:gc` or a JFR recording.
+
+### Client against a live server
+
+`run_redis_bench.sh` drives the client against a real Redis or Valkey. One
+connection (or one cluster client) keeps a fixed number of commands in
+flight, so the number in flight is the pipeline depth: each completion
+issues the next command. It needs `ant jar` and a server; Valkey 8 in
+podman is what the baseline used. One pod holds a standalone node with a
+plaintext port and a TLS port, and three cluster masters:
+
+```bash
+mkdir -p /tmp/gd-bench-tls && cd /tmp/gd-bench-tls
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -keyout key.pem -out cert.pem -days 2 -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+chmod 644 key.pem cert.pem
+podman pod create --name gd-bench-redis -p 6390-6391:6390-6391 -p 7100-7102:7100-7102
+podman run -d --pod gd-bench-redis --name gd-bench-6390 -v /tmp/gd-bench-tls:/tls:ro \
+  docker.io/valkey/valkey:8 valkey-server --port 6390 --tls-port 6391 \
+  --tls-cert-file /tls/cert.pem --tls-key-file /tls/key.pem --tls-ca-cert-file /tls/cert.pem \
+  --tls-auth-clients no --appendonly no --save ""
+for p in 7100 7101 7102; do
+  podman run -d --pod gd-bench-redis --name gd-bench-$p docker.io/valkey/valkey:8 \
+    valkey-server --port $p --cluster-enabled yes --cluster-config-file /tmp/nodes-$p.conf \
+    --cluster-node-timeout 5000 --appendonly no --save ""
+done
+podman exec gd-bench-7100 valkey-cli --cluster create 127.0.0.1:7100 127.0.0.1:7101 \
+  127.0.0.1:7102 --cluster-replicas 0 --cluster-yes
+```
+
+```bash
+test/benchmark/run_redis_bench.sh
+```
+
+Each run is warmed up for `WARMUP` seconds (default 3), then measured for
+`SECONDS_PER_RUN` (default 8). Rows go to `results/redis.csv`, and the JVM's
+own log to `results/redis-bench.log`.
+
+| Scenario | What it does |
+|---|---|
+| `getset` | 50% `GET`, 50% `SET` over 1000 keys with a 128-byte value, plain, at depth 1, 16 and 256 |
+| `publish` | `PUBLISH` of 128 bytes to one channel with no subscribers, plain |
+| `getset` (tls) | the same as `getset`, to the TLS port |
+| `cluster-getset` | `getset` through the cluster client: keyed commands spread over the three masters |
+| `cluster-ping` | `PING` through the cluster client: a keyless command |
+| `cluster-publish` | `PUBLISH` through the cluster client |
+
+Columns: operations, errors, duration, operations per second, latency
+percentiles in microseconds (from issue to reply, measured on the loop),
+CPU microseconds per operation, and bytes allocated per operation. CPU and
+allocation are for the whole benchmark JVM, which holds only the client and
+the load generator's own small handler objects; the server is in the
+container. Settings: `HOST`, `PORT`, `TLS_PORT`, `CLUSTER_PORT` (empty to
+skip the cluster rows), `VALUE_BYTES`, `JVM_ARGS`.

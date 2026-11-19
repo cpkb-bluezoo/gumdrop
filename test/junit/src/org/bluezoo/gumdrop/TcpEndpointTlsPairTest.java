@@ -683,7 +683,7 @@ public class TcpEndpointTlsPairTest {
     }
 
     @Test
-    public void negotiatedAppDataBeforeVersionPickIsDropped() throws Exception {
+    public void negotiatedAppDataBeforeVersionPickIsDeliveredAfterTheHandshake() throws Exception {
         Peer cp = new Peer();
         Peer sp = new Peer();
         TcpEndpoint client = endpoint(cp, client13(), client12(), TlsVersion.NEGOTIATE, true);
@@ -692,7 +692,7 @@ public class TcpEndpointTlsPairTest {
         client.startTLS();
         client.send(ByteBuffer.wrap("early".getBytes(StandardCharsets.UTF_8)));
         pump(client, server);
-        assertEquals("", sp.received.toString());
+        assertEquals("early", sp.received.toString());
         assertTrue(cp.events.contains("secure"));
     }
 

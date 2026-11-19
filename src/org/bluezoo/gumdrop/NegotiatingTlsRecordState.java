@@ -53,6 +53,12 @@ final class NegotiatingTlsRecordState {
 
     private final ByteArrayOutputStream prefixBuffer = new ByteArrayOutputStream();
 
+    /**
+     * Application data sent before the TLS version was chosen (a client
+     * that speaks first), held until the chosen engine exists.
+     */
+    private final ByteArrayOutputStream pendingAppData = new ByteArrayOutputStream();
+
     private TlsRecordState active13;
     private Tls12RecordState active12;
     /** Client-only TLS 1.3 probe until ServerHello is seen. */
@@ -105,6 +111,7 @@ final class NegotiatingTlsRecordState {
                 // it must not be unwrapped again for this read.
                 byte[] prefix = prefixBuffer.toByteArray();
                 prefixBuffer.reset();
+                flushPendingAppData();
                 if (active13 != null) {
                     active13.feedCiphertext(prefix);
                 } else if (active12 != null) {
@@ -128,7 +135,25 @@ final class NegotiatingTlsRecordState {
             active12.wrap(data);
             return;
         }
-        // Handshake still in progress; drop app data until version is picked.
+        // The version is not chosen yet: hold the data until it is.
+        int cap = tcpEndpoint.getMaxNetOutSize();
+        if (cap > 0 && pendingAppData.size() + data.remaining() > cap) {
+            callback.onProtocolError(new TlsProtocolError(
+                    AlertDescription.INTERNAL_ERROR, "too much data sent before the handshake"));
+            return;
+        }
+        byte[] bytes = new byte[data.remaining()];
+        data.get(bytes);
+        pendingAppData.write(bytes, 0, bytes.length);
+    }
+
+    private void flushPendingAppData() {
+        if (pendingAppData.size() == 0) {
+            return;
+        }
+        ByteBuffer held = ByteBuffer.wrap(pendingAppData.toByteArray());
+        pendingAppData.reset();
+        wrap(held);
     }
 
     void closeOutbound() {
