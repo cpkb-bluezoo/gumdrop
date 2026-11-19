@@ -482,11 +482,70 @@ public class RESPDecoderTest {
         assertEquals("value", elements.get(2).asString());
     }
 
+    @Test
+    public void testLargeArrayWithinDefaultLimitsDecodes() throws RespException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("*5000\r\n");
+        for (int i = 0; i < 5000; i++) {
+            sb.append(":").append(i).append("\r\n");
+        }
+        recv(sb.toString());
+        RespValue value = decoder.next();
+        assertNotNull(value);
+        assertEquals(5000, value.asArray().size());
+    }
+
+    @Test
+    public void testLargeBulkStringWithinDefaultLimitsDecodes() throws RespException {
+        int size = 1024 * 1024;
+        StringBuilder sb = new StringBuilder();
+        sb.append("$").append(size).append("\r\n");
+        for (int i = 0; i < size; i++) {
+            sb.append('x');
+        }
+        sb.append("\r\n");
+        byte[] bytes = sb.toString().getBytes(StandardCharsets.UTF_8);
+        int off = 0;
+        RespValue value = null;
+        while (off < bytes.length) {
+            int n = Math.min(16384, bytes.length - off);
+            recv(ByteBuffer.wrap(bytes, off, n));
+            off += n;
+            value = decoder.next();
+        }
+        assertNotNull(value);
+        assertEquals(size, value.asString().length());
+    }
+
+    @Test
+    public void testConfiguredBulkLimitStillRejects() throws RespException {
+        decoder.setMaxBulkLength(1024);
+        recv("$2048\r\n");
+        try {
+            decoder.next();
+            fail("expected RespException");
+        } catch (RespException expected) {
+            assertNotNull(expected.getMessage());
+        }
+    }
+
+    @Test
+    public void testConfiguredCollectionLimitStillRejects() throws RespException {
+        decoder.setMaxCollectionElements(10);
+        recv("*11\r\n");
+        try {
+            decoder.next();
+            fail("expected RespException");
+        } catch (RespException expected) {
+            assertNotNull(expected.getMessage());
+        }
+    }
+
     @Test(expected = RespException.class)
     public void testHugeArrayCountRejected() throws RespException {
         StringBuilder sb = new StringBuilder();
         sb.append('*');
-        sb.append(RespDecoder.MAX_COLLECTION_ELEMENTS + 1);
+        sb.append(RespDecoder.DEFAULT_MAX_COLLECTION_ELEMENTS + 1);
         sb.append("\r\n");
         recv(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.UTF_8)));
         decoder.next();

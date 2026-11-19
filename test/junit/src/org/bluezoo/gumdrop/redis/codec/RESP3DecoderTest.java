@@ -260,7 +260,7 @@ public class RESP3DecoderTest {
     @Test(expected = RespException.class)
     public void testHugeMapCountRejected() throws RespException {
         StringBuilder sb = new StringBuilder();
-        sb.append('%').append(RespDecoder.MAX_COLLECTION_ELEMENTS + 1).append("\r\n");
+        sb.append('%').append(RespDecoder.DEFAULT_MAX_COLLECTION_ELEMENTS + 1).append("\r\n");
         recv(sb.toString());
         decoder.next();
     }

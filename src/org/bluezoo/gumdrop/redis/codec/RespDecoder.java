@@ -76,14 +76,21 @@ public class RespDecoder {
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
     private static final int DEFAULT_BUFFER_SIZE = 16384;
     private static final int MAX_INLINE_LENGTH = 65536;
-    /** Maximum elements in an array, map entry pairs, set, or push. */
-    static final int MAX_COLLECTION_ELEMENTS = 1024;
+    /** Default maximum elements in an array, map entry pairs, set, or push. */
+    static final int DEFAULT_MAX_COLLECTION_ELEMENTS = 1024 * 1024;
     /** Maximum nesting depth for compound RESP types. */
     static final int MAX_NESTING_DEPTH = 32;
-    /** Maximum bytes buffered while awaiting a complete value. */
-    static final int MAX_ACCUMULATOR_BYTES = 4 * 1024 * 1024;
-    /** Maximum bulk / verbatim / blob payload length. */
-    static final int MAX_BULK_LENGTH = 512 * 1024;
+    /** Default maximum bytes buffered while awaiting a complete value. */
+    static final int DEFAULT_MAX_ACCUMULATOR_BYTES = 128 * 1024 * 1024;
+    /** Default maximum bulk / verbatim / blob payload length. */
+    static final int DEFAULT_MAX_BULK_LENGTH = 64 * 1024 * 1024;
+
+    /** Cap on up-front collection allocation, so a claimed count cannot force a huge allocation. */
+    private static final int INITIAL_CAPACITY_CAP = 1024;
+
+    private int maxCollectionElements = DEFAULT_MAX_COLLECTION_ELEMENTS;
+    private int maxAccumulatorBytes = DEFAULT_MAX_ACCUMULATOR_BYTES;
+    private int maxBulkLength = DEFAULT_MAX_BULK_LENGTH;
 
     private ByteBuffer buffer;
     private int parsePosition;
@@ -108,6 +115,47 @@ public class RespDecoder {
     }
 
     /**
+     * Sets the maximum number of elements accepted in one array, map, set
+     * or push reply.
+     *
+     * @param max the limit, at least 1
+     */
+    public void setMaxCollectionElements(int max) {
+        if (max < 1) {
+            throw new IllegalArgumentException(Integer.toString(max));
+        }
+        maxCollectionElements = max;
+    }
+
+    /**
+     * Sets the maximum length of one bulk string, verbatim string or blob
+     * error payload.
+     *
+     * @param max the limit in bytes, at least 1
+     */
+    public void setMaxBulkLength(int max) {
+        if (max < 1) {
+            throw new IllegalArgumentException(Integer.toString(max));
+        }
+        maxBulkLength = max;
+    }
+
+    /**
+     * Sets the maximum number of bytes buffered while waiting for the rest
+     * of an incomplete reply. A reply larger than this fails regardless of
+     * the other limits, so it should be at least the bulk limit plus
+     * framing.
+     *
+     * @param max the limit in bytes, at least 1
+     */
+    public void setMaxAccumulatorBytes(int max) {
+        if (max < 1) {
+            throw new IllegalArgumentException(Integer.toString(max));
+        }
+        maxAccumulatorBytes = max;
+    }
+
+    /**
      * Receives data for decoding.
      *
      * <p>The data is appended to any existing buffered data. Call
@@ -122,7 +170,7 @@ public class RespDecoder {
         // Calculate how much unread data we have
         int remaining = buffer.remaining();
         int needed = remaining + data.remaining();
-        if (needed > MAX_ACCUMULATOR_BYTES) {
+        if (needed > maxAccumulatorBytes) {
             throw new RespException(MessageFormat.format(
                     L10N.getString("err.buffer_too_large"), needed));
         }
@@ -184,7 +232,7 @@ public class RespDecoder {
     }
 
     private void checkCollectionCount(int count) throws RespException {
-        if (count > MAX_COLLECTION_ELEMENTS) {
+        if (count > maxCollectionElements) {
             throw new RespException(MessageFormat.format(
                     L10N.getString("err.collection_too_large"), count));
         }
@@ -203,7 +251,7 @@ public class RespDecoder {
     }
 
     private void checkBulkLength(int length) throws RespException {
-        if (length > MAX_BULK_LENGTH) {
+        if (length > maxBulkLength) {
             throw new RespException(MessageFormat.format(
                     L10N.getString("err.bulk_too_large"), length));
         }
@@ -380,7 +428,7 @@ public class RespDecoder {
         }
         enterCompound();
         try {
-            List<RespValue> elements = new ArrayList<RespValue>(count);
+            List<RespValue> elements = new ArrayList<RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
             for (int i = 0; i < count; i++) {
                 RespValue element = tryParse();
                 if (element == null) {
@@ -416,7 +464,7 @@ public class RespDecoder {
         checkCollectionCount(count);
         enterCompound();
         try {
-            Map<RespValue, RespValue> entries = new LinkedHashMap<RespValue, RespValue>(count);
+            Map<RespValue, RespValue> entries = new LinkedHashMap<RespValue, RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
             for (int i = 0; i < count; i++) {
                 RespValue key = tryParse();
                 if (key == null) {
@@ -452,7 +500,7 @@ public class RespDecoder {
         checkCollectionCount(count);
         enterCompound();
         try {
-            List<RespValue> elements = new ArrayList<RespValue>(count);
+            List<RespValue> elements = new ArrayList<RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
             for (int i = 0; i < count; i++) {
                 RespValue element = tryParse();
                 if (element == null) {
@@ -530,7 +578,7 @@ public class RespDecoder {
         checkCollectionCount(count);
         enterCompound();
         try {
-            List<RespValue> elements = new ArrayList<RespValue>(count);
+            List<RespValue> elements = new ArrayList<RespValue>(Math.min(count, INITIAL_CAPACITY_CAP));
             for (int i = 0; i < count; i++) {
                 RespValue element = tryParse();
                 if (element == null) {

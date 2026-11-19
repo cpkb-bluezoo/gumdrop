@@ -84,17 +84,17 @@ public class RespCodecEdgeTest {
 
     @Test
     public void testCollectionCountLimitForEveryCollectionType() {
-        assertRejected("*1025\r\n");
-        assertRejected("%1025\r\n");
-        assertRejected("~1025\r\n");
-        assertRejected(">1025\r\n");
+        assertRejected("*1048577\r\n");
+        assertRejected("%1048577\r\n");
+        assertRejected("~1048577\r\n");
+        assertRejected(">1048577\r\n");
     }
 
     @Test
     public void testBulkLengthLimitForEveryBulkType() {
-        assertRejected("$524289\r\n");
-        assertRejected("=524289\r\n");
-        assertRejected("!524289\r\n");
+        assertRejected("$67108865\r\n");
+        assertRejected("=67108865\r\n");
+        assertRejected("!67108865\r\n");
     }
 
     @Test
@@ -174,7 +174,7 @@ public class RespCodecEdgeTest {
     @Test
     public void testAccumulatorLimit() {
         RespDecoder decoder = new RespDecoder();
-        ByteBuffer huge = ByteBuffer.allocate(4 * 1024 * 1024 + 1);
+        ByteBuffer huge = ByteBuffer.allocate(128 * 1024 * 1024 + 1);
         try {
             decoder.receive(huge);
             fail("expected RespException");
