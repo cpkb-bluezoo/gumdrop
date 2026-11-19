@@ -83,21 +83,33 @@ public class SelectorLoopTimerTest {
         return future.get(5, TimeUnit.SECONDS);
     }
 
-    /** Moves the clock on by {@code ms}, and has the loop notice, then waits for it to have done so. */
+    /**
+     * Moves the clock on by {@code ms} and waits until the loop has run the
+     * timers that are due. A timer scheduled once the clock has moved is due
+     * at once, and runs in the same batch as every other that is due, so it
+     * cannot have run until they have been reached; a task queued after it
+     * has run is taken in a later turn of the loop, which begins only when
+     * that batch has finished. (Waiting for queued tasks alone is not enough:
+     * the loop takes tasks in a loop, so a task queued from another thread
+     * as one completes can be run in the same drain, before the timers.)
+     */
     private void advance(long ms) throws Exception {
         loop.now.addAndGet(ms * MS);
+        final CountDownLatch reached = new CountDownLatch(1);
+        loop.schedule(0, new Runnable() {
+            @Override
+            public void run() {
+                reached.countDown();
+            }
+        });
         loop.wakeup();
-        // A task queued behind the wake-up runs before the timers that are due
-        // are run, in the same turn of the loop; one queued after that
-        // completes runs in the next turn, so by then they have been.
-        for (int i = 0; i < 2; i++) {
-            onLoop(new Callable<Object>() {
-                @Override
-                public Object call() {
-                    return null;
-                }
-            });
-        }
+        assertTrue("the loop did not run its due timers", reached.await(5, TimeUnit.SECONDS));
+        onLoop(new Callable<Object>() {
+            @Override
+            public Object call() {
+                return null;
+            }
+        });
     }
 
     private static final class Counter implements Runnable {
