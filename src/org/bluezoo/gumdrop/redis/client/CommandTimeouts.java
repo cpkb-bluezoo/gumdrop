@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.redis.client;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 /**
  * Which commands wait on the server on purpose, and for how long, so that a
@@ -49,23 +48,29 @@ final class CommandTimeouts {
      *         otherwise the longest wait in milliseconds
      */
     static long blockingMillis(String command, String[] text, byte[][] binary) {
+        return blockingMillis(CommandInfo.of(command), text, binary);
+    }
+
+    /** As above for a command already looked up. */
+    static long blockingMillis(CommandInfo info, String[] text, byte[][] binary) {
         int n = text != null ? text.length : binary != null ? binary.length : 0;
-        String name = command.toUpperCase(Locale.ROOT);
-        if (name.equals("BLPOP") || name.equals("BRPOP") || name.equals("BZPOPMIN")
-                || name.equals("BZPOPMAX") || name.equals("BRPOPLPUSH") || name.equals("BLMOVE")) {
-            return seconds(arg(text, binary, n - 1));
-        } else if (name.equals("BLMPOP") || name.equals("BZMPOP")) {
-            return seconds(arg(text, binary, 0));
-        } else if (name.equals("WAIT") || name.equals("WAITAOF")) {
-            return millis(arg(text, binary, n - 1));
-        } else if (name.equals("XREAD") || name.equals("XREADGROUP")) {
-            for (int i = 0; i < n - 1; i++) {
-                if ("BLOCK".equalsIgnoreCase(arg(text, binary, i))) {
-                    return millis(arg(text, binary, i + 1));
+        switch (info.blocking) {
+            case SECONDS_LAST:
+                return seconds(arg(text, binary, n - 1));
+            case SECONDS_FIRST:
+                return seconds(arg(text, binary, 0));
+            case MILLIS_LAST:
+                return millis(arg(text, binary, n - 1));
+            case BLOCK_OPTION:
+                for (int i = 0; i < n - 1; i++) {
+                    if ("BLOCK".equalsIgnoreCase(arg(text, binary, i))) {
+                        return millis(arg(text, binary, i + 1));
+                    }
                 }
-            }
+                return -1;
+            default:
+                return -1;
         }
-        return -1;
     }
 
     private static String arg(String[] text, byte[][] binary, int i) {

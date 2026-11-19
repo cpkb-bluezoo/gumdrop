@@ -280,4 +280,50 @@ public class ClusterCommandKeysTest {
         assertEquals(slot("{t}a"),
                 ClusterCommandKeys.slotOf("MSET", args("{t}a", "foo", "{t}b", "bar")));
     }
+
+    private static long allocatedBy(Runnable work) {
+        com.sun.management.ThreadMXBean mx =
+                (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        long id = Thread.currentThread().getId();
+        for (int i = 0; i < 2000; i++) { // warm up
+            work.run();
+        }
+        long before = mx.getThreadAllocatedBytes(id);
+        for (int i = 0; i < 1000; i++) {
+            work.run();
+        }
+        return mx.getThreadAllocatedBytes(id) - before;
+    }
+
+    /**
+     * Work out which arguments are keys without upper-casing the command
+     * name or making an array of positions: that was done for every
+     * command, and was most of what finding the slot of a GET allocated.
+     */
+    @Test
+    public void findingTheSlotOfASingleKeyCommandAllocatesLittle() {
+        final SentCommand get = text("get", "k");
+        final int[] sink = new int[1];
+        long allocated = allocatedBy(new Runnable() {
+            public void run() {
+                sink[0] += ClusterCommandKeys.slotOf(get);
+            }
+        });
+        // per call: the key's bytes and the view of the arguments
+        assertTrue("allocated " + allocated + " bytes in 1000 calls, " + sink[0],
+                allocated <= 1000 * 72);
+    }
+
+    /** The blocking rule is found without upper-casing the command name. */
+    @Test
+    public void classifyingACommandForTimeoutsAllocatesNothing() {
+        final String[] args = { "k" };
+        final long[] sink = new long[1];
+        long allocated = allocatedBy(new Runnable() {
+            public void run() {
+                sink[0] += CommandTimeouts.blockingMillis("get", args, null);
+            }
+        });
+        assertTrue("allocated " + allocated + " bytes in 1000 calls, " + sink[0], allocated < 1024);
+    }
 }

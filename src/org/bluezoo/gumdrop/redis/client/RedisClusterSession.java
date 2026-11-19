@@ -34,7 +34,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -378,24 +377,27 @@ final class RedisClusterSession extends AbstractRedisSession {
             fail(command, RedisClientProtocolHandler.L10N.getString("err.not_connected"));
             return;
         }
-        String name = command.getCommand().toUpperCase(Locale.ROOT);
-        if (name.equals("MULTI")) {
-            multi(command);
-            return;
-        } else if (name.equals("EXEC")) {
-            endTransaction(command, true);
-            return;
-        } else if (name.equals("DISCARD")) {
-            endTransaction(command, false);
-            return;
-        } else if (name.equals("WATCH")) {
-            watch(command);
-            return;
-        } else if (name.equals("UNWATCH")) {
-            unwatch(command);
-            return;
-        } else if (inTransaction) {
-            if (name.equals("WAIT") || name.equals("WAITAOF")) {
+        switch (command.info().role) {
+            case MULTI:
+                multi(command);
+                return;
+            case EXEC:
+                endTransaction(command, true);
+                return;
+            case DISCARD:
+                endTransaction(command, false);
+                return;
+            case WATCH:
+                watch(command);
+                return;
+            case UNWATCH:
+                unwatch(command);
+                return;
+            default:
+                break;
+        }
+        if (inTransaction) {
+            if (command.info().role == CommandInfo.Role.WAIT) {
                 fail(command, WAIT_IN_MULTI);
             } else {
                 routeInTransaction(command);
@@ -1389,12 +1391,12 @@ final class RedisClusterSession extends AbstractRedisSession {
 
             @Override
             public boolean handleError(SentCommand command, String error) {
-                String name = command.getCommand().toUpperCase(Locale.ROOT);
-                boolean pattern = name.equals("PSUBSCRIBE");
-                if (!pattern && !name.equals("SUBSCRIBE") && !name.equals("SSUBSCRIBE")) {
+                String kind = command.info().subscriptionKind;
+                boolean pattern = "psubscribe".equals(kind);
+                if (!pattern && !"subscribe".equals(kind) && !"ssubscribe".equals(kind)) {
                     return false;
                 }
-                ClusterRedirect redirect = name.equals("SSUBSCRIBE") ? ClusterRedirect.parse(error) : null;
+                ClusterRedirect redirect = "ssubscribe".equals(kind) ? ClusterRedirect.parse(error) : null;
                 boolean moved = redirect != null && !redirect.isAsk();
                 if (moved) {
                     String host = redirect.getHost() != null ? redirect.getHost() : node.getHost();

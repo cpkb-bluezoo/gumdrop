@@ -726,7 +726,8 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             return;
         }
         int argCount = text != null ? text.length : binary != null ? binary.length : 0;
-        PendingCommand pending = pending(callback, sent, command, argCount);
+        CommandInfo info = sent != null ? sent.info() : CommandInfo.of(command);
+        PendingCommand pending = pending(callback, sent, info, argCount);
         // control commands and subscriptions are few and have no handler
         // to tell, so only commands with a handler are refused
         if (maxPending > 0 && callback != null && pending.subscriptionKind == null
@@ -735,8 +736,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                     L10N.getString("err.too_many_pending"), Integer.valueOf(maxPending)));
             return;
         }
-        pending.blocking = CommandTimeouts.blockingMillis(command, text, binary) >= 0;
-        pending.deadlineNanos = deadlineFor(pending, command, text, binary, timeoutMs);
+        long blocking = CommandTimeouts.blockingMillis(info, text, binary);
+        pending.blocking = blocking >= 0;
+        pending.deadlineNanos = deadlineFor(pending, blocking, timeoutMs);
         ByteBuffer buf;
         if (binary != null) {
             buf = encoder.encodeCommand(command, binary);
@@ -809,7 +811,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             healthFailed();
             return;
         }
-        PendingCommand ping = pending(null, null, "PING", 0);
+        PendingCommand ping = pending(null, null, CommandInfo.of("PING"), 0);
         ping.internal = true;
         pendingCommands.add(ping);
         pingOutstanding = true;
@@ -832,8 +834,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // ── timeouts ──
 
     // The moment a command's reply is overdue, or 0 for never.
-    private long deadlineFor(PendingCommand pending, String command, String[] text,
-                             byte[][] binary, long timeoutMs) {
+    private long deadlineFor(PendingCommand pending, long blocking, long timeoutMs) {
         if (pending.subscriptionKind != null || pending.callback == null) {
             return 0;
         }
@@ -843,7 +844,6 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         } else if (defaultTimeoutMs == 0) {
             return 0;
         } else {
-            long blocking = CommandTimeouts.blockingMillis(command, text, binary);
             if (blocking < 0) {
                 ms = defaultTimeoutMs;
             } else if (blocking == 0) {
@@ -1011,22 +1011,8 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
     }
 
-    private static final String[] SUBSCRIPTION_KINDS = {
-        "subscribe", "psubscribe", "ssubscribe", "unsubscribe", "punsubscribe", "sunsubscribe"
-    };
-
-    // The kind of subscription command, lower case, or null for any other.
-    private static String subscriptionKind(String command) {
-        for (String kind : SUBSCRIPTION_KINDS) {
-            if (kind.equalsIgnoreCase(command)) {
-                return kind;
-            }
-        }
-        return null;
-    }
-
-    private PendingCommand pending(Object callback, SentCommand sent, String command, int argCount) {
-        String kind = subscriptionKind(command);
+    private PendingCommand pending(Object callback, SentCommand sent, CommandInfo info, int argCount) {
+        String kind = info.subscriptionKind;
         return new PendingCommand(callback, sent, kind, kind != null ? Math.max(1, argCount) : 0);
     }
 

@@ -22,10 +22,6 @@
 package org.bluezoo.gumdrop.redis.client;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Locale;
-import java.util.Set;
 
 /**
  * Which arguments of a command are keys, for routing in a Redis Cluster.
@@ -42,45 +38,6 @@ final class ClusterCommandKeys {
 
     private static final int[] NONE = new int[0];
 
-    private static final Set<String> KEYLESS = new HashSet<String>(Arrays.asList(
-            "PING", "ECHO", "AUTH", "SELECT", "QUIT", "HELLO", "CLIENT", "RESET",
-            "DBSIZE", "FLUSHDB", "FLUSHALL", "INFO", "TIME", "KEYS", "SCAN",
-            "MULTI", "EXEC", "DISCARD", "UNWATCH", "SUBSCRIBE", "PSUBSCRIBE",
-            "UNSUBSCRIBE", "PUNSUBSCRIBE", "PUBLISH", "SCRIPT", "CLUSTER",
-            "ASKING", "READONLY", "READWRITE", "WAIT", "COMMAND", "CONFIG",
-            "SAVE", "BGSAVE", "LASTSAVE", "SHUTDOWN", "SLOWLOG", "PUBSUB"));
-
-    /** Every argument is a key. */
-    private static final Set<String> ALL_KEYS = new HashSet<String>(Arrays.asList(
-            "MGET", "DEL", "EXISTS", "UNLINK", "WATCH", "TOUCH", "SINTER",
-            "SUNION", "SDIFF", "SINTERSTORE", "SUNIONSTORE", "SDIFFSTORE",
-            "PFCOUNT", "PFMERGE", "SINTERCARD"));
-
-    /** The first two arguments are keys. */
-    private static final Set<String> TWO_KEYS = new HashSet<String>(Arrays.asList(
-            "RENAME", "RENAMENX", "BLMOVE", "LMOVE", "SMOVE", "RPOPLPUSH",
-            "BRPOPLPUSH", "COPY"));
-
-    /** Alternate arguments (0, 2, 4, ...) are keys. */
-    private static final Set<String> ALTERNATE = new HashSet<String>(Arrays.asList(
-            "MSET", "MSETNX"));
-
-    /** The key follows a subcommand. */
-    private static final Set<String> AFTER_SUBCOMMAND = new HashSet<String>(Arrays.asList(
-            "XGROUP", "XINFO", "OBJECT"));
-
-    /** Keys are given as every argument. */
-    private static final Set<String> SHARD_CHANNELS = new HashSet<String>(Arrays.asList(
-            "SSUBSCRIBE", "SUNSUBSCRIBE"));
-
-    /** {@code script|numkeys|key...|arg...}: numkeys is the second argument. */
-    private static final Set<String> NUMKEYS_SCRIPT = new HashSet<String>(Arrays.asList(
-            "EVAL", "EVALSHA", "EVAL_RO", "EVALSHA_RO", "FCALL", "FCALL_RO"));
-
-    /** {@code dest|numkeys|key...}: destination plus numkeys keys. */
-    private static final Set<String> STORE_NUMKEYS = new HashSet<String>(Arrays.asList(
-            "ZUNIONSTORE", "ZINTERSTORE", "ZDIFFSTORE"));
-
     private ClusterCommandKeys() {
     }
 
@@ -90,40 +47,33 @@ final class ClusterCommandKeys {
      * the convention of nearly every Redis command.
      */
     static int[] keyPositions(String command, byte[][] args) {
-        return keyPositions(command, new BinaryArgs(args));
+        return keyPositions(CommandInfo.of(command), new BinaryArgs(args));
     }
 
-    private static int[] keyPositions(String command, Args args) {
-        String name = command.toUpperCase(Locale.ROOT);
+    private static int[] keyPositions(CommandInfo info, Args args) {
         int n = args.length();
-        if (KEYLESS.contains(name)) {
-            return NONE;
+        switch (info.keys) {
+            case NONE:
+                return NONE;
+            case ALL:
+                return range(0, n, 1);
+            case ALTERNATE:
+                return range(0, n, 2);
+            case FIRST_TWO:
+                return range(0, Math.min(2, n), 1);
+            case ALL_BUT_LAST:
+                return range(0, n - 1, 1); // the last argument is the timeout
+            case SECOND:
+                return n >= 2 ? new int[] { 1 } : NONE;
+            case NUMKEYS_SCRIPT:
+                return numkeys(args, 1, 2, false);
+            case NUMKEYS_STORE:
+                return numkeys(args, 1, 2, true);
+            case STREAMS:
+                return streamKeys(args);
+            default:
+                return n > 0 ? new int[] { 0 } : NONE;
         }
-        if (ALL_KEYS.contains(name) || SHARD_CHANNELS.contains(name)) {
-            return range(0, n, 1);
-        }
-        if (ALTERNATE.contains(name)) {
-            return range(0, n, 2);
-        }
-        if (TWO_KEYS.contains(name)) {
-            return range(0, Math.min(2, n), 1);
-        }
-        if (name.equals("BLPOP") || name.equals("BRPOP")) {
-            return range(0, n - 1, 1); // the last argument is the timeout
-        }
-        if (AFTER_SUBCOMMAND.contains(name)) {
-            return n >= 2 ? new int[] { 1 } : NONE;
-        }
-        if (NUMKEYS_SCRIPT.contains(name)) {
-            return numkeys(args, 1, 2, false);
-        }
-        if (STORE_NUMKEYS.contains(name)) {
-            return numkeys(args, 1, 2, true);
-        }
-        if (name.equals("XREAD") || name.equals("XREADGROUP")) {
-            return streamKeys(args);
-        }
-        return n > 0 ? new int[] { 0 } : NONE;
     }
 
     /**
@@ -131,11 +81,20 @@ final class ClusterCommandKeys {
      * if it has none, or {@link #CROSS_SLOT} if they differ.
      */
     static int slotOf(String command, byte[][] args) {
-        return slotOf(command, new BinaryArgs(args));
+        return slotOf(CommandInfo.of(command), new BinaryArgs(args));
     }
 
-    private static int slotOf(String command, Args args) {
-        int[] positions = keyPositions(command, args);
+    private static int slotOf(CommandInfo info, Args args) {
+        // the common layouts are read in place, without a list of positions
+        switch (info.keys) {
+            case NONE:
+                return NO_KEY;
+            case FIRST:
+                return args.length() > 0 ? ClusterSlots.slot(args.bytes(0)) : NO_KEY;
+            default:
+                break;
+        }
+        int[] positions = keyPositions(info, args);
         int slot = NO_KEY;
         for (int i = 0; i < positions.length; i++) {
             int s = ClusterSlots.slot(args.bytes(positions[i]));
@@ -152,13 +111,13 @@ final class ClusterCommandKeys {
     static int slotOf(SentCommand command) {
         byte[][] binary = command.getBinaryArgs();
         if (binary != null) {
-            return slotOf(command.getCommand(), new BinaryArgs(binary));
+            return slotOf(command.info(), new BinaryArgs(binary));
         }
         String[] text = command.getTextArgs();
         if (text == null) {
             text = new String[0];
         }
-        return slotOf(command.getCommand(), new TextArgs(text));
+        return slotOf(command.info(), new TextArgs(text));
     }
 
     // The arguments of a command, as text or as bytes. Only the arguments

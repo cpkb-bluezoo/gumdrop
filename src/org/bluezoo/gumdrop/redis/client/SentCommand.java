@@ -38,14 +38,17 @@ final class SentCommand {
     private final boolean pinned;
     private final long timeoutMs;
     private final int routingSlot;
+    private final CommandInfo info;
 
     SentCommand(Object callback, String command, String[] textArgs, byte[][] binaryArgs) {
-        this(callback, command, textArgs, binaryArgs, 0, false, false, CommandTimeouts.DEFAULT, -1);
+        this(callback, command, textArgs, binaryArgs, 0, false, false, CommandTimeouts.DEFAULT, -1,
+                CommandInfo.of(command));
     }
 
     private SentCommand(Object callback, String command, String[] textArgs,
                         byte[][] binaryArgs, int redirects, boolean asking, boolean pinned,
-                        long timeoutMs, int routingSlot) {
+                        long timeoutMs, int routingSlot, CommandInfo info) {
+        this.info = info;
         this.timeoutMs = timeoutMs;
         this.routingSlot = routingSlot;
         this.callback = callback;
@@ -75,13 +78,13 @@ final class SentCommand {
     /** This command after one more redirect, to be preceded by {@code ASKING} if {@code asking}. */
     SentCommand redirected(boolean asking) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects + 1, asking, pinned, timeoutMs, routingSlot);
+                redirects + 1, asking, pinned, timeoutMs, routingSlot, info);
     }
 
     /** This command marked as one that must not be redirected. */
     SentCommand pinned() {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, true, timeoutMs, routingSlot);
+                redirects, asking, true, timeoutMs, routingSlot, info);
     }
 
     /**
@@ -91,7 +94,7 @@ final class SentCommand {
      */
     SentCommand withTimeout(long timeoutMs) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, pinned, timeoutMs, routingSlot);
+                redirects, asking, pinned, timeoutMs, routingSlot, info);
     }
 
     long getTimeoutMs() {
@@ -104,7 +107,7 @@ final class SentCommand {
      */
     SentCommand withRoutingSlot(int slot) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, pinned, timeoutMs, slot);
+                redirects, asking, pinned, timeoutMs, slot, info);
     }
 
     /** The slot the command is to be sent to whatever its keys, or -1 for the slot of its keys. */
@@ -130,6 +133,11 @@ final class SentCommand {
     /** The result handler the command was sent with, possibly null. */
     Object getCallback() {
         return callback;
+    }
+
+    /** What is known of the command by its name, looked up once. */
+    CommandInfo info() {
+        return info;
     }
 
     /** The command name. */
