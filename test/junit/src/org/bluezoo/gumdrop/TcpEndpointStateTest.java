@@ -95,6 +95,7 @@ public class TcpEndpointStateTest {
     }
 
     private static byte[] drain(TcpEndpoint ep) {
+        ep.flushOutbound(); // as the selector loop does before it writes
         ByteBuffer out = ep.getNetOut();
         ByteBuffer copy = out.duplicate();
         copy.flip();

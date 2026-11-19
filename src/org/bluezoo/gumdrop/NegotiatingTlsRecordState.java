@@ -156,6 +156,14 @@ final class NegotiatingTlsRecordState {
         wrap(held);
     }
 
+    void flushCorked() {
+        if (active13 != null) {
+            active13.flushCorked();
+        } else if (active12 != null) {
+            active12.flushCorked();
+        }
+    }
+
     void closeOutbound() {
         if (active13 != null) {
             active13.closeOutbound();

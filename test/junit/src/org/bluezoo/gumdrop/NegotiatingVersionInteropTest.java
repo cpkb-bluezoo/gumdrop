@@ -205,6 +205,7 @@ public class NegotiatingVersionInteropTest {
     }
 
     private static boolean move(TcpEndpoint from, TcpEndpoint to) throws IOException {
+        from.flushOutbound(); // as the selector loop does before it writes
         ByteBuffer out = from.getNetOut();
         if (out == null || out.position() == 0) {
             return false;

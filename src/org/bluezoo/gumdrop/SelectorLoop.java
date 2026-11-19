@@ -1012,6 +1012,10 @@ public class SelectorLoop implements Runnable {
     private void doTcpEndpointWrite(SelectionKey key, TcpEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
 
+        // application data a TLS endpoint has held back is encrypted now,
+        // so what it was given since the last write shares records
+        endpoint.flushOutbound();
+
         try {
             synchronized (endpoint.netOutLock) {
                 // Fetch netOut inside the lock: a concurrent appendToNetOut()

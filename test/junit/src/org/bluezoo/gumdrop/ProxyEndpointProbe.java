@@ -81,6 +81,7 @@ public final class ProxyEndpointProbe {
      * @return the queued output
      */
     public static String queued(TcpEndpoint endpoint) {
+        endpoint.flushOutbound(); // as the selector loop does before it writes
         java.nio.ByteBuffer out = endpoint.getNetOut();
         if (out == null) {
             return "";

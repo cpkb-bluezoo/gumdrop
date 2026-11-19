@@ -794,6 +794,21 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         return netOut;
     }
 
+    /**
+     * Encrypts any application data held back so that what was sent in one
+     * go leaves in as few TLS records as possible. The selector loop calls
+     * this before it writes.
+     */
+    void flushOutbound() {
+        if (negotiatingTlsState != null) {
+            negotiatingTlsState.flushCorked();
+        } else if (tlsState != null) {
+            tlsState.flushCorked();
+        } else if (tls12State != null) {
+            tls12State.flushCorked();
+        }
+    }
+
     boolean hasPendingWrite() {
         return (netOut != null && netOut.position() > 0) || closeRequested;
     }

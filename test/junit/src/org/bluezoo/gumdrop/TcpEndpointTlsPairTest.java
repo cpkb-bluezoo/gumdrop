@@ -138,6 +138,7 @@ public class TcpEndpointTlsPairTest {
 
     /** Moves everything queued in {@code from}'s netOut into {@code to}. */
     private static boolean move(TcpEndpoint from, TcpEndpoint to) throws IOException {
+        from.flushOutbound(); // as the selector loop does before it writes
         ByteBuffer out = from.getNetOut();
         if (out == null || out.position() == 0) {
             return false;
@@ -694,6 +695,64 @@ public class TcpEndpointTlsPairTest {
         pump(client, server);
         assertEquals("early", sp.received.toString());
         assertTrue(cp.events.contains("secure"));
+    }
+
+    /**
+     * An application that sends a hundred small writes in one go must not
+     * pay for a hundred records: each write used to be encrypted and framed
+     * on its own, 22 bytes of record header and tag (TLS 1.3) on every 30.
+     */
+    private void assertSmallWritesShareRecords(TlsVersion policy, HandshakeConfig c13,
+            Tls12HandshakeConfig c12, HandshakeConfig s13, Tls12HandshakeConfig s12) throws Exception {
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, c13, c12, policy, true);
+        TcpEndpoint server = endpoint(sp, s13, s12, policy, false);
+        handshake(client, server);
+        byte[] thirty = payload(30);
+        for (int i = 0; i < 100; i++) {
+            client.send(ByteBuffer.wrap(thirty));
+        }
+        client.flushOutbound();
+        int onTheWire = client.getNetOut().position();
+        assertTrue("100 writes of 30 bytes took " + onTheWire + " bytes", onTheWire <= 3000 + 64);
+        pump(client, server);
+        assertEquals(3000, sp.received.length());
+    }
+
+    @Test
+    public void tls13SmallWritesShareRecords() throws Exception {
+        assertSmallWritesShareRecords(TlsVersion.TLS_1_3, client13(), null, server13(), null);
+    }
+
+    @Test
+    public void tls12SmallWritesShareRecords() throws Exception {
+        assertSmallWritesShareRecords(TlsVersion.TLS_1_2, null, client12(), null, server12());
+    }
+
+    @Test
+    public void corkedDataIsNotLostWhenTheEndpointCloses() throws Exception {
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, client13(), null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(sp, server13(), null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        client.send(ByteBuffer.wrap("last words".getBytes(StandardCharsets.UTF_8)));
+        client.close();
+        pump(client, server);
+        assertEquals("last words", sp.received.toString());
+    }
+
+    @Test
+    public void aWriteOfARecordOrMoreIsEncryptedAtOnce() throws Exception {
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, client13(), null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(sp, server13(), null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        client.send(ByteBuffer.wrap(payload(40000)));
+        // no flushOutbound(): the loop has not been round yet
+        assertTrue(client.getNetOut().position() >= 40000);
     }
 
     @Test

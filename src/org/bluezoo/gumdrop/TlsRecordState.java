@@ -208,7 +208,7 @@ final class TlsRecordState implements TlsRecordSink {
                 bufferPendingAppData(data);
                 return;
             }
-            sendApplicationDataFromBuffer(data);
+            cork(data);
         }
     }
 
@@ -257,10 +257,58 @@ final class TlsRecordState implements TlsRecordSink {
                     "client TLS closeOutbound pendingAppData={0} handshakeComplete={1} remote={2}",
                     pending, engine.isComplete(), callback.getRemoteAddress());
             flushPendingAppData();
+            flushCorked();
             outboundClosed = true;
             engine.sendCloseNotify(this);
             tcpEndpoint.logIntegrationClientTls(Level.INFO,
                     "client TLS close_notify queued remote={0}", callback.getRemoteAddress());
+        }
+    }
+
+    // Application data waiting to be encrypted, so that what an application
+    // sends in one go leaves in as few records as possible instead of one
+    // per write. It is encrypted when the selector loop next writes (see
+    // flushCorked), or at once when a record's worth is waiting.
+    private ByteBuffer corked;
+    private static final int CORK_LIMIT = 16384;
+
+    private void cork(ByteBuffer data) {
+        int needed = data.remaining();
+        if (needed >= CORK_LIMIT && (corked == null || corked.position() == 0)) {
+            sendApplicationDataFromBuffer(data);
+            return;
+        }
+        int cap = tcpEndpoint.getMaxNetOutSize();
+        int current = corked != null ? corked.position() : 0;
+        if (cap > 0 && current + needed > cap) {
+            handleOverflow();
+            return;
+        }
+        if (corked == null) {
+            corked = ByteBuffer.allocate(Math.max(needed, CORK_LIMIT));
+        } else if (corked.remaining() < needed) {
+            ByteBuffer grown = ByteBuffer.allocate(corked.position() + needed);
+            corked.flip();
+            grown.put(corked);
+            corked = grown;
+        }
+        corked.put(data);
+        if (corked.position() >= CORK_LIMIT) {
+            flushCorked();
+        } else {
+            requestWrite();
+        }
+    }
+
+    /** Encrypts the application data held back, as few records as it can. */
+    void flushCorked() {
+        synchronized (tcpEndpoint.tlsEngineLock) {
+            if (corked == null || corked.position() == 0 || closed) {
+                return;
+            }
+            corked.flip();
+            sendApplicationDataFromBuffer(corked);
+            corked.clear();
         }
     }
 
@@ -323,6 +371,7 @@ final class TlsRecordState implements TlsRecordSink {
     @Override
     public void handshakeComplete() {
         flushPendingAppData();
+        flushCorked();
         callback.onHandshakeComplete(engine.getNegotiatedApplicationProtocol());
     }
 
