@@ -90,8 +90,12 @@ final class ClusterCommandKeys {
      * the convention of nearly every Redis command.
      */
     static int[] keyPositions(String command, byte[][] args) {
+        return keyPositions(command, new BinaryArgs(args));
+    }
+
+    private static int[] keyPositions(String command, Args args) {
         String name = command.toUpperCase(Locale.ROOT);
-        int n = args.length;
+        int n = args.length();
         if (KEYLESS.contains(name)) {
             return NONE;
         }
@@ -127,10 +131,14 @@ final class ClusterCommandKeys {
      * if it has none, or {@link #CROSS_SLOT} if they differ.
      */
     static int slotOf(String command, byte[][] args) {
+        return slotOf(command, new BinaryArgs(args));
+    }
+
+    private static int slotOf(String command, Args args) {
         int[] positions = keyPositions(command, args);
         int slot = NO_KEY;
         for (int i = 0; i < positions.length; i++) {
-            int s = ClusterSlots.slot(args[positions[i]]);
+            int s = ClusterSlots.slot(args.bytes(positions[i]));
             if (slot == NO_KEY) {
                 slot = s;
             } else if (slot != s) {
@@ -138,6 +146,72 @@ final class ClusterCommandKeys {
             }
         }
         return slot;
+    }
+
+    /** The slot of a command's keys, as for {@link #slotOf(String, byte[][])}. */
+    static int slotOf(SentCommand command) {
+        byte[][] binary = command.getBinaryArgs();
+        if (binary != null) {
+            return slotOf(command.getCommand(), new BinaryArgs(binary));
+        }
+        String[] text = command.getTextArgs();
+        if (text == null) {
+            text = new String[0];
+        }
+        return slotOf(command.getCommand(), new TextArgs(text));
+    }
+
+    // The arguments of a command, as text or as bytes. Only the arguments
+    // that turn out to be keys are ever turned into bytes, so a large value
+    // is not copied to find the slot.
+    private interface Args {
+        int length();
+
+        // the argument as ASCII text, for the arguments that steer the
+        // choice of keys (a key count, the STREAMS token)
+        String ascii(int i);
+
+        byte[] bytes(int i);
+    }
+
+    private static final class BinaryArgs implements Args {
+        private final byte[][] args;
+
+        BinaryArgs(byte[][] args) {
+            this.args = args;
+        }
+
+        public int length() {
+            return args.length;
+        }
+
+        public String ascii(int i) {
+            return new String(args[i], StandardCharsets.US_ASCII);
+        }
+
+        public byte[] bytes(int i) {
+            return args[i];
+        }
+    }
+
+    private static final class TextArgs implements Args {
+        private final String[] args;
+
+        TextArgs(String[] args) {
+            this.args = args;
+        }
+
+        public int length() {
+            return args.length;
+        }
+
+        public String ascii(int i) {
+            return args[i];
+        }
+
+        public byte[] bytes(int i) {
+            return args[i].getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     private static int[] range(int from, int to, int step) {
@@ -154,19 +228,19 @@ final class ClusterCommandKeys {
     // numkeys is at args[countAt] and the keys start at args[firstKey]; the
     // count is clamped to the arguments present (the server rejects a bad
     // count itself). With withDestination, args[0] is a key as well.
-    private static int[] numkeys(byte[][] args, int countAt, int firstKey,
+    private static int[] numkeys(Args args, int countAt, int firstKey,
                                  boolean withDestination) {
         int count = 0;
-        if (args.length > countAt) {
+        if (args.length() > countAt) {
             try {
-                count = Integer.parseInt(new String(args[countAt], StandardCharsets.US_ASCII));
+                count = Integer.parseInt(args.ascii(countAt));
             } catch (NumberFormatException e) {
                 count = 0;
             }
         }
-        int last = Math.min(args.length, firstKey + Math.max(count, 0));
+        int last = Math.min(args.length(), firstKey + Math.max(count, 0));
         int[] keys = range(firstKey, last, 1);
-        if (!withDestination || args.length == 0) {
+        if (!withDestination || args.length() == 0) {
             return keys;
         }
         int[] out = new int[keys.length + 1];
@@ -177,11 +251,11 @@ final class ClusterCommandKeys {
 
     // XREAD/XREADGROUP: STREAMS key... id..., the keys being the first half
     // of what follows the STREAMS token.
-    private static int[] streamKeys(byte[][] args) {
-        for (int i = 0; i < args.length; i++) {
-            String token = new String(args[i], StandardCharsets.US_ASCII);
+    private static int[] streamKeys(Args args) {
+        for (int i = 0; i < args.length(); i++) {
+            String token = args.ascii(i);
             if (token.equalsIgnoreCase("STREAMS")) {
-                int remaining = args.length - i - 1;
+                int remaining = args.length() - i - 1;
                 return range(i + 1, i + 1 + remaining / 2, 1);
             }
         }

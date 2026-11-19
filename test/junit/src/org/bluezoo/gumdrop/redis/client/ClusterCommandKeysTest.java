@@ -55,6 +55,55 @@ public class ClusterCommandKeysTest {
         assertArrayEquals(expected, actual);
     }
 
+    private static SentCommand text(String command, String... values) {
+        return new SentCommand(null, command, values, null);
+    }
+
+    private static void assertSameSlotAsBytes(String command, String... values) {
+        assertEquals(command, ClusterCommandKeys.slotOf(command, args(values)),
+                ClusterCommandKeys.slotOf(text(command, values)));
+        assertEquals(command + " as binary", ClusterCommandKeys.slotOf(command, args(values)),
+                ClusterCommandKeys.slotOf(new SentCommand(null, command, null, args(values))));
+    }
+
+    @Test
+    public void slotOfASentCommandMatchesTheSlotOfItsBytes() {
+        assertSameSlotAsBytes("GET", "k");
+        assertSameSlotAsBytes("SET", "{user1}.a", "value");
+        assertSameSlotAsBytes("MSET", "{t}a", "1", "{t}b", "2");
+        assertSameSlotAsBytes("MSET", "a", "1", "b", "2");
+        assertSameSlotAsBytes("DEL", "{t}a", "{t}b");
+        assertSameSlotAsBytes("EVAL", "return 1", "2", "{t}a", "{t}b", "x");
+        assertSameSlotAsBytes("ZUNIONSTORE", "{t}dst", "2", "{t}a", "{t}b");
+        assertSameSlotAsBytes("XREAD", "COUNT", "2", "STREAMS", "{t}a", "{t}b", "0", "0");
+        assertSameSlotAsBytes("OBJECT", "ENCODING", "k");
+        assertSameSlotAsBytes("BLPOP", "{t}a", "{t}b", "5");
+        assertSameSlotAsBytes("SET", "k\u00e9y\u20ac", "v\u00e9");
+        assertSameSlotAsBytes("PING");
+        assertSameSlotAsBytes("EVAL", "s", "x");
+    }
+
+    /**
+     * Only the keys are needed to find the slot: a large value must not be
+     * copied (it used to be encoded to bytes whole, then again to be sent).
+     */
+    @Test
+    public void slotOfASetDoesNotCopyTheValue() {
+        StringBuilder sb = new StringBuilder(1 << 20);
+        for (int i = 0; i < (1 << 20); i++) {
+            sb.append('v');
+        }
+        SentCommand set = text("SET", "key", sb.toString());
+        ClusterCommandKeys.slotOf(set); // warm up
+        com.sun.management.ThreadMXBean mx =
+                (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        long id = Thread.currentThread().getId();
+        long before = mx.getThreadAllocatedBytes(id);
+        ClusterCommandKeys.slotOf(set);
+        long allocated = mx.getThreadAllocatedBytes(id) - before;
+        assertTrue("allocated " + allocated + " bytes", allocated < 64 * 1024);
+    }
+
     @Test
     public void singleKeyCommandsUseTheFirstArgument() {
         assertKeys(keys("GET", "k"), 0);

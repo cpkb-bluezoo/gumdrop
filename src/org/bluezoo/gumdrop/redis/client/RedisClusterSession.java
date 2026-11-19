@@ -424,7 +424,7 @@ final class RedisClusterSession extends AbstractRedisSession {
     // The slot a command goes to: that of its keys, or the one it was told
     // to be sent to (the keys it has must agree).
     private static int slotOf(SentCommand command) {
-        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        int slot = ClusterCommandKeys.slotOf(command);
         int forced = command.getRoutingSlot();
         if (forced < 0 || slot == ClusterCommandKeys.CROSS_SLOT) {
             return slot;
@@ -712,7 +712,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             fail(command, "ERR WATCH inside MULTI is not allowed");
             return;
         }
-        int slot = ClusterCommandKeys.slotOf(command.getCommand(), command.toBinaryArgs());
+        int slot = ClusterCommandKeys.slotOf(command);
         if (slot == ClusterCommandKeys.CROSS_SLOT) {
             fail(command, CROSS_SLOT);
             return;
