@@ -162,10 +162,12 @@ public final class ByteBufferPool {
         if (capacity < (1 << MIN_BUCKET_SHIFT)) {
             return -1;
         }
-        int shift = 31 - Integer.numberOfLeadingZeros(capacity);
-        if (shift > MAX_BUCKET_SHIFT) {
-            shift = MAX_BUCKET_SHIFT;
+        if (capacity > (1 << MAX_BUCKET_SHIFT)) {
+            // larger than any bucket: left to the garbage collector, not
+            // kept and handed out again for requests it is far too big for
+            return -1;
         }
+        int shift = 31 - Integer.numberOfLeadingZeros(capacity);
         return shift - MIN_BUCKET_SHIFT;
     }
 }

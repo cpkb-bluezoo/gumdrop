@@ -110,4 +110,57 @@ public class ByteBufferPoolTest {
         assertTrue("reused buffer must satisfy the request",
                 reacquired.capacity() >= 8192);
     }
+
+    /**
+     * A buffer above the largest bucket (64 KiB) used to be clamped into
+     * that bucket, so it was kept and later handed out for a small
+     * request, and stayed pinned in the thread's pool.
+     */
+    @Test
+    public void aBufferAboveTheLargestBucketIsNotRetained() {
+        int[] sizes = { 65537, 100000, 131072, 1024 * 1024, 4 * 1024 * 1024 };
+        for (int size : sizes) {
+            ByteBuffer big = ByteBuffer.allocate(size);
+            ByteBufferPool.release(big);
+            // the largest bucket is the only one that could have held it
+            for (int i = 0; i < 40; i++) {
+                ByteBuffer got = ByteBufferPool.acquire(65536);
+                assertNotSame("buffer of " + size + " was retained", big, got);
+                assertEquals(65536, got.capacity());
+            }
+        }
+    }
+
+    @Test
+    public void aSmallRequestNeverReceivesABufferOfAnotherSize() {
+        ByteBufferPool.release(ByteBuffer.allocate(1024 * 1024));
+        ByteBuffer small = ByteBufferPool.acquire(1000);
+        assertEquals(1024, small.capacity());
+    }
+
+    @Test
+    public void theLargestBucketItselfIsStillPooled() {
+        ByteBuffer top = ByteBuffer.allocate(65536);
+        ByteBufferPool.release(top);
+        assertSame(top, ByteBufferPool.acquire(65536));
+    }
+
+    @Test
+    public void bucketBoundariesRoundTrip() {
+        int[] sizes = { 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536 };
+        for (int size : sizes) {
+            ByteBuffer exact = ByteBuffer.allocate(size);
+            ByteBufferPool.release(exact);
+            assertSame("size " + size, exact, ByteBufferPool.acquire(size));
+        }
+    }
+
+    @Test
+    public void aBufferBelowTheSmallestBucketIsNotRetained() {
+        ByteBuffer tiny = ByteBuffer.allocate(511);
+        ByteBufferPool.release(tiny);
+        for (int i = 0; i < 40; i++) {
+            assertNotSame(tiny, ByteBufferPool.acquire(512));
+        }
+    }
 }

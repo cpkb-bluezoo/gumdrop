@@ -101,6 +101,8 @@ public class RespDecoder {
     private static final int STATE_LINE = 1;
     private static final int STATE_BODY = 2;
     private static final int STATE_BODY_END = 3;
+    /** A buffer larger than this is replaced by one of the default size when it has been consumed. */
+    private static final int SHRINK_ABOVE = 64 * 1024;
     private static final int INITIAL_BODY_CAPACITY = 1024 * 1024;
 
     private int state = STATE_TYPE;
@@ -259,6 +261,19 @@ public class RespDecoder {
             throw e;
         } finally {
             parsePosition = buffer.position();
+            shrinkIfIdle();
+        }
+    }
+
+    // A reply larger than the usual makes receive() grow the buffer. Once
+    // everything in it has been consumed, give it back and start again at
+    // the default size, rather than hold it for the life of the connection.
+    private void shrinkIfIdle() {
+        if (buffer.capacity() > SHRINK_ABOVE && !buffer.hasRemaining()) {
+            ByteBufferPool.release(buffer);
+            buffer = ByteBufferPool.acquire(DEFAULT_BUFFER_SIZE);
+            buffer.flip();
+            parsePosition = 0;
         }
     }
 
@@ -730,6 +745,11 @@ public class RespDecoder {
         java.util.Arrays.fill(frames, null);
         depth = 0;
         failure = null;
+    }
+
+    /** Test seam: the capacity of the buffer held. */
+    int bufferCapacity() {
+        return buffer.capacity();
     }
 
     /**

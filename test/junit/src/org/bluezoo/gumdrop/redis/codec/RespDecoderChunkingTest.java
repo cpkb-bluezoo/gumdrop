@@ -229,4 +229,26 @@ public class RespDecoderChunkingTest {
         }
         assertEquals(100, v.asArray().size());
     }
+
+    /**
+     * After a large reply has been consumed the decoder must give its
+     * grown buffer back, not keep a multi-megabyte buffer for the life of
+     * the connection.
+     */
+    @Test
+    public void theBufferShrinksOnceALargeReplyIsConsumed() throws RespException {
+        int size = 2 * 1024 * 1024;
+        StringBuilder sb = new StringBuilder("$" + size + "\r\n");
+        for (int i = 0; i < size; i++) {
+            sb.append('x');
+        }
+        sb.append("\r\n");
+        RespDecoder decoder = new RespDecoder();
+        decoder.receive(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII)));
+        assertTrue(decoder.bufferCapacity() >= size);
+        assertEquals(size, decoder.next().asBytes().length);
+        assertTrue("capacity " + decoder.bufferCapacity(), decoder.bufferCapacity() <= 64 * 1024);
+        decoder.receive(ByteBuffer.wrap("+OK\r\n".getBytes(StandardCharsets.US_ASCII)));
+        assertEquals("OK", decoder.next().asString());
+    }
 }
