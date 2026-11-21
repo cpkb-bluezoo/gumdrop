@@ -454,7 +454,7 @@ public class RedisClusterIntegrationTest {
 
     // ── Pub/Sub ──
 
-    private static final class Events implements MessageHandler {
+    private static final class Events extends WholeMessages {
         final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<String>();
 
         private static String text(byte[] b) {
@@ -633,7 +633,7 @@ public class RedisClusterIntegrationTest {
     }
 
     /** Collects keyspace events; waiters block on a monitor, not by sleeping. */
-    private static final class KeyspaceEvents implements MessageHandler {
+    private static final class KeyspaceEvents extends WholeMessages {
         private final Object lock = new Object();
         private final Set<String> keys = new HashSet<String>();
         private int subscribed;

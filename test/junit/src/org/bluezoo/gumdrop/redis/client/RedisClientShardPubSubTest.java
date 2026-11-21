@@ -41,7 +41,7 @@ import static org.junit.Assert.*;
 public class RedisClientShardPubSubTest {
 
     /** Records every event, shard and ordinary. */
-    private static final class Events implements MessageHandler {
+    private static final class Events extends WholeMessages {
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -96,7 +96,7 @@ public class RedisClientShardPubSubTest {
     }
 
     /** Knows only the original events: it must still work with sharded traffic. */
-    private static final class OldStyle implements MessageHandler {
+    private static final class OldStyle extends WholeMessages {
         final List<String> events = new ArrayList<String>();
 
         @Override

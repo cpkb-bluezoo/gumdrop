@@ -248,7 +248,7 @@ public class RedisClientPubSubEdgeTest {
         }
     }
 
-    private static final class Messages implements MessageHandler {
+    private static final class Messages extends WholeMessages {
         final List<String> events = new ArrayList<String>();
 
         @Override

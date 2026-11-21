@@ -155,6 +155,11 @@ final class ControlReplies {
          */
         abstract void onError(String error, RedisSession session);
 
+        /** The reply built, or null if it is not complete. */
+        final RespValue builderValue() {
+            return builder.isComplete() ? builder.value() : null;
+        }
+
         @Override
         public void handleStream(ReplyStream stream) {
         }

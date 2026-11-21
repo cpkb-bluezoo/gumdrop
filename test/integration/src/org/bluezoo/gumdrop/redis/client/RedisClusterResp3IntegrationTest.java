@@ -76,7 +76,7 @@ public class RedisClusterResp3IntegrationTest extends RedisClusterIntegrationTes
         onLoop(new Runnable() {
             @Override
             public void run() {
-                session.setPushHandler(new PushHandler() {
+                session.setPushHandler(new WholePush() {
                     @Override
                     public void onPush(String kind, List<Object> payload) {
                         if (kind.equals("invalidate")) {

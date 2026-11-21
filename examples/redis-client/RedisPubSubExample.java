@@ -72,7 +72,7 @@ public class RedisPubSubExample {
             subscriberSession = session;
 
             // Subscribe to channels with message handler
-            session.subscribe(new MessageHandler() {
+            session.subscribe(new SmallMessages() {
                 @Override
                 public void handleMessage(String channel, byte[] message) {
                     String text = new String(message, StandardCharsets.UTF_8);

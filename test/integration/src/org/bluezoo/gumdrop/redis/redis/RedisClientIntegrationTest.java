@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
 import org.bluezoo.gumdrop.redis.client.StringResultHandler;
 import org.bluezoo.gumdrop.redis.client.WholeBulk;
+import org.bluezoo.gumdrop.redis.client.WholeMessages;
 
 import org.junit.After;
 import org.junit.Before;
@@ -160,7 +161,7 @@ public class RedisClientIntegrationTest {
                 session.auth(RedisTestSupport.PASSWORD, new TestStringHandler(error, subscribedLatch) {
                     @Override
                     public void handleResult(String result, RedisSession s) {
-                        s.subscribe(new MessageHandler() {
+                        s.subscribe(new WholeMessages() {
                             @Override
                             public void handleMessage(String ch, byte[] message) {
                                 received.set(new String(message, StandardCharsets.UTF_8));

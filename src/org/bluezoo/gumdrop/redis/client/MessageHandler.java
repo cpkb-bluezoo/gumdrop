@@ -21,39 +21,49 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
+import java.nio.ByteBuffer;
+
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
+
 /**
- * Handler for Redis Pub/Sub messages (RESP spec — "Pub/Sub").
+ * Handler for Redis Pub/Sub deliveries (RESP spec - "Pub/Sub").
  *
- * <p>When a client subscribes to channels, it enters Pub/Sub mode and
- * can only execute Pub/Sub commands. Messages arrive asynchronously
- * as RESP push arrays: {@code [type, channel, message]} for direct
- * subscriptions, {@code [type, pattern, channel, message]} for pattern
- * subscriptions.
+ * <p>When a client subscribes to channels, it enters Pub/Sub mode and can
+ * only execute Pub/Sub commands. Messages then arrive asynchronously. The
+ * body of a message is a payload, whose size is the publisher's choice, so
+ * it is delivered as chunks and never held by the library:
+ * {@link #messageBegin}, any number of {@link #messageContent} calls in order,
+ * then {@link #messageEnd()}. The channel and pattern that name the message
+ * are identifiers and arrive whole in the {@link MessageHeader}, up to the
+ * connection's maximum field length; a message whose channel or pattern is
+ * longer is dropped and reported to {@link #handleError}, and the messages
+ * after it are not disturbed.
+ *
+ * <p>A handler steers each message with the
+ * {@link org.bluezoo.gumdrop.redis.codec.ReplyFlow} it returns: skip drops
+ * the rest of that message only, and pause stops reading on the connection
+ * until {@link ReplyStream#resume()}. A subscriber that needs a whole
+ * message accumulates it itself, where the limit and the cost are visible.
  *
  * <h4>Usage Example</h4>
  * <pre>{@code
- * session.subscribe("news", new MessageHandler() {
- *     public void handleMessage(String channel, byte[] message) {
- *         String text = new String(message, StandardCharsets.UTF_8);
- *         System.out.println("Received on " + channel + ": " + text);
- *     }
+ * session.subscribe(new MessageHandler() {
+ *     private int size;
  *
- *     public void handlePatternMessage(String pattern, String channel, byte[] message) {
- *         // For psubscribe patterns
+ *     public ReplyFlow messageBegin(MessageHeader header, long length, ReplyStream stream) {
+ *         size = 0;
+ *         return length > LIMIT ? ReplyFlow.SKIP : ReplyFlow.CONTINUE;
  *     }
- *
- *     public void handleSubscribed(String channel, int subscriptionCount) {
- *         System.out.println("Subscribed to " + channel);
+ *     public ReplyFlow messageContent(ByteBuffer chunk) {
+ *         size += chunk.remaining();
+ *         chunk.position(chunk.limit());
+ *         return ReplyFlow.CONTINUE;
  *     }
- *
- *     public void handleUnsubscribed(String channel, int subscriptionCount) {
- *         System.out.println("Unsubscribed from " + channel);
+ *     public void messageEnd() {
+ *         System.out.println("a message of " + size + " bytes");
  *     }
- *
- *     public void handleError(String error) {
- *         System.err.println("Pub/Sub error: " + error);
- *     }
- * });
+ *     // ...
+ * }, "news");
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -61,28 +71,35 @@ package org.bluezoo.gumdrop.redis.client;
 public interface MessageHandler {
 
     /**
-     * Called when a message is received on a subscribed channel.
+     * A message begins. Called for a message on a subscribed channel, a
+     * channel that matched a subscribed pattern, or a subscribed shard
+     * channel, as the header says.
      *
-     * @param channel the channel the message was published to
-     * @param message the message content
+     * @param header the channel, and the pattern if there was one
+     * @param length the length of the body in bytes, or -1 if the server did
+     * not say
+     * @param stream a handle to resume a paused connection, or to give up
+     * the message
+     * @return continue, pause, or skip the rest of this message
      */
-    void handleMessage(String channel, byte[] message);
+    ReplyFlow messageBegin(MessageHeader header, long length, ReplyStream stream);
 
     /**
-     * Called when a message matches a pattern subscription.
+     * The next bytes of the message body, never empty. The buffer is valid
+     * only during the call: copy what is wanted afterwards.
      *
-     * <p>This is called for channels matching patterns subscribed via
-     * {@code PSUBSCRIBE}.
-     *
-     * @param pattern the pattern that matched
-     * @param channel the actual channel the message was published to
-     * @param message the message content
+     * @param chunk the bytes, from its position to its limit
+     * @return what to do next
      */
-    void handlePatternMessage(String pattern, String channel, byte[] message);
+    ReplyFlow messageContent(ByteBuffer chunk);
+
+    /**
+     * The message is complete.
+     */
+    void messageEnd();
 
     /**
      * Called when a subscription is confirmed.
-     *
      * @param channel the channel subscribed to
      * @param subscriptionCount the total number of subscriptions
      */
@@ -90,7 +107,6 @@ public interface MessageHandler {
 
     /**
      * Called when a pattern subscription is confirmed.
-     *
      * @param pattern the pattern subscribed to
      * @param subscriptionCount the total number of subscriptions
      */
@@ -98,7 +114,6 @@ public interface MessageHandler {
 
     /**
      * Called when an unsubscription is confirmed.
-     *
      * @param channel the channel unsubscribed from
      * @param subscriptionCount the remaining subscription count
      */
@@ -106,25 +121,13 @@ public interface MessageHandler {
 
     /**
      * Called when a pattern unsubscription is confirmed.
-     *
      * @param pattern the pattern unsubscribed from
      * @param subscriptionCount the remaining subscription count
      */
     void handlePatternUnsubscribed(String pattern, int subscriptionCount);
 
     /**
-     * Called when a message is received on a shard channel subscribed with
-     * {@code SSUBSCRIBE} (Redis 7 and later).
-     *
-     * @param channel the shard channel the message was published to
-     * @param message the message content
-     */
-    default void handleShardMessage(String channel, byte[] message) {
-    }
-
-    /**
      * Called when a shard channel subscription is confirmed.
-     *
      * @param channel the shard channel subscribed to
      * @param subscriptionCount the number of shard channels subscribed to
      */
@@ -135,7 +138,6 @@ public interface MessageHandler {
      * Called when a shard channel is unsubscribed from. Besides confirming
      * an {@code SUNSUBSCRIBE}, the server does this on its own when the
      * channel's slot moves to another node.
-     *
      * @param channel the shard channel
      * @param subscriptionCount the number of shard channels still subscribed to
      */
@@ -143,11 +145,10 @@ public interface MessageHandler {
     }
 
     /**
-     * Called when an error occurs in Pub/Sub mode.
-     *
+     * Called when an error occurs in Pub/Sub mode, including a message
+     * dropped because its channel or pattern was too long.
      * @param error the error message
      */
     void handleError(String error);
 
 }
-

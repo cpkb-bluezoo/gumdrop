@@ -171,7 +171,7 @@ public class RedisClusterClientTest {
     public void aPushHandlerSetOnTheSessionReachesEveryConnection() {
         final List<String> kinds = new ArrayList<String>();
         discover();
-        ready.session.setPushHandler(new PushHandler() {
+        ready.session.setPushHandler(new WholePush() {
             @Override
             public void onPush(String kind, List<Object> payload) {
                 kinds.add(kind);
@@ -184,7 +184,7 @@ public class RedisClusterClientTest {
         assertEquals("[invalidate]", kinds.toString());
     }
 
-    private static final class Errors implements MessageHandler {
+    private static final class Errors extends WholeMessages {
         final List<String> errors = new ArrayList<String>();
 
         @Override

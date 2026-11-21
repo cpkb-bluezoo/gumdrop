@@ -819,7 +819,7 @@ public class RedisSessionCommandsTest {
         }
     }
 
-    private static final class NoOpMessages implements MessageHandler {
+    private static final class NoOpMessages extends WholeMessages {
         @Override
         public void handleMessage(String channel, byte[] message) {
         }

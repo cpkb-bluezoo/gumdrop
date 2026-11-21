@@ -40,7 +40,7 @@ import static org.junit.Assert.*;
  */
 public class RedisClientPushHandlerTest {
 
-    private static final class Pushes implements PushHandler {
+    private static final class Pushes extends WholePush {
         final List<String> kinds = new ArrayList<String>();
         final List<List<Object>> payloads = new ArrayList<List<Object>>();
 
@@ -51,7 +51,7 @@ public class RedisClientPushHandlerTest {
         }
     }
 
-    private static final class Messages implements MessageHandler {
+    private static final class Messages extends WholeMessages {
         final List<String> events = new ArrayList<String>();
 
         @Override

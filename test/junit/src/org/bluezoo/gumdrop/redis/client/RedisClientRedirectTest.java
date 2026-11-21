@@ -329,7 +329,7 @@ public class RedisClientRedirectTest {
     public void anErrorForACommandWithNoHandlerStillReachesTheListener() {
         Recorder rec = new Recorder();
         handler.setRedirectListener(rec);
-        session.ssubscribe(new org.bluezoo.gumdrop.redis.client.MessageHandler() {
+        session.ssubscribe(new WholeMessages() {
             @Override
             public void handleMessage(String channel, byte[] message) {
             }

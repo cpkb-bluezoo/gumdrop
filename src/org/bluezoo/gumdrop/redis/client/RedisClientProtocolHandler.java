@@ -42,10 +42,8 @@ import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 import org.bluezoo.gumdrop.redis.codec.RespDecoder;
 import org.bluezoo.gumdrop.redis.codec.RespEventHandler;
 import org.bluezoo.gumdrop.redis.codec.RespType;
-import org.bluezoo.gumdrop.redis.codec.RespValueBuilder;
 import org.bluezoo.gumdrop.redis.codec.RespEncoder;
 import org.bluezoo.gumdrop.redis.codec.RespException;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
@@ -93,12 +91,63 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     private final RedisConnectionReady handler;
     private final RespDecoder decoder;
-    // Until the handlers stream (see the streaming-only redesign), a reply
-    // that is wanted is assembled here, under a cap, and one over the cap
-    // fails its own command and nothing else.
-    private RespValueBuilder builder = new RespValueBuilder(MAX_BUILT_REPLY);
-    private long maxBuiltReply = MAX_BUILT_REPLY;
     private final ReplyRouter router = new ReplyRouter();
+
+    // Reads Pub/Sub deliveries and pushes, which share the shape of replies.
+    private final PubSubReader reader = new PubSubReader(new PubSubReader.Host() {
+        @Override
+        public MessageHandler messageHandler() {
+            return messageHandler;
+        }
+
+        @Override
+        public PushHandler pushHandler() {
+            return pushHandler;
+        }
+
+        @Override
+        public int maxField() {
+            return maxField;
+        }
+
+        @Override
+        public ReplyStream stream() {
+            return pubStream;
+        }
+
+        @Override
+        public RespEventHandler becomeReply() {
+            router.divert();
+            return router;
+        }
+
+        @Override
+        public void acknowledged(String kind, String name, int count) {
+            subscriptionAcknowledged(kind, name, count);
+        }
+    });
+
+    // The handle on a delivery being read.
+    private final ReplyStream pubStream = new ReplyStream() {
+        @Override
+        public void resume() {
+            Endpoint ep = endpoint;
+            if (ep != null) {
+                ep.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        resumeReading();
+                    }
+                });
+            }
+        }
+
+        @Override
+        public void cancel() {
+            reader.requestCancel();
+            resume();
+        }
+    };
 
     // The longest identifier (key, field name, cursor) or scalar read whole.
     private int maxField = DEFAULT_MAX_FIELD;
@@ -175,8 +224,6 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     /** The longest identifier or scalar delivered whole, unless configured. */
     static final int DEFAULT_MAX_FIELD = 64 * 1024;
 
-    /** The most one reply may hold while handlers still take whole values. */
-    static final long MAX_BUILT_REPLY = 64L * 1024 * 1024;
 
     /** Source of the monotonic time deadlines are measured in; replaced in tests. */
     interface Ticker {
@@ -515,12 +562,6 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         this.maxField = Math.max(1, max);
     }
 
-    /** Test seam: the most one reply may hold while handlers take whole values. */
-    void setMaxBuiltReply(long max) {
-        this.maxBuiltReply = max;
-        this.builder = new RespValueBuilder(max);
-    }
-
     /** Test seam: attaches an endpoint without the connect handshake. */
     void attachForTest(Endpoint ep) {
         this.endpoint = ep;
@@ -579,177 +620,41 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // Response processing (RESP spec — "RESP protocol description")
     // ─────────────────────────────────────────────────────────────────────────
 
-    // RESP spec — dispatch decoded response values.
-    // Pub/Sub push messages are intercepted before FIFO callback dispatch.
-    // RESP3 Push type (>) is handled as an out-of-band Pub/Sub delivery.
-    private void processResponse(RespValue response) {
-        // RESP3 Push type — server-initiated out-of-band data
-        if (response.isPush()) {
-            List<RespValue> pushData = response.asPush();
-            if (pushData != null && !pushData.isEmpty()) {
-                String type = pushData.get(0).asString();
-                if (type != null && !handlePubSubMessage(type, pushData)) {
-                    deliverPush(type, pushData);
-                }
-            }
-            return;
-        }
-        // RESP2 array-based Pub/Sub messages
-        if (pubSubMode && response.isArray()) {
-            List<RespValue> array = response.asArray();
-            if (array != null && !array.isEmpty()) {
-                String type = array.get(0).asString();
-                if (type != null) {
-                    if (handlePubSubMessage(type, array)) {
-                        return;
-                    }
-                }
-            }
-        }
-        
-        // Regular command response
-        PendingCommand pending = pendingCommands.poll();
-        if (pending != null) {
-            deadlines.remove(pending);
-        }
-        if (pending == null) {
-            events().warn("warn.response_no_pending").attr("response", String.valueOf(response)).emit();
-            return;
-        }
-        if (pending.internal) {
-            // the answer to our own PING
-            pingOutstanding = false;
-            return;
-        }
-        if (pending.timedOut) {
-            // its handler has been told it timed out
-            return;
-        }
-        replay(pending, response);
-    }
-
-    // A push nothing else claimed goes to the push handler, if there is one.
-    private void deliverPush(String kind, List<RespValue> push) {
-        PushHandler h = pushHandler;
+    // A subscription was confirmed or ended: the counts are the server's,
+    // and the handler is told.
+    private void subscriptionAcknowledged(String kind, String name, int count) {
+        MessageHandler h = messageHandler;
         if (h == null) {
             return;
         }
-        List<Object> payload = new ArrayList<Object>(push.size() - 1);
-        for (int i = 1; i < push.size(); i++) {
-            payload.add(toJava(push.get(i)));
-        }
-        h.onPush(kind, payload);
-    }
-
-    // Plain Java values for a push payload, as PushHandler documents.
-    private static Object toJava(RespValue value) {
-        if (value == null || value.isNull()) {
-            return null;
-        } else if (value.isInteger()) {
-            return Long.valueOf(value.asLong());
-        } else if (value.isDouble()) {
-            return Double.valueOf(value.asDouble());
-        } else if (value.isBoolean()) {
-            return Boolean.valueOf(value.asBoolean());
-        } else if (value.isArray() || value.isSet() || value.isPush()) {
-            List<RespValue> items = value.asArray();
-            List<Object> out = new ArrayList<Object>(items.size());
-            for (RespValue item : items) {
-                out.add(toJava(item));
-            }
-            return out;
-        } else if (value.isMap()) {
-            Map<Object, Object> out = new LinkedHashMap<Object, Object>();
-            for (Map.Entry<RespValue, RespValue> e : value.asMap().entrySet()) {
-                out.put(toJava(e.getKey()), toJava(e.getValue()));
-            }
-            return out;
-        }
-        return value.asString();
-    }
-
-    // RESP spec — "Pub/Sub": push messages are 3-element arrays
-    // [type, channel, message] for message/subscribe/unsubscribe,
-    // or 4-element arrays [type, pattern, channel, message] for pmessage.
-    private boolean handlePubSubMessage(String type, List<RespValue> array) {
-        if (messageHandler == null) {
-            return false;
-        }
-        if ("message".equals(type) && array.size() >= 3) {
-            String channel = array.get(1).asString();
-            byte[] message = array.get(2).asBytes();
-            messageHandler.handleMessage(channel, message);
-            return true;
-        }
-        if ("pmessage".equals(type) && array.size() >= 4) {
-            String pattern = array.get(1).asString();
-            String channel = array.get(2).asString();
-            byte[] message = array.get(3).asBytes();
-            messageHandler.handlePatternMessage(pattern, channel, message);
-            return true;
-        }
-        if ("subscribe".equals(type) && array.size() >= 3) {
-            String channel = array.get(1).asString();
-            int count = (int) array.get(2).asLong();
+        if ("subscribe".equals(kind)) {
             ordinaryCount = count;
             settle("subscribe");
-            messageHandler.handleSubscribed(channel, count);
-            return true;
-        }
-        if ("psubscribe".equals(type) && array.size() >= 3) {
-            String pattern = array.get(1).asString();
-            int count = (int) array.get(2).asLong();
+            h.handleSubscribed(name, count);
+        } else if ("psubscribe".equals(kind)) {
             ordinaryCount = count;
             settle("psubscribe");
-            messageHandler.handlePatternSubscribed(pattern, count);
-            return true;
-        }
-        if ("unsubscribe".equals(type) && array.size() >= 3) {
-            String channel = array.get(1).asString();
-            int count = (int) array.get(2).asLong();
+            h.handlePatternSubscribed(name, count);
+        } else if ("unsubscribe".equals(kind)) {
             settle("unsubscribe");
             ordinaryCount = count;
-            MessageHandler h = messageHandler;
             leaveModeIfIdle();
-            h.handleUnsubscribed(channel, count);
-            return true;
-        }
-        if ("punsubscribe".equals(type) && array.size() >= 3) {
-            String pattern = array.get(1).asString();
-            int count = (int) array.get(2).asLong();
+            h.handleUnsubscribed(name, count);
+        } else if ("punsubscribe".equals(kind)) {
             settle("punsubscribe");
             ordinaryCount = count;
-            MessageHandler h = messageHandler;
             leaveModeIfIdle();
-            h.handlePatternUnsubscribed(pattern, count);
-            return true;
-        }
-        if ("smessage".equals(type) && array.size() >= 3) {
-            String channel = array.get(1).asString();
-            byte[] message = array.get(2).asBytes();
-            messageHandler.handleShardMessage(channel, message);
-            return true;
-        }
-        if ("ssubscribe".equals(type) && array.size() >= 3) {
-            String channel = array.get(1).asString();
-            int count = (int) array.get(2).asLong();
+            h.handlePatternUnsubscribed(name, count);
+        } else if ("ssubscribe".equals(kind)) {
             shardCount = count;
             settle("ssubscribe");
-            messageHandler.handleShardSubscribed(channel, count);
-            return true;
-        }
-        if ("sunsubscribe".equals(type) && array.size() >= 3) {
-            String channel = array.get(1).asString();
-            int count = (int) array.get(2).asLong();
+            h.handleShardSubscribed(name, count);
+        } else if ("sunsubscribe".equals(kind)) {
             settle("sunsubscribe");
             shardCount = count;
-            MessageHandler h = messageHandler;
             leaveModeIfIdle();
-            h.handleShardUnsubscribed(channel, count);
-            return true;
+            h.handleShardUnsubscribed(name, count);
         }
-
-        return false;
     }
 
     // The connection leaves Pub/Sub mode once nothing is subscribed, of
@@ -758,58 +663,6 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         if (ordinaryCount == 0 && shardCount == 0) {
             pubSubMode = false;
             messageHandler = null;
-        }
-    }
-
-    // A reply that was built whole (one on a subscribed connection, which
-    // cannot be told from a delivery until it is complete) goes to the
-    // command's handler as the events it would have been read as.
-    private void replay(PendingCommand pending, RespValue response) {
-        router.claim(pending);
-        emit(response, router);
-        router.endReply(false);
-    }
-
-    private static void emit(RespValue v, RespEventHandler h) {
-        if (v.isNull()) {
-            h.nullValue();
-        } else if (v.isError()) {
-            h.error(v.getErrorMessage());
-        } else if (v.isInteger()) {
-            h.integer(v.asLong());
-        } else if (v.isDouble()) {
-            h.doubleValue(v.asDouble());
-        } else if (v.isBoolean()) {
-            h.booleanValue(v.asBoolean());
-        } else if (v.isBigNumber()) {
-            h.bigNumber(v.asString());
-        } else if (v.isSimpleString()) {
-            h.simpleString(v.asString());
-        } else if (v.isArray() || v.isSet() || v.isPush()) {
-            List<RespValue> items = v.asArray();
-            h.beginAggregate(v.isSet() ? RespType.SET : v.isPush() ? RespType.PUSH : RespType.ARRAY,
-                    items.size());
-            for (RespValue item : items) {
-                emit(item, h);
-            }
-            h.endAggregate();
-        } else if (v.isMap()) {
-            Map<RespValue, RespValue> map = v.asMap();
-            h.beginAggregate(RespType.MAP, map.size());
-            for (Map.Entry<RespValue, RespValue> entry : map.entrySet()) {
-                emit(entry.getKey(), h);
-                emit(entry.getValue(), h);
-            }
-            h.endAggregate();
-        } else {
-            byte[] bytes = v.asBytes();
-            RespType type = v.isVerbatimString() ? RespType.VERBATIM_STRING
-                    : v.isBlobError() ? RespType.BLOB_ERROR : RespType.BULK_STRING;
-            h.beginString(type, bytes.length, v.isVerbatimString() ? v.getVerbatimEncoding() : null);
-            if (bytes.length > 0) {
-                h.stringChunk(ByteBuffer.wrap(bytes));
-            }
-            h.endString();
         }
     }
 
@@ -1284,7 +1137,21 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                     return;
                 }
             }
-            builder.beginReply(push);
+            reader.beginReply(push);
+        }
+
+        // The deliveries turned out to be the answer to the command at the
+        // head of the queue, or to nothing.
+        void divert() {
+            PendingCommand head = pendingCommands.poll();
+            if (head != null) {
+                claim(head);
+                return;
+            }
+            events().warn("warn.response_no_pending").attr("response", "").emit();
+            target = null;
+            adapter = null;
+            mode = DISCARD;
         }
 
         // The reply that follows is the answer to this command.
@@ -1334,12 +1201,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 armHealth();
                 return;
             }
-            builder.endReply(skipped);
-            if (builder.isComplete()) {
-                processResponse(builder.value());
-            } else {
-                events().warn("warn.reply_too_large").attr("limit", String.valueOf(maxBuiltReply)).emit();
-            }
+            reader.endReply(skipped);
         }
 
         // The reply is being read: it is activity for the deadline, and
@@ -1367,7 +1229,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.nullValue();
             }
-            return mode == UNCLAIMED ? builder.nullValue() : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.nullValue() : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1376,7 +1238,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.integer(value);
             }
-            return mode == UNCLAIMED ? builder.integer(value) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.integer(value) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1385,7 +1247,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.doubleValue(value);
             }
-            return mode == UNCLAIMED ? builder.doubleValue(value) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.doubleValue(value) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1394,7 +1256,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.booleanValue(value);
             }
-            return mode == UNCLAIMED ? builder.booleanValue(value) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.booleanValue(value) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1403,7 +1265,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.bigNumber(digits);
             }
-            return mode == UNCLAIMED ? builder.bigNumber(digits) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.bigNumber(digits) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1412,7 +1274,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.simpleString(value);
             }
-            return mode == UNCLAIMED ? builder.simpleString(value) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.simpleString(value) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1438,7 +1300,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 }
                 return adapter != null ? adapter.error(message) : ReplyFlow.SKIP;
             }
-            return mode == UNCLAIMED ? builder.error(message) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.error(message) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1447,7 +1309,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.beginAggregate(kind, length);
             }
-            return mode == UNCLAIMED ? builder.beginAggregate(kind, length) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.beginAggregate(kind, length) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1456,7 +1318,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.endAggregate();
             }
-            return mode == UNCLAIMED ? builder.endAggregate() : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.endAggregate() : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1470,7 +1332,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.beginString(kind, length, format);
             }
-            return mode == UNCLAIMED ? builder.beginString(kind, length, format) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.beginString(kind, length, format) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1491,7 +1353,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.stringChunk(chunk);
             }
-            return mode == UNCLAIMED ? builder.stringChunk(chunk) : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.stringChunk(chunk) : ReplyFlow.SKIP;
         }
 
         @Override
@@ -1504,7 +1366,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 ReplyFlow f = toCommand();
                 return f != null ? f : adapter.endString();
             }
-            return mode == UNCLAIMED ? builder.endString() : ReplyFlow.SKIP;
+            return mode == UNCLAIMED ? reader.endString() : ReplyFlow.SKIP;
         }
     }
 

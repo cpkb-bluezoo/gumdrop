@@ -1312,27 +1312,46 @@ final class RedisClusterSession extends AbstractRedisSession {
         /** Routes what the connection receives to the handler of the subscription concerned. */
         private final class Relay implements MessageHandler {
 
+            // the registration the message in progress is for, if any
+            private MessageHandler current;
+
             @Override
-            public void handleMessage(String channel, byte[] message) {
-                Registration reg = channels.get(channel);
-                if (reg != null) {
-                    reg.handler.handleMessage(channel, message);
+            public org.bluezoo.gumdrop.redis.codec.ReplyFlow messageBegin(
+                    MessageHeader header, long length, ReplyStream stream) {
+                Registration reg = header.getKind() == MessageKind.PATTERN
+                        ? patterns.get(header.getPattern())
+                        : channels.get(header.getChannel());
+                if (reg == null) {
+                    current = null;
+                    return org.bluezoo.gumdrop.redis.codec.ReplyFlow.SKIP;
                 }
+                current = reg.handler;
+                org.bluezoo.gumdrop.redis.codec.ReplyFlow flow =
+                        current.messageBegin(header, length, stream);
+                if (flow == org.bluezoo.gumdrop.redis.codec.ReplyFlow.SKIP) {
+                    current = null;
+                }
+                return flow;
             }
 
             @Override
-            public void handlePatternMessage(String pattern, String channel, byte[] message) {
-                Registration reg = patterns.get(pattern);
-                if (reg != null) {
-                    reg.handler.handlePatternMessage(pattern, channel, message);
+            public org.bluezoo.gumdrop.redis.codec.ReplyFlow messageContent(java.nio.ByteBuffer chunk) {
+                if (current == null) {
+                    return org.bluezoo.gumdrop.redis.codec.ReplyFlow.SKIP;
                 }
+                org.bluezoo.gumdrop.redis.codec.ReplyFlow flow = current.messageContent(chunk);
+                if (flow == org.bluezoo.gumdrop.redis.codec.ReplyFlow.SKIP) {
+                    current = null;
+                }
+                return flow;
             }
 
             @Override
-            public void handleShardMessage(String channel, byte[] message) {
-                Registration reg = channels.get(channel);
-                if (reg != null) {
-                    reg.handler.handleShardMessage(channel, message);
+            public void messageEnd() {
+                MessageHandler h = current;
+                current = null;
+                if (h != null) {
+                    h.messageEnd();
                 }
             }
 

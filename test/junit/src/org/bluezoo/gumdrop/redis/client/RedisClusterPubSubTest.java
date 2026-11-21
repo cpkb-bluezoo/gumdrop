@@ -145,7 +145,7 @@ public class RedisClusterPubSubTest {
         }
     }
 
-    private static final class Rec implements MessageHandler {
+    private static final class Rec extends WholeMessages {
         final List<String> events = new ArrayList<String>();
 
         private static String text(byte[] b) {
@@ -648,7 +648,7 @@ public class RedisClusterPubSubTest {
 
     // ── generic pushes ──
 
-    private static final class Pushes implements PushHandler {
+    private static final class Pushes extends WholePush {
         final List<String> kinds = new ArrayList<String>();
 
         @Override

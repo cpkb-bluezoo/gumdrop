@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
-import java.util.List;
+import org.bluezoo.gumdrop.redis.codec.RespEventHandler;
 
 /**
  * Receives the RESP3 push messages (type {@code >}) that the server sends
@@ -29,6 +29,15 @@ import java.util.List;
  * {@link MessageHandler}: for example the {@code invalidate} push of
  * client-side caching ({@code CLIENT TRACKING}). Without one such pushes
  * are discarded.
+ *
+ * <p>A push is delivered as the events the decoder reads: {@code beginReply}
+ * with {@code push} true, an aggregate of kind
+ * {@link org.bluezoo.gumdrop.redis.codec.RespType#PUSH} whose first element
+ * is the kind of the push, its other elements, and {@code endReply}. Nothing
+ * is held by the library. Every event that can continue returns a
+ * {@link org.bluezoo.gumdrop.redis.codec.ReplyFlow}: skip discards the rest
+ * of that push, and pause stops reading until {@link ReplyStream#resume()}.
+ * For client-side caching, {@link InvalidationHandler} does the reading.
  *
  * <p>Pushes arrive only on a connection that negotiated RESP3 (see
  * {@code RedisClient.protocol} and {@code RedisClusterClient.protocol}).
@@ -38,20 +47,14 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RedisSession#setPushHandler(PushHandler)
  */
-public interface PushHandler {
+public interface PushHandler extends RespEventHandler {
 
     /**
-     * Called for a push the connection does not otherwise handle.
+     * Called before each push, with the handle to resume a paused
+     * connection or to give up the push.
      *
-     * @param kind the push's first element, for example {@code invalidate}
-     * @param payload the remaining elements, converted to plain Java
-     *        values: simple, bulk and verbatim strings as {@code String}
-     *        (decoded as UTF-8), integers as {@code Long}, doubles as
-     *        {@code Double}, booleans as {@code Boolean}, nulls as
-     *        {@code null}, arrays, sets and pushes as {@code List}, maps as
-     *        {@code Map}. An {@code invalidate} push carries one element:
-     *        the list of invalidated keys, or {@code null} when the whole
-     *        cache is to be flushed.
+     * @param stream the handle
      */
-    void onPush(String kind, List<Object> payload);
+    void handleStream(ReplyStream stream);
+
 }
