@@ -349,6 +349,178 @@ public class RedisClusterPubSubTest {
     }
 
     @Test
+    public void aMessageForNoRegistrationIsDroppedAndTheNextIsDelivered() {
+        Rec h = new Rec();
+        session.subscribe(h, "news");
+        Request r = up(connector.requests.get(0));
+        push(r, "subscribe", "news", ":1\r\n");
+        push(r, "message", "ghost", "$2\r\nhi\r\n");
+        reply(r, "*4\r\n$8\r\npmessage\r\n$2\r\ng*\r\n$5\r\nghost\r\n$2\r\nhi\r\n");
+        push(r, "message", "news", "$2\r\nok\r\n");
+        assertEquals("[subscribed:news:1, message:news:ok]", h.events.toString());
+    }
+
+    @Test
+    public void aDroppedMessageDoesNotEndTheSubscriptions() {
+        Rec h = new Rec();
+        session.subscribe(h, "news");
+        Request r = up(connector.requests.get(0));
+        r.handler.setMaxField(4);
+        push(r, "subscribe", "news", ":1\r\n");
+        push(r, "message", "a-channel-far-too-long", "$2\r\nhi\r\n");
+        push(r, "message", "news", "$2\r\nok\r\n");
+        // the message is reported, and the subscription goes on
+        assertEquals(3, h.events.size());
+        assertEquals("subscribed:news:1", h.events.get(0));
+        assertTrue(h.events.toString(), h.events.get(1).startsWith("error:TOOLARGE"));
+        assertEquals("message:news:ok", h.events.get(2));
+    }
+
+    @Test
+    public void aDroppedMessageIsToldToPatternHandlersToo() {
+        Rec h = new Rec();
+        session.psubscribe(h, "n*");
+        Request r = up(connector.requests.get(0));
+        r.handler.setMaxField(4);
+        push(r, "psubscribe", "n*", ":1\r\n");
+        reply(r, "*4\r\n$8\r\npmessage\r\n$2\r\nn*\r\n$21\r\nthis-channel-is-too-lo\r\n$2\r\nhi\r\n");
+        reply(r, "*4\r\n$8\r\npmessage\r\n$2\r\nn*\r\n$1\r\nc\r\n$2\r\nok\r\n");
+        assertEquals(3, h.events.size());
+        assertEquals("psubscribed:n*:1", h.events.get(0));
+        assertTrue(h.events.toString(), h.events.get(1).startsWith("error:TOOLARGE"));
+        assertEquals("pmessage:n*:c:ok", h.events.get(2));
+    }
+
+    @Test
+    public void aPatternUnsubscribeIsAcknowledgedToTheHandler() {
+        Rec h = new Rec();
+        session.psubscribe(h, "n*");
+        Request r = up(connector.requests.get(0));
+        push(r, "psubscribe", "n*", ":1\r\n");
+        session.punsubscribe("n*");
+        push(r, "punsubscribe", "n*", ":0\r\n");
+        assertEquals("[psubscribed:n*:1, punsubscribed:n*:0]", h.events.toString());
+    }
+
+    @Test
+    public void patternConfirmationsAreRelayedToTheirHandler() {
+        Rec h = new Rec();
+        session.psubscribe(h, "n*");
+        Request r = up(connector.requests.get(0));
+        push(r, "psubscribe", "n*", ":1\r\n");
+        assertEquals("[psubscribed:n*:1]", h.events.toString());
+        session.close();
+    }
+
+    @Test
+    public void aMessageBodyIsRelayedAsItArrivesInAnySplit() {
+        Rec h = new Rec();
+        session.subscribe(h, "news");
+        Request r = up(connector.requests.get(0));
+        String wire = "*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$5\r\nhello\r\n";
+        for (int i = 0; i < wire.length(); i++) {
+            reply(r, wire.substring(i, i + 1));
+        }
+        assertEquals("[message:news:hello]", h.events.toString());
+    }
+
+    @Test
+    public void aHandlerThatSkipsAMessageIsNotToldTheRestAndTheNextIsDelivered() {
+        final List<String> log = new ArrayList<String>();
+        WholeMessages skipper = new WholeMessages() {
+            private int begun;
+
+            @Override
+            public org.bluezoo.gumdrop.redis.codec.ReplyFlow messageBegin(MessageHeader h, long length,
+                    ReplyStream stream) {
+                log.add("begin:" + begun);
+                return ++begun == 1 ? org.bluezoo.gumdrop.redis.codec.ReplyFlow.SKIP
+                        : org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+            }
+
+            @Override
+            public org.bluezoo.gumdrop.redis.codec.ReplyFlow messageContent(java.nio.ByteBuffer chunk) {
+                log.add("content");
+                chunk.position(chunk.limit());
+                return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+            }
+
+            @Override
+            public void messageEnd() {
+                log.add("end");
+            }
+
+            @Override
+            public void handleSubscribed(String channel, int count) {
+            }
+
+            @Override
+            public void handlePatternSubscribed(String pattern, int count) {
+            }
+
+            @Override
+            public void handleUnsubscribed(String channel, int count) {
+            }
+
+            @Override
+            public void handlePatternUnsubscribed(String pattern, int count) {
+            }
+
+            @Override
+            public void handleError(String error) {
+            }
+        };
+        session.subscribe(skipper, "news");
+        Request r = up(connector.requests.get(0));
+        push(r, "message", "news", "$2\r\nhi\r\n");
+        push(r, "message", "news", "$2\r\nok\r\n");
+        assertEquals("[begin:0, begin:1, content, end]", log.toString());
+    }
+
+    @Test
+    public void aHandlerThatSkipsPartWayThroughIsNotToldTheRest() {
+        final List<String> log = new ArrayList<String>();
+        WholeMessages skipper = new WholeMessages() {
+            @Override
+            public org.bluezoo.gumdrop.redis.codec.ReplyFlow messageContent(java.nio.ByteBuffer chunk) {
+                log.add("content");
+                chunk.position(chunk.limit());
+                return org.bluezoo.gumdrop.redis.codec.ReplyFlow.SKIP;
+            }
+
+            @Override
+            public void messageEnd() {
+                log.add("end");
+            }
+
+            @Override
+            public void handleSubscribed(String channel, int count) {
+            }
+
+            @Override
+            public void handlePatternSubscribed(String pattern, int count) {
+            }
+
+            @Override
+            public void handleUnsubscribed(String channel, int count) {
+            }
+
+            @Override
+            public void handlePatternUnsubscribed(String pattern, int count) {
+            }
+
+            @Override
+            public void handleError(String error) {
+            }
+        };
+        session.subscribe(skipper, "news");
+        Request r = up(connector.requests.get(0));
+        reply(r, "*3\r\n$7\r\nmessage\r\n$4\r\nnews\r\n$6\r\nabc");
+        reply(r, "def\r\n");
+        assertEquals("[content]", log.toString());
+    }
+
+    @Test
     public void channelsSubscribedSeparatelyShareOneConnection() {
         Rec first = new Rec();
         Rec second = new Rec();

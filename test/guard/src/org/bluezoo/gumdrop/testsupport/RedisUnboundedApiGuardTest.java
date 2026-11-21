@@ -99,6 +99,7 @@ public class RedisUnboundedApiGuardTest {
         BOUNDED_STRINGS.put("MessageHandler.handleShardSubscribed", identifier);
         BOUNDED_STRINGS.put("MessageHandler.handleShardUnsubscribed", identifier);
         BOUNDED_STRINGS.put("MessageHandler.handleError", error);
+        BOUNDED_STRINGS.put("MessageHandler.handleDropped", error);
         BOUNDED_STRINGS.put("RespEventHandler.bigNumber", "a number, bounded by the maximum line length");
         BOUNDED_STRINGS.put("RespEventHandler.simpleString", scalar);
         BOUNDED_STRINGS.put("RespEventHandler.error", error);

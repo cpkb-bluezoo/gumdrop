@@ -231,6 +231,19 @@ public class RedisClientPubSubStreamingTest {
     }
 
     @Test
+    public void aSmallLimitOnNamesDoesNotBreakConfirmationsOrDeliveries() {
+        // "subscribe" and "unsubscribe" are longer than the limit, but they
+        // are not names
+        handler.setMaxField(4);
+        Rec rec = new Rec();
+        session.subscribe(rec, "c");
+        feed("*3\r\n$9\r\nsubscribe\r\n$1\r\nc\r\n:1\r\n");
+        feed(message("c", "hi"));
+        feed("*3\r\n$11\r\nunsubscribe\r\n$1\r\nc\r\n:0\r\n");
+        assertEquals("[subscribed:c:1, begin:MESSAGE c:2, end, unsubscribed:c:0]", rec.log.toString());
+    }
+
+    @Test
     public void aPatternOverTheLimitDropsItsMessageToo() {
         handler.setMaxField(8);
         Rec rec = new Rec();

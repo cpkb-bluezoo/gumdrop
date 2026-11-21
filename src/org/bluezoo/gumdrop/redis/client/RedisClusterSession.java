@@ -1416,6 +1416,25 @@ final class RedisClusterSession extends AbstractRedisSession {
             public void handleError(String error) {
                 failAll(error);
             }
+
+            // a message dropped on the connection says nothing of the
+            // subscriptions: those whose messages are relayed are told, and
+            // keep their subscriptions
+            @Override
+            public void handleDropped(String reason) {
+                Set<MessageHandler> told = Collections.newSetFromMap(
+                        new java.util.IdentityHashMap<MessageHandler, Boolean>());
+                for (Registration reg : channels.values()) {
+                    if (told.add(reg.handler)) {
+                        reg.handler.handleDropped(reason);
+                    }
+                }
+                for (Registration reg : patterns.values()) {
+                    if (told.add(reg.handler)) {
+                        reg.handler.handleDropped(reason);
+                    }
+                }
+            }
         }
 
         /** Errors answering a subscribe: a redirect moves the subscription, anything else ends it. */

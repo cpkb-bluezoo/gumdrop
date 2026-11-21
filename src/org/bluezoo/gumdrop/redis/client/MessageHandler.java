@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
  * then {@link #messageEnd()}. The channel and pattern that name the message
  * are identifiers and arrive whole in the {@link MessageHeader}, up to the
  * connection's maximum field length; a message whose channel or pattern is
- * longer is dropped and reported to {@link #handleError}, and the messages
+ * longer is dropped and reported to {@link #handleDropped}, and the messages
  * after it are not disturbed.
  *
  * <p>A handler steers each message with the
@@ -145,10 +145,21 @@ public interface MessageHandler {
     }
 
     /**
-     * Called when an error occurs in Pub/Sub mode, including a message
-     * dropped because its channel or pattern was too long.
+     * Called when an error occurs in Pub/Sub mode that ends the
+     * subscription: the connection was lost, or the server refused it.
      * @param error the error message
      */
     void handleError(String error);
+
+    /**
+     * Called when a message is dropped without ending the subscription: its
+     * channel or pattern was longer than the maximum field length. The
+     * messages after it are not disturbed. By default this is reported as an
+     * error.
+     * @param reason why the message was dropped
+     */
+    default void handleDropped(String reason) {
+        handleError(reason);
+    }
 
 }

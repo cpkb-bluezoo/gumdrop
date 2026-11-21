@@ -241,15 +241,22 @@ final class PubSubReader implements RespEventHandler {
     // Text: the kind and the identifiers
     // ─────────────────────────────────────────────────────────────────────────
 
+    // The kind of a delivery is a short word whatever the limit on names.
+    private static final int KIND_LIMIT = 64;
+
+    private int limit() {
+        return phase == KIND ? KIND_LIMIT : host.maxField();
+    }
+
     private void startText(long length) {
         textLength = 0;
-        overflow = length > host.maxField();
+        overflow = length > limit();
         collecting = true;
     }
 
     private void addText(ByteBuffer chunk) {
         int n = chunk.remaining();
-        if (!overflow && (long) textLength + n > host.maxField()) {
+        if (!overflow && (long) textLength + n > limit()) {
             overflow = true;
         }
         if (overflow) {
@@ -284,7 +291,7 @@ final class PubSubReader implements RespEventHandler {
         MessageHandler mh = messages;
         phase = DROP;
         if (mh != null) {
-            mh.handleError(MessageFormat.format(
+            mh.handleDropped(MessageFormat.format(
                     RedisClientProtocolHandler.L10N.getString("err.identifier_too_long"),
                     Integer.valueOf(textLength), Integer.valueOf(host.maxField())));
         }

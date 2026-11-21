@@ -1413,10 +1413,7 @@ abstract class ReplyAdapter implements RespEventHandler {
 
         @Override
         void succeed() {
-            if (!arrived) {
-                fail(RedisClientProtocolHandler.L10N.getString("err.reply_shape"));
-                return;
-            }
+            // the decoder ends a reply only after at least one event of it
             handler.handleResult(isNull ? null : stringValue, session);
         }
 
