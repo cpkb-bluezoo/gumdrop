@@ -76,6 +76,9 @@ public class RedisClient {
     private java.time.Duration commandTimeout = java.time.Duration.ZERO;
     private int maxPendingCommands = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
     private java.time.Duration healthCheckInterval = java.time.Duration.ZERO;
+    private int maxLine = RedisClientProtocolHandler.DEFAULT_MAX_LINE;
+    private int maxField = RedisClientProtocolHandler.DEFAULT_MAX_FIELD;
+    private long maxSkip = RedisClientProtocolHandler.DEFAULT_MAX_SKIP;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -146,13 +149,57 @@ public class RedisClient {
     }
 
     /**
-     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
-     * settings are copied, so later changes to {@code source} are not seen.
-     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     * Sets the longest header or simple-string line the client will read: a
+     * length, a status, an error message. A longer one is not RESP the
+     * client is prepared to accept, and the connection is closed. This bounds
+     * what a server can make the client hold of a line. The default is
+     * 64 KiB.
      *
-     * @param source the TLS configuration
+     * @param bytes the limit, at least 64
      * @return this client
+     * @throws IllegalArgumentException if less than 64
      */
+    public RedisClient maxLine(int bytes) {
+        this.maxLine = RedisClusterClient.checkLine(bytes);
+        return this;
+    }
+
+    /**
+     * Sets the longest identifier (a key, a hash field name, a channel, a
+     * pattern, a cursor) or scalar string the client will deliver whole to a
+     * handler. A longer one fails the reply it is in with a
+     * {@code TOOLARGE} error, or drops the Pub/Sub message, and the
+     * connection is not affected. Payloads (values, list elements, message
+     * bodies) are not subject to it, as they are delivered as chunks. This
+     * bounds what a server, or whoever can write a key, can make the client
+     * hold for each connection. The default is 64 KiB.
+     *
+     * @param bytes the limit, at least 1
+     * @return this client
+     * @throws IllegalArgumentException if less than 1
+     */
+    public RedisClient maxField(int bytes) {
+        this.maxField = RedisClusterClient.checkField(bytes);
+        return this;
+    }
+
+    /**
+     * Sets the most bytes of one reply the client will read only to discard
+     * them: what a handler skipped, the reply to a command that timed out,
+     * and RESP3 attributes. Discarding costs no memory but it does cost
+     * time, so past this the connection is closed, and the commands waiting
+     * on it fail. This is the one case in which a reply that nobody wants
+     * closes the connection. The default is 256 MiB.
+     *
+     * @param bytes the limit, at least 1
+     * @return this client
+     * @throws IllegalArgumentException if less than 1
+     */
+    public RedisClient maxSkip(long bytes) {
+        this.maxSkip = RedisClusterClient.checkSkip(bytes);
+        return this;
+    }
+
     /**
      * Sets the RESP version to use. With 3, {@code HELLO 3} is sent as soon
      * as the connection is up, before the handler is told it is ready, so
@@ -234,9 +281,30 @@ public class RedisClient {
         return this;
     }
 
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
     public RedisClient tls(TlsConfig source) {
         tls.copyFrom(source);
         return this;
+    }
+
+    // The connection's handler, with this client's options applied.
+    RedisClientProtocolHandler newHandler(RedisConnectionReady handler) {
+        RedisClientProtocolHandler h = new RedisClientProtocolHandler(
+                protocol == 3 ? new HelloOnReady(handler, protocol) : handler);
+        h.setCommandTimeoutMillis(commandTimeout.toMillis());
+        h.setMaxPending(maxPendingCommands);
+        h.setHealthCheckMillis(healthCheckInterval.toMillis());
+        h.setMaxLine(maxLine);
+        h.setMaxField(maxField);
+        h.setMaxSkip(maxSkip);
+        return h;
     }
 
     public ClientDial getDial() {
@@ -252,11 +320,7 @@ public class RedisClient {
      */
     public void connect(Gumdrop gumdrop, RedisConnectionReady handler) {
         transportFactory = new TcpTransportFactory();
-        endpointHandler = new RedisClientProtocolHandler(
-                protocol == 3 ? new HelloOnReady(handler, protocol) : handler);
-        endpointHandler.setCommandTimeoutMillis(commandTimeout.toMillis());
-        endpointHandler.setMaxPending(maxPendingCommands);
-        endpointHandler.setHealthCheckMillis(healthCheckInterval.toMillis());
+        endpointHandler = newHandler(handler);
 
         ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
             @Override

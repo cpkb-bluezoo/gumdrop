@@ -42,10 +42,13 @@ final class TcpNodeConnector implements NodeConnector {
     private final String username;
     private final String password;
     private final int protocol;
+    private final int maxLine;
+    private final int maxField;
+    private final long maxSkip;
 
     TcpNodeConnector(Gumdrop gumdrop, SelectorLoop loop, DnsResolver dnsResolver,
                      boolean secure, TlsConfig tls, String username, String password,
-                     int protocol) {
+                     int protocol, int maxLine, int maxField, long maxSkip) {
         this.gumdrop = gumdrop;
         this.loop = loop;
         this.dnsResolver = dnsResolver;
@@ -54,6 +57,9 @@ final class TcpNodeConnector implements NodeConnector {
         this.username = username;
         this.password = password;
         this.protocol = protocol;
+        this.maxLine = maxLine;
+        this.maxField = maxField;
+        this.maxSkip = maxSkip;
     }
 
     @Override
@@ -68,7 +74,10 @@ final class TcpNodeConnector implements NodeConnector {
                 .port(node.getPort())
                 .selectorLoop(loop)
                 .secure(secure)
-                .tls(tls);
+                .tls(tls)
+                .maxLine(maxLine)
+                .maxField(maxField)
+                .maxSkip(maxSkip);
         if (dnsResolver != null) {
             client.dnsResolver(dnsResolver);
         }

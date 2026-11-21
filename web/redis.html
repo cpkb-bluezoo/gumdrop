@@ -573,10 +573,12 @@ data: a value, a list element, a hash value, a published message, a script
 result. It is delivered only as chunks.</li>
 <li>An <strong>identifier</strong> is a string the protocol uses to name or
 route: a key, a channel or pattern, a hash field name, a cursor. It is
-delivered whole, up to the maximum field length (64 KiB by default). A longer
-one fails that reply, not the connection.</li>
+delivered whole, up to the maximum field length (64 KiB by default, set with
+<code>maxField</code>, see <a href="#limits">Limits</a>). A longer one fails
+that reply, not the connection.</li>
 <li>A <strong>scalar</strong> (an integer, <code>OK</code>, an error line) is
-delivered as a value, bounded by the maximum line length.</li>
+delivered as a value, bounded by the maximum line length
+(<code>maxLine</code>).</li>
 </ul>
 
 <h4>Streaming a payload</h4>
@@ -828,14 +830,53 @@ that completes the handler with a <code>CONNLOST</code> error and the command
 is not repeated.
 </p>
 
+<h4 id="limits">Limits</h4>
+
+<p>
+Three limits bound what a server, or anyone who can write a key a server will
+return, can make the client hold or spend. They are options of both
+<code>RedisClient</code> and <code>RedisClusterClient</code> (a cluster client
+applies them to every connection it makes, to the seeds and to each node), and
+they should be set to what the application expects:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Option</th><th>Default</th><th>Bounds</th><th>Past it</th></tr>
+<tr><td><code>maxLine(bytes)</code></td><td>64 KiB (at least 64)</td>
+<td>a header or simple-string line: a length, a status, an error message</td>
+<td>the data is not RESP the client will accept: the connection is closed</td></tr>
+<tr><td><code>maxField(bytes)</code></td><td>64 KiB (at least 1)</td>
+<td>an identifier (key, field name, channel, pattern, cursor) or a scalar string delivered whole</td>
+<td>that reply fails with <code>TOOLARGE</code>, or that Pub/Sub message is dropped; the connection is not affected</td></tr>
+<tr><td><code>maxSkip(bytes)</code></td><td>256 MiB (at least 1)</td>
+<td>what is read only to be discarded: a reply a handler skipped, the late reply to a command that timed out, RESP3 attributes</td>
+<td>the connection is closed</td></tr>
+</table>
+
+<pre>
+RedisClient client = new RedisClient("localhost", 6379)
+        .maxLine(4 * 1024)
+        .maxField(512)        // keys here are short
+        .maxSkip(16 * 1024 * 1024);
+</pre>
+
+<p>
+Payloads are not subject to any of them, as they are delivered as chunks and
+held by no one. Discarding costs no memory but it does cost time, which is why
+<code>maxSkip</code> exists: a server that answers a skipped command with an
+endless reply would otherwise keep the connection reading for ever. An
+<code>InvalidationHandler</code> has its own limit, given when it is
+constructed, for the keys it delivers; set it to the same.
+</p>
+
 <h4>Memory</h4>
 
 <p>
 Nothing the client holds depends on the data. A connection costs at most its
 receive buffer, one line, one identifier, a stack of 32 counts for nested
 aggregates, and a block of a streamed request being written: connections
-&times; (buffer + maximum line + maximum field), an expression of configuration
-and never of data. The maximum line and field default to 64 KiB.
+&times; (buffer + <code>maxLine</code> + <code>maxField</code>), an expression
+of configuration and never of data.
 </p>
 
 <h4>What closes a connection</h4>
@@ -843,7 +884,8 @@ and never of data. The maximum line and field default to 64 KiB.
 <ul>
 <li>A server that sends data that is not RESP, or nests aggregates more than
 32 deep.</li>
-<li>Discarding more than the skip limit (256 MiB by default) of one reply:
+<li>A line longer than <code>maxLine</code>.</li>
+<li>Discarding more than <code>maxSkip</code> (256 MiB by default) of one reply:
 reading on only to discard has a cost of its own. This is the one case in which
 flow control closes a connection.</li>
 <li>A streamed request argument that fails or ends short of its declared
@@ -1027,8 +1069,9 @@ subscription, are identifiers and arrive whole in the
 <code>MessageHeader</code>. Returning <code>SKIP</code> drops that message
 only; <code>PAUSE</code> stops reading until the stream is resumed. A message
 whose channel or pattern is longer than the maximum field length is dropped
-and reported to <code>handleError</code>, and the messages after it are not
-disturbed. For small messages the examples keep <code>SmallMessages</code>,
+and reported to <code>handleDropped</code> (which calls <code>handleError</code>
+unless the handler overrides it; <code>handleError</code> itself is for errors
+that end the subscription), and the messages after it are not disturbed. For small messages the examples keep <code>SmallMessages</code>,
 which accumulates each under a limit:
 </p>
 

@@ -82,6 +82,9 @@ public class RedisClusterClient {
     private java.time.Duration commandTimeout = java.time.Duration.ZERO;
     private int maxPendingCommands = RedisClientProtocolHandler.DEFAULT_MAX_PENDING;
     private java.time.Duration healthCheckInterval = java.time.Duration.ZERO;
+    private int maxLine = RedisClientProtocolHandler.DEFAULT_MAX_LINE;
+    private int maxField = RedisClientProtocolHandler.DEFAULT_MAX_FIELD;
+    private long maxSkip = RedisClientProtocolHandler.DEFAULT_MAX_SKIP;
 
     private RedisClusterSession.Scheduler scheduler;
     private RedisClusterSession session;
@@ -289,6 +292,75 @@ public class RedisClusterClient {
     }
 
     /**
+     * Sets the longest header or simple-string line a connection to a node
+     * will read: a length, a status, an error message. A longer one is not
+     * RESP the client is prepared to accept, and that connection is closed.
+     * The default is 64 KiB.
+     *
+     * @param bytes the limit, at least 64
+     * @return this client
+     * @throws IllegalArgumentException if less than 64
+     */
+    public RedisClusterClient maxLine(int bytes) {
+        this.maxLine = checkLine(bytes);
+        return this;
+    }
+
+    /**
+     * Sets the longest identifier (a key, a hash field name, a channel, a
+     * pattern, a cursor) or scalar string that is delivered whole to a
+     * handler. A longer one fails the reply it is in with a
+     * {@code TOOLARGE} error, or drops the Pub/Sub message, and the
+     * connection is not affected. Payloads are not subject to it, as they
+     * are delivered as chunks. The default is 64 KiB.
+     *
+     * @param bytes the limit, at least 1
+     * @return this client
+     * @throws IllegalArgumentException if less than 1
+     */
+    public RedisClusterClient maxField(int bytes) {
+        this.maxField = checkField(bytes);
+        return this;
+    }
+
+    /**
+     * Sets the most bytes of one reply that a connection to a node will read
+     * only to discard them: what a handler skipped, the reply to a command
+     * that timed out, and RESP3 attributes. Past it that connection is
+     * closed. The default is 256 MiB.
+     *
+     * @param bytes the limit, at least 1
+     * @return this client
+     * @throws IllegalArgumentException if less than 1
+     */
+    public RedisClusterClient maxSkip(long bytes) {
+        this.maxSkip = checkSkip(bytes);
+        return this;
+    }
+
+    static int checkLine(int bytes) {
+        if (bytes < RedisClientProtocolHandler.MIN_MAX_LINE) {
+            throw new IllegalArgumentException("line limit must be at least "
+                    + RedisClientProtocolHandler.MIN_MAX_LINE + ": " + bytes);
+        }
+        return bytes;
+    }
+
+    static int checkField(int bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("field limit must be at least 1: " + bytes);
+        }
+        return bytes;
+    }
+
+    static long checkSkip(long bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("skip limit must be at least 1: " + bytes);
+        }
+        return bytes;
+    }
+
+    /**
      * Loads the cluster's topology and calls back when it is ready.
      *
      * @param gumdrop the runtime to connect under
@@ -312,7 +384,8 @@ public class RedisClusterClient {
                 }
             };
         }
-        connect(new TcpNodeConnector(gumdrop, loop, dnsResolver, secure, tls, username, password, protocol), handler);
+        connect(new TcpNodeConnector(gumdrop, loop, dnsResolver, secure, tls, username, password,
+                protocol, maxLine, maxField, maxSkip), handler);
     }
 
     /** Sets how retries are timed; a test seam (a real client times them on its loop). */

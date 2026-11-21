@@ -103,13 +103,14 @@ public class RedisClientConfigValidationTest {
     @Test
     public void theNodeConnectorConfiguresAClientForEachNode() {
         TcpNodeConnector connector = new TcpNodeConnector(null, null, null, false, new TlsConfig(),
-                "user", "secret", 3);
+                "user", "secret", 3, 4096, 256, 1024L);
         RedisClient client = connector.newClient(new ClusterNode("10.0.0.7", 7005, null));
         assertEquals("10.0.0.7", client.getDial().getHost());
         assertEquals(7005, client.getDial().getPort());
         assertFalse(client.isOpen());
         TcpNodeConnector withResolver = new TcpNodeConnector(null, null,
-                (org.bluezoo.gumdrop.dns.client.DnsResolver) null, true, new TlsConfig(), null, null, 2);
+                (org.bluezoo.gumdrop.dns.client.DnsResolver) null, true, new TlsConfig(), null, null, 2,
+                4096, 256, 1024L);
         assertEquals(7001, withResolver.newClient(new ClusterNode("h", 7001, null)).getDial().getPort());
     }
 

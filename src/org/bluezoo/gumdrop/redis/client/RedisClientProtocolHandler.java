@@ -224,6 +224,19 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     /** The longest identifier or scalar delivered whole, unless configured. */
     static final int DEFAULT_MAX_FIELD = 64 * 1024;
 
+    /** The longest header or simple-string line read, unless configured. */
+    static final int DEFAULT_MAX_LINE = RespDecoder.DEFAULT_MAX_LINE;
+
+    /** The most bytes of one reply that are discarded, unless configured. */
+    static final long DEFAULT_MAX_SKIP = RespDecoder.DEFAULT_MAX_SKIP;
+
+    /**
+     * The smallest line limit that can be set: a header line is a type
+     * byte, a 64-bit length and a CRLF, and an error line must be able to
+     * say what went wrong.
+     */
+    static final int MIN_MAX_LINE = 64;
+
 
     /** Source of the monotonic time deadlines are measured in; replaced in tests. */
     interface Ticker {
@@ -560,6 +573,28 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
      */
     void setMaxField(int max) {
         this.maxField = Math.max(1, max);
+    }
+
+    /**
+     * Sets the longest header or simple-string line (an error line, a
+     * length, a status) that is read. A longer one is a protocol error and
+     * closes the connection.
+     *
+     * @param max the limit in bytes, at least {@link #MIN_MAX_LINE}
+     */
+    void setMaxLine(int max) {
+        decoder.setMaxLine(max);
+    }
+
+    /**
+     * Sets the most bytes of one reply that are read only to be discarded:
+     * what a handler skipped, the reply to a command that timed out, and
+     * attributes. Past it the connection is closed.
+     *
+     * @param max the limit in bytes, at least 1
+     */
+    void setMaxSkip(long max) {
+        decoder.setMaxSkip(max);
     }
 
     /** Test seam: attaches an endpoint without the connect handshake. */
