@@ -348,6 +348,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     public void disconnected() {
         closed = true;
         cancelTimer();
+        if (writer != null) {
+            writer.abort();
+        }
         failInFlight();
         releasePending();
         if (!disconnectedCalled) {
