@@ -198,6 +198,74 @@ public class RespEncoder {
     }
 
     /** Number of decimal digits in a non-negative {@code value}. */
+    /**
+     * Encodes the start of a command one of whose arguments is streamed: the
+     * array header, the command and the arguments before the streamed one,
+     * and the length line of the streamed one. The bytes of the argument
+     * follow, then {@link #encodeStreamedTail}.
+     *
+     * @param command the command name
+     * @param args the arguments, with a placeholder at the streamed index
+     * @param streamedIndex the index in {@code args} of the streamed argument
+     * @param length the length in bytes of the streamed argument
+     * @return the buffer, ready to write
+     */
+    public ByteBuffer encodeStreamedHead(String command, byte[][] args, int streamedIndex, long length) {
+        byte[] name = command.getBytes(UTF_8);
+        int size = 1 + digitCount(args.length + 1) + 2 + bulkSize(name.length) + 1 + 19 + 2;
+        for (int i = 0; i < streamedIndex; i++) {
+            size += bulkSize(args[i].length);
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(size);
+        buffer.put((byte) '*');
+        putDecimal(buffer, args.length + 1);
+        buffer.put(CRLF);
+        putBulk(buffer, name);
+        for (int i = 0; i < streamedIndex; i++) {
+            putBulk(buffer, args[i]);
+        }
+        buffer.put((byte) '$');
+        byte[] digits = Long.toString(length).getBytes(UTF_8);
+        buffer.put(digits);
+        buffer.put(CRLF);
+        buffer.flip();
+        return buffer;
+    }
+
+    /**
+     * Encodes what follows the bytes of a streamed argument: its closing
+     * CRLF and the arguments after it.
+     *
+     * @param args the arguments, with a placeholder at the streamed index
+     * @param streamedIndex the index in {@code args} of the streamed argument
+     * @return the buffer, ready to write
+     */
+    public ByteBuffer encodeStreamedTail(byte[][] args, int streamedIndex) {
+        int size = 2;
+        for (int i = streamedIndex + 1; i < args.length; i++) {
+            size += bulkSize(args[i].length);
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(size);
+        buffer.put(CRLF);
+        for (int i = streamedIndex + 1; i < args.length; i++) {
+            putBulk(buffer, args[i]);
+        }
+        buffer.flip();
+        return buffer;
+    }
+
+    private static int bulkSize(int length) {
+        return 1 + digitCount(length) + 2 + length + 2;
+    }
+
+    private static void putBulk(ByteBuffer buffer, byte[] part) {
+        buffer.put((byte) '$');
+        putDecimal(buffer, part.length);
+        buffer.put(CRLF);
+        buffer.put(part);
+        buffer.put(CRLF);
+    }
+
     private static int digitCount(int value) {
         int digits = 1;
         while (value >= 10) {

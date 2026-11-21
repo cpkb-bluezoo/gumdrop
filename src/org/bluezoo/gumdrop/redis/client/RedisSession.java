@@ -193,6 +193,32 @@ public interface RedisSession {
     void set(String key, byte[] value, SetOptions options, BulkResultHandler handler);
 
     /**
+     * Sets a key to a value of any size, written as the connection can take
+     * it: the value is pulled from the source a block at a time and is never
+     * held. See {@link ArgumentSource} for how a source is sent more than once.
+     * If the source fails part-way the connection is closed, since the
+     * length of the value has been announced and the only way to recover is
+     * to start again; this command and those behind it fail.
+     *
+     * @param key the key
+     * @param value the value
+     * @param handler receives "OK"
+     */
+    void set(String key, ArgumentSource value, StringResultHandler handler);
+
+    /**
+     * Sets a key to a value of any size with options; see
+     * {@link #set(String, ArgumentSource, StringResultHandler)}.
+     *
+     * @param key the key
+     * @param value the value
+     * @param options the SET options
+     * @param handler receives "OK", or null if the options made the command
+     * not set the key
+     */
+    void set(String key, ArgumentSource value, SetOptions options, BulkResultHandler handler);
+
+    /**
      * Sets a key with expiration in seconds.
      *
      * @param key the key

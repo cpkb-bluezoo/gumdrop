@@ -89,6 +89,19 @@ abstract class AbstractRedisSession implements RedisSession {
      */
     abstract void sendCommand(Object callback, long timeoutMs, String command, byte[][] args);
 
+    /**
+     * Sends a command one of whose arguments is streamed from a source.
+     *
+     * @param callback the result handler, or null if no reply is wanted
+     * @param timeoutMs as for {@link #sendCommand(Object, long, String, String[])}
+     * @param command the command name
+     * @param args the arguments, with a placeholder at {@code index}
+     * @param index where the streamed argument goes
+     * @param source the streamed argument
+     */
+    abstract void sendStreamed(Object callback, long timeoutMs, String command, byte[][] args,
+                               int index, ArgumentSource source);
+
     // A Duration as a per-command timeout in milliseconds.
     private static long timeoutMillis(java.time.Duration timeout) {
         if (timeout.isNegative()) {
@@ -214,6 +227,24 @@ abstract class AbstractRedisSession implements RedisSession {
     @Override
     public void set(String key, byte[] value, StringResultHandler h) {
         sendCommand(h, "SET", new byte[][] { key.getBytes(UTF_8), value });
+    }
+
+    @Override
+    public void set(String key, ArgumentSource value, StringResultHandler h) {
+        sendStreamed(h, CommandTimeouts.DEFAULT, "SET",
+                new byte[][] { key.getBytes(UTF_8), new byte[0] }, 1, value);
+    }
+
+    @Override
+    public void set(String key, ArgumentSource value, SetOptions options, BulkResultHandler h) {
+        String[] extra = options.toArguments();
+        byte[][] args = new byte[2 + extra.length][];
+        args[0] = key.getBytes(UTF_8);
+        args[1] = new byte[0];
+        for (int i = 0; i < extra.length; i++) {
+            args[2 + i] = extra[i].getBytes(UTF_8);
+        }
+        sendStreamed(h, CommandTimeouts.DEFAULT, "SET", args, 1, value);
     }
 
     @Override

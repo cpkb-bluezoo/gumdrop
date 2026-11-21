@@ -39,15 +39,22 @@ final class SentCommand {
     private final long timeoutMs;
     private final int routingSlot;
     private final CommandInfo info;
+    // the argument whose bytes are pulled as they are written, and where
+    // it goes; binaryArgs holds a placeholder there. Null for none.
+    private final ArgumentSource streamed;
+    private final int streamedIndex;
 
     SentCommand(Object callback, String command, String[] textArgs, byte[][] binaryArgs) {
         this(callback, command, textArgs, binaryArgs, 0, false, false, CommandTimeouts.DEFAULT, -1,
-                CommandInfo.of(command));
+                CommandInfo.of(command), null, -1);
     }
 
     private SentCommand(Object callback, String command, String[] textArgs,
                         byte[][] binaryArgs, int redirects, boolean asking, boolean pinned,
-                        long timeoutMs, int routingSlot, CommandInfo info) {
+                        long timeoutMs, int routingSlot, CommandInfo info,
+                        ArgumentSource streamed, int streamedIndex) {
+        this.streamed = streamed;
+        this.streamedIndex = streamedIndex;
         this.info = info;
         this.timeoutMs = timeoutMs;
         this.routingSlot = routingSlot;
@@ -78,13 +85,13 @@ final class SentCommand {
     /** This command after one more redirect, to be preceded by {@code ASKING} if {@code asking}. */
     SentCommand redirected(boolean asking) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects + 1, asking, pinned, timeoutMs, routingSlot, info);
+                redirects + 1, asking, pinned, timeoutMs, routingSlot, info, streamed, streamedIndex);
     }
 
     /** This command marked as one that must not be redirected. */
     SentCommand pinned() {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, true, timeoutMs, routingSlot, info);
+                redirects, asking, true, timeoutMs, routingSlot, info, streamed, streamedIndex);
     }
 
     /**
@@ -94,7 +101,25 @@ final class SentCommand {
      */
     SentCommand withTimeout(long timeoutMs) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, pinned, timeoutMs, routingSlot, info);
+                redirects, asking, pinned, timeoutMs, routingSlot, info, streamed, streamedIndex);
+    }
+
+    /**
+     * Returns a copy of this command whose argument at {@code index} is
+     * streamed from {@code source}; {@code binaryArgs} must hold a
+     * placeholder there.
+     */
+    SentCommand withStream(int index, ArgumentSource source) {
+        return new SentCommand(callback, command, textArgs, binaryArgs,
+                redirects, asking, pinned, timeoutMs, routingSlot, info, source, index);
+    }
+
+    ArgumentSource getStreamed() {
+        return streamed;
+    }
+
+    int getStreamedIndex() {
+        return streamedIndex;
     }
 
     long getTimeoutMs() {
@@ -107,7 +132,7 @@ final class SentCommand {
      */
     SentCommand withRoutingSlot(int slot) {
         return new SentCommand(callback, command, textArgs, binaryArgs,
-                redirects, asking, pinned, timeoutMs, slot, info);
+                redirects, asking, pinned, timeoutMs, slot, info, streamed, streamedIndex);
     }
 
     /** The slot the command is to be sent to whatever its keys, or -1 for the slot of its keys. */
@@ -157,7 +182,9 @@ final class SentCommand {
 
     /** Sends the same command, with the same result handler, on {@code target}. */
     void resend(AbstractRedisSession target) {
-        if (textArgs != null) {
+        if (streamed != null) {
+            target.sendStreamed(callback, timeoutMs, command, binaryArgs, streamedIndex, streamed);
+        } else if (textArgs != null) {
             target.sendCommand(callback, timeoutMs, command, textArgs);
         } else if (binaryArgs != null) {
             target.sendCommand(callback, timeoutMs, command, binaryArgs);

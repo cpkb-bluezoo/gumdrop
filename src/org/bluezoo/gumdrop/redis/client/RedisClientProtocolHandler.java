@@ -117,6 +117,13 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     private Endpoint endpoint;
 
+    // Writes the requests in order, a block at a time for one with a
+    // streamed argument.
+    private RequestWriter writer;
+    // the last streamed command queued: commands sent behind it start
+    // their deadlines when it has been written, not when it was queued
+    private RequestWriter.Job lastStreamed;
+
     // Pending command callbacks (FIFO)
     private final Deque<PendingCommand> pendingCommands;
 
@@ -220,6 +227,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
+        this.writer = new RequestWriter(ep, writerOwner);
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("debug.connected"));
         }
@@ -482,6 +490,12 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
      * very object (with its redirect count) while a listener is installed.
      */
     void send(SentCommand command) {
+        if (command.getStreamed() != null) {
+            transmitStreamed(command.getCallback(), redirectListener != null ? command : null,
+                    command.getTimeoutMs(), command.getCommand(), command.getBinaryArgs(),
+                    command.getStreamedIndex(), command.getStreamed());
+            return;
+        }
         transmit(command.getCallback(), redirectListener != null ? command : null,
                 command.getCommand(), command.getTextArgs(), command.getBinaryArgs(),
                 command.getTimeoutMs());
@@ -507,6 +521,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     /** Test seam: attaches an endpoint without the connect handshake. */
     void attachForTest(Endpoint ep) {
         this.endpoint = ep;
+        this.writer = new RequestWriter(ep, writerOwner);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -528,6 +543,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
         decoder.reset();
         held = null;
+        if (writer != null) {
+            writer.abort();
+        }
         failInFlight();
         releasePending();
         pendingCommands.clear();
@@ -854,6 +872,14 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         long blocking = CommandTimeouts.blockingMillis(info, text, binary);
         pending.blocking = blocking >= 0;
         pending.deadlineNanos = deadlineFor(pending, blocking, timeoutMs);
+        if (lastStreamed != null && pending.deadlineNanos != 0) {
+            // queued behind a streamed command: the clock starts when the
+            // server can have seen it
+            pending.deadlineNanos = 0;
+            pending.deferredBlocking = blocking;
+            pending.deferredTimeoutMs = timeoutMs;
+            lastStreamed.after.add(pending);
+        }
         ByteBuffer buf;
         if (binary != null) {
             buf = encoder.encodeCommand(command, binary);
@@ -868,12 +894,112 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
         pending.sequence = nextSequence++;
         pendingCommands.add(pending);
-        endpoint.send(buf);
+        writer.send(buf);
         if (pending.deadlineNanos != 0) {
             deadlines.add(pending);
             armFor(pending.deadlineNanos);
         }
         armHealth();
+    }
+
+    // ── requests with a streamed argument ──
+
+    private final RequestWriter.Owner writerOwner = new RequestWriter.Owner() {
+        @Override
+        public void streamBroken(RequestWriter.Job job, String error) {
+            PendingCommand p = (PendingCommand) job.owner;
+            // the command has failed in its own way; what is behind it
+            // fails with the connection
+            p.timedOut = true;
+            deadlines.remove(p);
+            if (p.callback != null) {
+                dispatchError(p.callback, MessageFormat.format(
+                        L10N.getString("err.argument_failed"), error));
+            }
+            events().warn("warn.argument_failed").attr("error", error).emit();
+            close();
+            disconnected();
+        }
+
+        @Override
+        public void streamWritten(RequestWriter.Job job) {
+            if (lastStreamed == job) {
+                lastStreamed = null;
+            }
+            quietSinceNanos = ticker.nanos();
+            startDeadline((PendingCommand) job.owner);
+            for (Object o : job.after) {
+                startDeadline((PendingCommand) o);
+            }
+            armHealth();
+        }
+    };
+
+    // The server can now have all of the command: its clock starts.
+    private void startDeadline(PendingCommand p) {
+        if (p.timedOut || closed || p.deadlineNanos != 0) {
+            return;
+        }
+        p.deadlineNanos = deadlineFor(p, p.deferredBlocking, p.deferredTimeoutMs);
+        if (p.deadlineNanos != 0) {
+            deadlines.add(p);
+            armFor(p.deadlineNanos);
+        }
+    }
+
+    @Override
+    void sendStreamed(Object callback, long timeoutMs, String command, byte[][] args,
+                      int index, ArgumentSource source) {
+        transmitStreamed(callback, null, timeoutMs, command, args, index, source);
+    }
+
+    private void transmitStreamed(Object callback, SentCommand sent, long timeoutMs,
+                                  String command, byte[][] args, int index,
+                                  ArgumentSource source) {
+        if (endpoint == null || closed) {
+            if (callback != null) {
+                dispatchError(callback, L10N.getString("err.not_connected"));
+            }
+            return;
+        }
+        CommandInfo info = sent != null ? sent.info() : CommandInfo.of(command);
+        PendingCommand pending = pending(callback, sent, info, args.length);
+        if (maxPending > 0 && callback != null && pending.subscriptionKind == null
+                && pendingCommands.size() >= maxPending) {
+            dispatchError(callback, MessageFormat.format(
+                    L10N.getString("err.too_many_pending"), Integer.valueOf(maxPending)));
+            return;
+        }
+        long blocking = CommandTimeouts.blockingMillis(info, null, args);
+        pending.blocking = blocking >= 0;
+        // opened now, so that a source that cannot be sent again fails
+        // here, before anything is queued or written
+        RequestWriter.Job[] holder = new RequestWriter.Job[1];
+        ArgumentStream stream = source.open(writer.sinkFor(holder));
+        if (stream == null) {
+            if (callback != null) {
+                dispatchError(callback, L10N.getString("err.not_repeatable"));
+            }
+            return;
+        }
+        long length = source.length();
+        RequestWriter.Job job = new RequestWriter.Job(
+                encoder.encodeStreamedHead(command, args, index, length),
+                encoder.encodeStreamedTail(args, index), stream, length, pending);
+        holder[0] = job;
+        // the clock starts when the whole command has been written
+        pending.deferredBlocking = blocking;
+        pending.deferredTimeoutMs = timeoutMs;
+        if (lastStreamed != null) {
+            lastStreamed.after.add(pending);
+        }
+        lastStreamed = job;
+        if (pendingCommands.isEmpty()) {
+            quietSinceNanos = ticker.nanos();
+        }
+        pending.sequence = nextSequence++;
+        pendingCommands.add(pending);
+        writer.send(job);
     }
 
     // ── health check ──
@@ -882,6 +1008,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // a command (unless the oldest waiting command blocks on purpose), or a
     // subscription's traffic.
     private boolean watching() {
+        if (writer != null && writer.isBusy()) {
+            // it is the client that is sending
+            return false;
+        }
         if (held != null) {
             // paused: it is the consumer that is being waited for
             return false;
@@ -934,7 +1064,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         ping.internal = true;
         pendingCommands.add(ping);
         pingOutstanding = true;
-        endpoint.send(encoder.encodeCommand("PING"));
+        writer.send(encoder.encodeCommand("PING"));
         scheduleHealth(healthIntervalMs);
     }
 
@@ -1435,6 +1565,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         long lastActivityNanos;
         // the consumer has paused the reply: no deadline runs
         boolean suspended;
+        // queued behind a streamed command: how to work out its deadline
+        // once that has been written
+        long deferredBlocking;
+        long deferredTimeoutMs;
 
         PendingCommand(Object callback, SentCommand sent, String subscriptionKind,
                        int confirmationsDue) {
