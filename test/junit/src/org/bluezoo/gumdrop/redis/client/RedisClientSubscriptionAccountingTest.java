@@ -72,7 +72,7 @@ public class RedisClientSubscriptionAccountingTest {
         }
     }
 
-    private static final class Bulk implements BulkResultHandler {
+    private static final class Bulk extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override

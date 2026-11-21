@@ -129,19 +129,18 @@ final class ClusterDiscovery {
                 return;
             }
             connection = c;
-            c.command(new ArrayResultHandler() {
+            c.command(new ControlReplies.WholeReply() {
                 @Override
-                public void handleResult(java.util.List<RespValue> slots, RedisSession s) {
-                    answered(slots);
+                void onValue(RespValue slots, RedisSession s) {
+                    if (slots.isNull() || !slots.isArray()) {
+                        giveUp(new IOException("CLUSTER SLOTS returned nothing"));
+                    } else {
+                        answered(slots.asArray());
+                    }
                 }
 
                 @Override
-                public void handleNull(RedisSession s) {
-                    giveUp(new IOException("CLUSTER SLOTS returned nothing"));
-                }
-
-                @Override
-                public void handleError(String error, RedisSession s) {
+                void onError(String error, RedisSession s) {
                     giveUp(new IOException(error));
                 }
             }, "CLUSTER", "SLOTS");

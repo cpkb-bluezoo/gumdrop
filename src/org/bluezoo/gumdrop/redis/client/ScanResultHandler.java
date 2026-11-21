@@ -21,37 +21,50 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
-import java.util.List;
-
-import org.bluezoo.gumdrop.redis.codec.RespValue;
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 
 /**
- * Handler for Redis SCAN family commands (SCAN, HSCAN, SSCAN, ZSCAN).
+ * Receives one batch of {@code SCAN}: the cursor for the next call, then the
+ * keys, each delivered whole as an identifier. The scan of the members of a
+ * set, hash or sorted set ({@code SSCAN}, {@code HSCAN}, {@code ZSCAN})
+ * carries payloads and is received with a {@link ReplyEventHandler}.
  *
- * <p>Scan commands return a two-element array: [cursor, elements].
- * The cursor is "0" when iteration is complete. The caller should
- * continue calling scan with the returned cursor until "0" is received
- * (Redis command reference — SCAN).
+ * <p>A key longer than the connection's maximum field length (64 KiB by
+ * default) fails the reply with a {@code TOOLARGE} error to
+ * {@link #handleComplete}; the connection is not affected.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface ScanResultHandler {
 
     /**
-     * Called when the scan command succeeds.
+     * The cursor, which comes first.
      *
-     * @param cursor the cursor for the next iteration ("0" when done)
-     * @param elements the elements returned in this batch
-     * @param session the session for further operations
+     * @param cursor the cursor for the next iteration ({@code "0"} when done)
+     * @param stream a handle to resume or cancel the reply
+     * @return what to do next: continue, pause or skip the rest
      */
-    void handleResult(String cursor, List<RespValue> elements, RedisSession session);
+    ReplyFlow handleCursor(String cursor, ReplyStream stream);
 
     /**
-     * Called when the scan command fails with a Redis error.
+     * The next key of the batch.
      *
-     * @param error the error message from Redis
+     * @param key the key
+     * @return what to do next
+     */
+    ReplyFlow handleKey(String key);
+
+    /**
+     * The batch is complete.
+     */
+    void handleEnd();
+
+    /**
+     * The command is over, whether it succeeded or not. The last call.
+     *
+     * @param error null if it succeeded, otherwise the error
      * @param session the session for further operations
      */
-    void handleError(String error, RedisSession session);
+    void handleComplete(String error, RedisSession session);
 
 }

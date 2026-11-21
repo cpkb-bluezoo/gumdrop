@@ -168,7 +168,7 @@ public class RedisClusterIntegrationTest {
         onLoop(new Runnable() {
             @Override
             public void run() {
-                session.get(key, new BulkResultHandler() {
+                session.get(key, new WholeBulk() {
                     @Override
                     public void handleResult(byte[] value, RedisSession s) {
                         out.set(new String(value, StandardCharsets.UTF_8));
@@ -201,7 +201,7 @@ public class RedisClusterIntegrationTest {
         onLoop(new Runnable() {
             @Override
             public void run() {
-                session.command(new ArrayResultHandler() {
+                session.command(new WholeEvents() {
                     @Override
                     public void handleResult(List<RespValue> values, RedisSession s) {
                         out.set(values);
@@ -343,7 +343,7 @@ public class RedisClusterIntegrationTest {
                 session.multi(ignore);
                 session.set(tag + ".a", "1", ignore);
                 session.set(tag + ".b", "2", ignore);
-                session.exec(new ArrayResultHandler() {
+                session.exec(new WholeEvents() {
                     @Override
                     public void handleResult(List<RespValue> values, RedisSession s) {
                         if (outcome.get() == null) {
@@ -381,7 +381,7 @@ public class RedisClusterIntegrationTest {
             @Override
             public void run() {
                 session.eval("return redis.call('set', KEYS[1], ARGV[1])", 1,
-                        new String[] { key }, new String[] { "from-lua" }, new ArrayResultHandler() {
+                        new String[] { key }, new String[] { "from-lua" }, new WholeEvents() {
                             @Override
                             public void handleResult(List<RespValue> values, RedisSession s) {
                                 outcome.set("array");
@@ -415,7 +415,7 @@ public class RedisClusterIntegrationTest {
         onLoop(new Runnable() {
             @Override
             public void run() {
-                BulkResultHandler record = new BulkResultHandler() {
+                BulkResultHandler record = new WholeBulk() {
                     @Override
                     public void handleResult(byte[] value, RedisSession s) {
                         synchronized (outcomes) {

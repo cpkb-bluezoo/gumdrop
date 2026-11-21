@@ -23,11 +23,9 @@ package org.bluezoo.gumdrop.redis.client;
 
 import java.io.IOException;
 import java.text.MessageFormat;
-import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Negotiates RESP3 with {@code HELLO 3} as soon as a connection is up, and
@@ -53,22 +51,16 @@ final class HelloOnReady implements RedisConnectionReady {
 
     @Override
     public void handleReady(final RedisSession session) {
-        session.hello(protocol, new ArrayResultHandler() {
+        ((AbstractRedisSession) session).hello(protocol, new ControlReplies.Acknowledgement() {
             @Override
-            public void handleResult(List<RespValue> values, RedisSession s) {
-                application.handleReady(s);
-            }
-
-            @Override
-            public void handleNull(RedisSession s) {
-                application.handleReady(s);
-            }
-
-            @Override
-            public void handleError(String error, RedisSession s) {
-                application.onError(new IOException(MessageFormat.format(
-                        RedisClientProtocolHandler.L10N.getString("err.hello_failed"), error)));
-                s.close();
+            void done(String error, RedisSession s) {
+                if (error == null) {
+                    application.handleReady(s);
+                } else {
+                    application.onError(new IOException(MessageFormat.format(
+                            RedisClientProtocolHandler.L10N.getString("err.hello_failed"), error)));
+                    s.close();
+                }
             }
         });
     }

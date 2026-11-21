@@ -66,7 +66,7 @@ public class RedisClusterWaitTest {
         }
     }
 
-    private static final class Many implements ArrayResultHandler {
+    private static final class Many extends WholeEvents {
         final List<String> events = new ArrayList<String>();
 
         @Override

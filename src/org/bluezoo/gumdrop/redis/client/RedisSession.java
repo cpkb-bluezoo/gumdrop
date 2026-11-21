@@ -100,30 +100,6 @@ public interface RedisSession {
      */
     void close();
 
-    // RESP3 — HELLO command (Redis 6+)
-
-    /**
-     * Sends a HELLO command to negotiate the RESP protocol version
-     * and optionally authenticate in a single round-trip (Redis 6+).
-     *
-     * <p>HELLO returns a map of server properties including: server,
-     * version, proto, id, mode, role, modules.
-     *
-     * @param protover the RESP protocol version (2 or 3)
-     * @param handler receives the server properties as an array
-     */
-    void hello(int protover, ArrayResultHandler handler);
-
-    /**
-     * Sends a HELLO command with authentication.
-     *
-     * @param protover the RESP protocol version (2 or 3)
-     * @param username the username (or "default")
-     * @param password the password
-     * @param handler receives the server properties as an array
-     */
-    void hello(int protover, String username, String password, ArrayResultHandler handler);
-
     // CLIENT commands (Redis command reference — CLIENT)
 
     /**
@@ -415,7 +391,7 @@ public interface RedisSession {
      * @param pattern the glob-style pattern
      * @param handler receives the matching keys
      */
-    void keys(String pattern, ArrayResultHandler handler);
+    void keys(String pattern, KeyArrayResultHandler handler);
 
     // SCAN commands (Redis command reference — SCAN)
 
@@ -444,7 +420,7 @@ public interface RedisSession {
      * @param cursor the cursor ("0" to start)
      * @param handler receives the cursor and field-value pairs
      */
-    void hscan(String key, String cursor, ScanResultHandler handler);
+    void hscan(String key, String cursor, ReplyEventHandler handler);
 
     /**
      * Incrementally iterates over fields in a hash with MATCH and COUNT.
@@ -455,7 +431,7 @@ public interface RedisSession {
      * @param count the hint for number of elements (0 to skip)
      * @param handler receives the cursor and field-value pairs
      */
-    void hscan(String key, String cursor, String match, int count, ScanResultHandler handler);
+    void hscan(String key, String cursor, String match, int count, ReplyEventHandler handler);
 
     /**
      * Incrementally iterates over members of a set.
@@ -464,7 +440,7 @@ public interface RedisSession {
      * @param cursor the cursor ("0" to start)
      * @param handler receives the cursor and members
      */
-    void sscan(String key, String cursor, ScanResultHandler handler);
+    void sscan(String key, String cursor, ReplyEventHandler handler);
 
     /**
      * Incrementally iterates over members of a set with MATCH and COUNT.
@@ -475,7 +451,7 @@ public interface RedisSession {
      * @param count the hint for number of elements (0 to skip)
      * @param handler receives the cursor and members
      */
-    void sscan(String key, String cursor, String match, int count, ScanResultHandler handler);
+    void sscan(String key, String cursor, String match, int count, ReplyEventHandler handler);
 
     /**
      * Incrementally iterates over members of a sorted set.
@@ -484,7 +460,7 @@ public interface RedisSession {
      * @param cursor the cursor ("0" to start)
      * @param handler receives the cursor and member-score pairs
      */
-    void zscan(String key, String cursor, ScanResultHandler handler);
+    void zscan(String key, String cursor, ReplyEventHandler handler);
 
     /**
      * Incrementally iterates over members of a sorted set with MATCH and COUNT.
@@ -495,7 +471,7 @@ public interface RedisSession {
      * @param count the hint for number of elements (0 to skip)
      * @param handler receives the cursor and member-score pairs
      */
-    void zscan(String key, String cursor, String match, int count, ScanResultHandler handler);
+    void zscan(String key, String cursor, String match, int count, ReplyEventHandler handler);
 
     /**
      * Renames a key.
@@ -590,7 +566,7 @@ public interface RedisSession {
      * @param key the key
      * @param handler receives alternating field/value array
      */
-    void hgetall(String key, ArrayResultHandler handler);
+    void hgetall(String key, MapResultHandler handler);
 
     /**
      * Gets all field names in a hash.
@@ -598,7 +574,7 @@ public interface RedisSession {
      * @param key the key
      * @param handler receives array of field names
      */
-    void hkeys(String key, ArrayResultHandler handler);
+    void hkeys(String key, KeyArrayResultHandler handler);
 
     /**
      * Gets all values in a hash.
@@ -1059,7 +1035,7 @@ public interface RedisSession {
      *
      * @param handler receives array of results, or null if WATCH failed
      */
-    void exec(ArrayResultHandler handler);
+    void exec(ReplyEventHandler handler);
 
     /**
      * Discards all queued commands.
@@ -1096,7 +1072,7 @@ public interface RedisSession {
      * @param args additional arguments (available as ARGV[1], ARGV[2], etc.)
      * @param handler receives the script result
      */
-    void eval(String script, int numKeys, String[] keys, String[] args, ArrayResultHandler handler);
+    void eval(String script, int numKeys, String[] keys, String[] args, ReplyEventHandler handler);
 
     /**
      * Executes a cached script by SHA1 hash.
@@ -1107,7 +1083,7 @@ public interface RedisSession {
      * @param args additional arguments
      * @param handler receives the script result
      */
-    void evalsha(String sha1, int numKeys, String[] keys, String[] args, ArrayResultHandler handler);
+    void evalsha(String sha1, int numKeys, String[] keys, String[] args, ReplyEventHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Server
@@ -1186,7 +1162,7 @@ public interface RedisSession {
      * @param end the end ID ("+" for maximum)
      * @param handler receives the entries
      */
-    void xrange(String key, String start, String end, ArrayResultHandler handler);
+    void xrange(String key, String start, String end, ReplyEventHandler handler);
 
     /**
      * Returns a range of entries with a count limit.
@@ -1197,7 +1173,7 @@ public interface RedisSession {
      * @param count the maximum number of entries
      * @param handler receives the entries
      */
-    void xrange(String key, String start, String end, int count, ArrayResultHandler handler);
+    void xrange(String key, String start, String end, int count, ReplyEventHandler handler);
 
     /**
      * Returns a range of entries in reverse order.
@@ -1207,7 +1183,7 @@ public interface RedisSession {
      * @param start the start ID ("-" for minimum)
      * @param handler receives the entries
      */
-    void xrevrange(String key, String end, String start, ArrayResultHandler handler);
+    void xrevrange(String key, String end, String start, ReplyEventHandler handler);
 
     /**
      * Returns a range of entries in reverse order with a count limit.
@@ -1218,7 +1194,7 @@ public interface RedisSession {
      * @param count the maximum number of entries
      * @param handler receives the entries
      */
-    void xrevrange(String key, String end, String start, int count, ArrayResultHandler handler);
+    void xrevrange(String key, String end, String start, int count, ReplyEventHandler handler);
 
     /**
      * Reads entries from one or more streams, optionally blocking.
@@ -1228,7 +1204,7 @@ public interface RedisSession {
      * @param handler receives the entries per stream
      * @param keysAndIds alternating stream keys and IDs
      */
-    void xread(int count, long blockMillis, ArrayResultHandler handler, String... keysAndIds);
+    void xread(int count, long blockMillis, ReplyEventHandler handler, String... keysAndIds);
 
     /**
      * Trims a stream to approximately the specified length.
@@ -1275,7 +1251,7 @@ public interface RedisSession {
      * @param group the consumer group name
      * @param handler receives the pending entry information
      */
-    void xpending(String key, String group, ArrayResultHandler handler);
+    void xpending(String key, String group, ReplyEventHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Generic command
@@ -1294,7 +1270,7 @@ public interface RedisSession {
      * @param command the command name
      * @param args the arguments
      */
-    void command(ArrayResultHandler handler, String command, String... args);
+    void command(ReplyEventHandler handler, String command, String... args);
 
     /**
      * Sends a raw command with byte array arguments.
@@ -1303,7 +1279,7 @@ public interface RedisSession {
      * @param command the command name
      * @param args the arguments as byte arrays
      */
-    void command(ArrayResultHandler handler, String command, byte[]... args);
+    void command(ReplyEventHandler handler, String command, byte[]... args);
 
     /**
      * Sends a raw command with string arguments and its own timeout: the
@@ -1317,7 +1293,7 @@ public interface RedisSession {
      * @param args the arguments
      * @throws IllegalArgumentException if {@code timeout} is negative
      */
-    void command(java.time.Duration timeout, ArrayResultHandler handler, String command, String... args);
+    void command(java.time.Duration timeout, ReplyEventHandler handler, String command, String... args);
 
     /**
      * Sends a raw command with byte array arguments and its own timeout.
@@ -1329,7 +1305,7 @@ public interface RedisSession {
      * @param args the arguments as byte arrays
      * @throws IllegalArgumentException if {@code timeout} is negative
      */
-    void command(java.time.Duration timeout, ArrayResultHandler handler, String command, byte[]... args);
+    void command(java.time.Duration timeout, ReplyEventHandler handler, String command, byte[]... args);
 
     /**
      * Sends {@code WAIT numReplicas timeoutMs}, which blocks until at least
@@ -1380,7 +1356,7 @@ public interface RedisSession {
      * @param timeoutMs how long the server waits, in milliseconds
      * @param handler receives {@code [local, replicas]}
      */
-    void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs, ArrayResultHandler handler);
+    void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs, ReplyEventHandler handler);
 
     /**
      * Sends a command to the primary that serves the slot of
@@ -1389,17 +1365,17 @@ public interface RedisSession {
      * to a chosen slot's node. If the command has keys, they must hash to the
      * same slot, or it fails with {@code CROSSSLOT}. It follows {@code MOVED}
      * and {@code ASK} as a keyed command does. On a single node the key is
-     * ignored and this is {@link #command(ArrayResultHandler, String, String...)}.
+     * ignored and this is {@link #command(ReplyEventHandler, String, String...)}.
      *
      * @param routingKey a key of the slot to send it to
      * @param handler receives the result
      * @param command the command name
      * @param args the arguments
      */
-    void commandForKey(String routingKey, ArrayResultHandler handler, String command, String... args);
+    void commandForKey(String routingKey, ReplyEventHandler handler, String command, String... args);
 
     /**
-     * As {@link #commandForKey(String, ArrayResultHandler, String, String...)},
+     * As {@link #commandForKey(String, ReplyEventHandler, String, String...)},
      * with binary-safe arguments and its own timeout.
      *
      * @param routingKey a key of the slot to send it to
@@ -1410,7 +1386,7 @@ public interface RedisSession {
      * @param args the arguments as byte arrays
      * @throws IllegalArgumentException if {@code timeout} is negative
      */
-    void commandForKey(String routingKey, java.time.Duration timeout, ArrayResultHandler handler,
+    void commandForKey(String routingKey, java.time.Duration timeout, ReplyEventHandler handler,
                        String command, byte[]... args);
 
 }

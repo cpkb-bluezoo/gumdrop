@@ -5,6 +5,8 @@ import java.util.concurrent.TimeUnit;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
+import org.bluezoo.gumdrop.redis.client.ReplyStream;
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
 import org.bluezoo.gumdrop.redis.client.RedisClient;
 import org.bluezoo.gumdrop.redis.client.RedisClusterClient;
@@ -211,12 +213,24 @@ public class RedisBench {
             finish(false);
         }
 
-        public void handleResult(byte[] v, RedisSession s) {
-            finish(false);
+        // the bulk reply is discarded as it arrives, as a streaming
+        // consumer that wants only the outcome would
+        public void handleNull() {
         }
 
-        public void handleNull(RedisSession s) {
-            finish(false);
+        public ReplyFlow handleBegin(long length, ReplyStream stream) {
+            return ReplyFlow.CONTINUE;
+        }
+
+        public ReplyFlow handleContent(java.nio.ByteBuffer chunk) {
+            return ReplyFlow.CONTINUE;
+        }
+
+        public void handleEnd() {
+        }
+
+        public void handleComplete(String error, RedisSession s) {
+            finish(error != null);
         }
 
         public void handleResult(long v, RedisSession s) {

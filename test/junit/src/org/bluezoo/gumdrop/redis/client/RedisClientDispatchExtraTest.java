@@ -176,7 +176,7 @@ public class RedisClientDispatchExtraTest {
     @Test
     public void arrayHandlerHandlesNullArrayMapAndScalar() {
         final List<String> seen = new ArrayList<String>();
-        ArrayResultHandler h = new ArrayResultHandler() {
+        ArrayResultHandler h = new WholeArray() {
             @Override
             public void handleResult(List<RespValue> array, RedisSession s) {
                 seen.add("array:" + array.size());
@@ -192,11 +192,11 @@ public class RedisClientDispatchExtraTest {
                 seen.add("error:" + error);
             }
         };
-        session.keys("*", h);
-        session.keys("*", h);
-        session.keys("*", h);
-        session.keys("*", h);
-        session.keys("*", h);
+        session.hvals("*", h);
+        session.hvals("*", h);
+        session.hvals("*", h);
+        session.hvals("*", h);
+        session.hvals("*", h);
         feed("*-1\r\n");
         feed("*2\r\n+a\r\n+b\r\n");
         feed("%1\r\n+k\r\n+v\r\n");
@@ -205,14 +205,15 @@ public class RedisClientDispatchExtraTest {
         assertEquals("null", seen.get(0));
         assertEquals("array:2", seen.get(1));
         assertEquals("array:2", seen.get(2));
-        assertEquals("array:1", seen.get(3));
+        // a string where an array was due is not wrapped, but refused
+        assertTrue(seen.get(3), seen.get(3).startsWith("error:ERR"));
         assertEquals("error:ERR bad", seen.get(4));
     }
 
     @Test
     public void bulkHandlerNullAndValue() {
         final List<String> seen = new ArrayList<String>();
-        BulkResultHandler h = new BulkResultHandler() {
+        BulkResultHandler h = new WholeBulk() {
             @Override
             public void handleResult(byte[] value, RedisSession s) {
                 seen.add("v:" + new String(value, StandardCharsets.UTF_8));
@@ -276,7 +277,7 @@ public class RedisClientDispatchExtraTest {
     @Test
     public void scanHandlerResultNullInvalidAndError() {
         final List<String> seen = new ArrayList<String>();
-        ScanResultHandler h = new ScanResultHandler() {
+        ScanResultHandler h = new WholeScan() {
             @Override
             public void handleResult(String cursor, List<RespValue> elements,
                                      RedisSession s) {
@@ -297,8 +298,9 @@ public class RedisClientDispatchExtraTest {
         feed("*1\r\n+x\r\n");
         feed("-ERR scan\r\n");
         assertEquals("r:5:2", seen.get(0));
-        assertEquals("e:null response", seen.get(1));
-        assertEquals("e:Invalid scan response", seen.get(2));
+        assertTrue(seen.get(1), seen.get(1).startsWith("e:ERR"));
+        // a batch with a cursor and no keys is a batch of none
+        assertEquals("r:x:0", seen.get(2));
         assertEquals("e:ERR scan", seen.get(3));
     }
 

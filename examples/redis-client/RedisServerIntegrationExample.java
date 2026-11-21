@@ -9,14 +9,11 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.redis.client.ArrayResultHandler;
 import org.bluezoo.gumdrop.redis.client.BooleanResultHandler;
-import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
 import org.bluezoo.gumdrop.redis.client.RedisClient;
 import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -311,7 +308,7 @@ public class RedisServerIntegrationExample {
 
             final String rateLimitKey = "ratelimit:" + clientIP;
             
-            redis.get(rateLimitKey, new BulkResultHandler() {
+            redis.get(rateLimitKey, new SmallBulk() {
                 @Override
                 public void handleResult(byte[] value, RedisSession session) {
                     final int count = Integer.parseInt(new String(value, StandardCharsets.UTF_8));
@@ -355,9 +352,9 @@ public class RedisServerIntegrationExample {
                 return;
             }
 
-            redis.hgetall("session:" + clientIP, new ArrayResultHandler() {
+            redis.hgetall("session:" + clientIP, new SmallMap() {
                 @Override
-                public void handleResult(List<RespValue> array, RedisSession session) {
+                public void handleResult(List<String> array, RedisSession session) {
                     if (array.isEmpty()) {
                         sendMessage("No history recorded\r\n");
                         return;
@@ -366,8 +363,8 @@ public class RedisServerIntegrationExample {
                     StringBuilder sb = new StringBuilder();
                     sb.append("Session history:\r\n");
                     for (int i = 0; i < array.size(); i += 2) {
-                        String field = array.get(i).asString();
-                        String value = array.get(i + 1).asString();
+                        String field = array.get(i);
+                        String value = array.get(i + 1);
                         sb.append("  ").append(field).append(": ").append(value).append("\r\n");
                     }
                     sendMessage(sb.toString());

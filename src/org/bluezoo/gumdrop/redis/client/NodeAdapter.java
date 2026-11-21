@@ -94,23 +94,16 @@ final class NodeAdapter implements RedisConnectionReady {
     // HELLO 3 carries the credentials itself, in one round trip; it
     // authenticates as the default user when only a password is given.
     private void negotiate() {
-        ArrayResultHandler result = new ArrayResultHandler() {
+        ControlReplies.Acknowledgement result = new ControlReplies.Acknowledgement() {
             @Override
-            public void handleResult(java.util.List<org.bluezoo.gumdrop.redis.codec.RespValue> values,
-                                     RedisSession s) {
-                becomeReady();
-            }
-
-            @Override
-            public void handleNull(RedisSession s) {
-                becomeReady();
-            }
-
-            @Override
-            public void handleError(String error, RedisSession s) {
-                fail(new IOException(MessageFormat.format(
-                        RedisClientProtocolHandler.L10N.getString("err.hello_failed"), error)));
-                connection.close();
+            void done(String error, RedisSession s) {
+                if (error == null) {
+                    becomeReady();
+                } else {
+                    fail(new IOException(MessageFormat.format(
+                            RedisClientProtocolHandler.L10N.getString("err.hello_failed"), error)));
+                    connection.close();
+                }
             }
         };
         if (password != null) {

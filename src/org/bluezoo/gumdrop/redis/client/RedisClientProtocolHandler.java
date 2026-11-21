@@ -99,6 +99,20 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     private RespValueBuilder builder = new RespValueBuilder(MAX_BUILT_REPLY);
     private long maxBuiltReply = MAX_BUILT_REPLY;
     private final ReplyRouter router = new ReplyRouter();
+
+    // The longest identifier (key, field name, cursor) or scalar read whole.
+    private int maxField = DEFAULT_MAX_FIELD;
+
+    // Flow control. While a handler has paused its reply, reading is
+    // stopped and what has already arrived is held here (at most one
+    // receive buffer's worth) until it resumes; null when not paused.
+    private ByteBuffer held;
+    private boolean receiving;
+    private boolean resumeRequested;
+
+    // The command whose reply is being read: it has left the queue, but
+    // the server is still sending its answer.
+    private PendingCommand inFlight;
     private final RespEncoder encoder;
 
     private Endpoint endpoint;
@@ -150,6 +164,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     /** The most commands allowed to await a reply on one connection, unless configured. */
     static final int DEFAULT_MAX_PENDING = 65536;
+
+    /** The longest identifier or scalar delivered whole, unless configured. */
+    static final int DEFAULT_MAX_FIELD = 64 * 1024;
 
     /** The most one reply may hold while handlers still take whole values. */
     static final long MAX_BUILT_REPLY = 64L * 1024 * 1024;
@@ -213,22 +230,109 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     @Override
     public void receive(ByteBuffer buf) {
         quietSinceNanos = ticker.nanos();
+        if (held != null) {
+            // reading is paused, but what was already on its way arrives:
+            // keep it, bounded by what one read delivers
+            hold(buf);
+            return;
+        }
+        feed(buf);
+    }
+
+    // Decodes the bytes. If a handler pauses its reply the rest is held,
+    // reading is stopped and the clocks that would run against the server
+    // are suspended until the handler resumes.
+    private void feed(ByteBuffer buf) {
+        boolean paused = false;
+        receiving = true;
         try {
-            decoder.receive(buf, router);
+            do {
+                resumeRequested = false;
+                paused = decoder.receive(buf, router);
+            } while (paused && resumeRequested);
         } catch (RespException e) {
             events().warn("err.protocol_error").thrown(e).emit();
             handler.onError(e);
             close();
+            return;
         } catch (RuntimeException e) {
-            // A well-formed RESP value of the wrong shape for the pending
-            // command or Pub/Sub event (a simple string where an integer
-            // was due, a short array) is read through accessors that throw
-            // unchecked exceptions: treat it as a protocol error rather
-            // than let it escape into the selector loop.
+            // A handler or the Pub/Sub code threw, or a well-formed value
+            // was of a shape that was not expected: treat it as a protocol
+            // error rather than let it escape into the selector loop.
             RespException malformed = new RespException("Malformed server reply", e);
             events().warn("err.protocol_error").thrown(malformed).emit();
             handler.onError(malformed);
             close();
+            return;
+        } finally {
+            receiving = false;
+        }
+        if (paused && !closed) {
+            pauseReading(buf);
+        }
+    }
+
+    private void pauseReading(ByteBuffer rest) {
+        held = ByteBuffer.allocate(rest.remaining());
+        held.put(rest);
+        held.flip();
+        suspendInFlight();
+        endpoint.pauseRead();
+    }
+
+    private void hold(ByteBuffer buf) {
+        if (!buf.hasRemaining()) {
+            return;
+        }
+        ByteBuffer joined = ByteBuffer.allocate(held.remaining() + buf.remaining());
+        joined.put(held);
+        joined.put(buf);
+        joined.flip();
+        held = joined;
+    }
+
+    // Stops the clocks that run against the server while the consumer, not
+    // the server, is what the reply waits for.
+    private void suspendInFlight() {
+        PendingCommand p = inFlight;
+        if (p != null && p.deadlineNanos != 0) {
+            deadlines.remove(p);
+            p.suspended = true;
+        }
+    }
+
+    // The consumer is ready for more: the clocks start again from now, what
+    // was held is decoded, and if the handler does not pause again, reading
+    // resumes. Runs on the connection's event loop.
+    private void resumeReading() {
+        if (receiving) {
+            // asked for from inside the event that paused: the decoder
+            // carries on instead of stopping
+            resumeRequested = true;
+            return;
+        }
+        if (held == null || closed) {
+            return;
+        }
+        long now = ticker.nanos();
+        quietSinceNanos = now;
+        PendingCommand p = inFlight;
+        if (p != null && p.suspended) {
+            p.suspended = false;
+            p.lastActivityNanos = now;
+            p.deadlineNanos = now + p.timeoutMs * 1000000L;
+            if (p.deadlineNanos == 0) {
+                p.deadlineNanos = 1;
+            }
+            deadlines.add(p);
+            armFor(p.deadlineNanos);
+        }
+        ByteBuffer pending = held;
+        held = null;
+        feed(pending);
+        if (held == null && !closed) {
+            endpoint.resumeRead();
+            armHealth();
         }
     }
 
@@ -236,6 +340,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     public void disconnected() {
         closed = true;
         cancelTimer();
+        failInFlight();
         releasePending();
         if (!disconnectedCalled) {
             disconnectedCalled = true;
@@ -382,6 +487,17 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
                 command.getTimeoutMs());
     }
 
+    /**
+     * Sets the longest identifier (a key, a field name, a cursor) or scalar
+     * that is read whole. A longer one fails the reply it is in, and the
+     * connection is not affected.
+     *
+     * @param max the limit in bytes, at least 1
+     */
+    void setMaxField(int max) {
+        this.maxField = Math.max(1, max);
+    }
+
     /** Test seam: the most one reply may hold while handlers take whole values. */
     void setMaxBuiltReply(long max) {
         this.maxBuiltReply = max;
@@ -411,9 +527,31 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             endpoint.close();
         }
         decoder.reset();
+        held = null;
+        failInFlight();
         releasePending();
         pendingCommands.clear();
         deadlines.clear();
+    }
+
+    // A reply that was being streamed when the connection went is not
+    // repeated, as the handler has already been given part of it.
+    private void failInFlight() {
+        PendingCommand p = inFlight;
+        if (p == null) {
+            return;
+        }
+        inFlight = null;
+        deadlines.remove(p);
+        if (!p.timedOut && !p.internal) {
+            String error = L10N.getString("err.connection_lost_mid_reply");
+            ReplyAdapter adapter = router.adapter;
+            if (adapter != null) {
+                adapter.abort(error);
+            } else if (p.callback != null) {
+                dispatchError(p.callback, error);
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -466,7 +604,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             // its handler has been told it timed out
             return;
         }
-        dispatchResponse(pending, response);
+        replay(pending, response);
     }
 
     // A push nothing else claimed goes to the push handler, if there is one.
@@ -602,93 +740,55 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
     }
 
-    // Dispatch based on RESP type prefix:
-    // RESP2: + Simple String, - Error, : Integer, $ Bulk String, * Array
-    // RESP3: % Map, ~ Set, , Double, # Boolean, _ Null, = Verbatim, ( Big Number
-    private void dispatchResponse(PendingCommand pending, RespValue response) {
-        Object callback = pending.callback;
+    // A reply that was built whole (one on a subscribed connection, which
+    // cannot be told from a delivery until it is complete) goes to the
+    // command's handler as the events it would have been read as.
+    private void replay(PendingCommand pending, RespValue response) {
+        router.claim(pending);
+        emit(response, router);
+        router.endReply(false);
+    }
 
-        // Handle errors for all handler types. A listener sees the error even
-        // when the command has no handler (the SUBSCRIBE family has none),
-        // since it may be able to act on it, as on MOVED.
-        if (response.isError()) {
-            String error = response.getErrorMessage();
-            RedirectListener listener = redirectListener;
-            if (listener != null && pending.sent != null
-                    && listener.handleError(pending.sent, error)) {
-                return;
+    private static void emit(RespValue v, RespEventHandler h) {
+        if (v.isNull()) {
+            h.nullValue();
+        } else if (v.isError()) {
+            h.error(v.getErrorMessage());
+        } else if (v.isInteger()) {
+            h.integer(v.asLong());
+        } else if (v.isDouble()) {
+            h.doubleValue(v.asDouble());
+        } else if (v.isBoolean()) {
+            h.booleanValue(v.asBoolean());
+        } else if (v.isBigNumber()) {
+            h.bigNumber(v.asString());
+        } else if (v.isSimpleString()) {
+            h.simpleString(v.asString());
+        } else if (v.isArray() || v.isSet() || v.isPush()) {
+            List<RespValue> items = v.asArray();
+            h.beginAggregate(v.isSet() ? RespType.SET : v.isPush() ? RespType.PUSH : RespType.ARRAY,
+                    items.size());
+            for (RespValue item : items) {
+                emit(item, h);
             }
-            if (callback != null) {
-                dispatchError(callback, error);
+            h.endAggregate();
+        } else if (v.isMap()) {
+            Map<RespValue, RespValue> map = v.asMap();
+            h.beginAggregate(RespType.MAP, map.size());
+            for (Map.Entry<RespValue, RespValue> entry : map.entrySet()) {
+                emit(entry.getKey(), h);
+                emit(entry.getValue(), h);
             }
-            return;
-        }
-        if (callback == null) {
-            return;
-        }
-
-        // ScanResultHandler — expects 2-element array [cursor, elements]
-        if (callback instanceof ScanResultHandler) {
-            ScanResultHandler h = (ScanResultHandler) callback;
-            if (response.isNull()) {
-                h.handleError("null response", resultSession);
-            } else {
-                List<RespValue> result = response.asArray();
-                if (result != null && result.size() >= 2) {
-                    String cursor = result.get(0).asString();
-                    List<RespValue> elements = result.get(1).asArray();
-                    h.handleResult(cursor, elements, resultSession);
-                } else {
-                    h.handleError("Invalid scan response", resultSession);
-                }
+            h.endAggregate();
+        } else {
+            byte[] bytes = v.asBytes();
+            RespType type = v.isVerbatimString() ? RespType.VERBATIM_STRING
+                    : v.isBlobError() ? RespType.BLOB_ERROR : RespType.BULK_STRING;
+            h.beginString(type, bytes.length, v.isVerbatimString() ? v.getVerbatimEncoding() : null);
+            if (bytes.length > 0) {
+                h.stringChunk(ByteBuffer.wrap(bytes));
             }
-            return;
-        }
-
-        // Dispatch based on handler type
-        if (callback instanceof StringResultHandler) {
-            StringResultHandler h = (StringResultHandler) callback;
-            String result = response.asString();
-            h.handleResult(result, resultSession);
-        } else if (callback instanceof BulkResultHandler) {
-            BulkResultHandler h = (BulkResultHandler) callback;
-            if (response.isNull()) {
-                h.handleNull(resultSession);
-            } else {
-                byte[] result = response.asBytes();
-                h.handleResult(result, resultSession);
-            }
-        } else if (callback instanceof IntegerResultHandler) {
-            IntegerResultHandler h = (IntegerResultHandler) callback;
-            long result = response.asLong();
-            h.handleResult(result, resultSession);
-        } else if (callback instanceof BooleanResultHandler) {
-            BooleanResultHandler h = (BooleanResultHandler) callback;
-            boolean result = response.asLong() != 0;
-            h.handleResult(result, resultSession);
-        } else if (callback instanceof ArrayResultHandler) {
-            ArrayResultHandler h = (ArrayResultHandler) callback;
-            if (response.isNull()) {
-                h.handleNull(resultSession);
-            } else if (response.isArray()) {
-                List<RespValue> result = response.asArray();
-                h.handleResult(result, resultSession);
-            } else if (response.isMap()) {
-                // RESP3 Map — flatten to alternating key/value array for compatibility
-                Map<RespValue, RespValue> map = response.asMap();
-                List<RespValue> flat = new ArrayList<RespValue>(map.size() * 2);
-                for (Map.Entry<RespValue, RespValue> entry : map.entrySet()) {
-                    flat.add(entry.getKey());
-                    flat.add(entry.getValue());
-                }
-                h.handleResult(flat, resultSession);
-            } else {
-                // For other RESP3 types received by ArrayResultHandler,
-                // wrap in a single-element array
-                List<RespValue> wrapped = new ArrayList<RespValue>(1);
-                wrapped.add(response);
-                h.handleResult(wrapped, resultSession);
-            }
+            h.endString();
         }
     }
 
@@ -782,7 +882,11 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // a command (unless the oldest waiting command blocks on purpose), or a
     // subscription's traffic.
     private boolean watching() {
-        if (pingOutstanding || pubSubMode) {
+        if (held != null) {
+            // paused: it is the consumer that is being waited for
+            return false;
+        }
+        if (inFlight != null || pingOutstanding || pubSubMode) {
             return true;
         }
         PendingCommand head = pendingCommands.peek();
@@ -924,6 +1028,16 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             expireExamined++;
             if (first.deadlineNanos - now <= 0) {
                 deadlines.pollFirst();
+                if (first.streaming) {
+                    // a reply being read: it is the silence that counts,
+                    // not the time it takes
+                    long idleDue = first.lastActivityNanos + first.timeoutMs * 1000000L;
+                    if (idleDue - now > 0) {
+                        first.deadlineNanos = idleDue;
+                        deadlines.add(first);
+                        continue;
+                    }
+                }
                 first.timedOut = true;
                 overdue.add(first);
             } else {
@@ -933,8 +1047,15 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         }
         // handlers may send more commands, so only now
         for (PendingCommand pending : overdue) {
-            dispatchError(pending.callback, MessageFormat.format(
-                    L10N.getString("err.command_timeout"), Long.valueOf(pending.timeoutMs)));
+            String error = MessageFormat.format(
+                    L10N.getString("err.command_timeout"), Long.valueOf(pending.timeoutMs));
+            if (pending == inFlight && router.adapter != null) {
+                // part of its reply has been delivered: the handler is
+                // completed through its adapter, and the rest discarded
+                router.adapter.abort(error);
+            } else {
+                dispatchError(pending.callback, error);
+            }
         }
     }
 
@@ -992,9 +1113,10 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Routes the events of each reply to the command it answers. A reply
-     * nobody wants (to a command that timed out, or to the health check) is
-     * discarded as it arrives, without being assembled.
+     * Routes the events of each reply to the command it answers: to the
+     * adapter for the command's handler, which passes them on as they come.
+     * A reply nobody wants (to a command that timed out, or to the health
+     * check) is discarded as it arrives, without being assembled.
      */
     private final class ReplyRouter implements RespEventHandler {
 
@@ -1007,30 +1129,54 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
         private int mode;
         private PendingCommand target;
+        // null for a command with no handler
+        ReplyAdapter adapter;
+        // nothing of the reply has been reported yet
+        private boolean first;
+        // a RESP3 blob error being read: an error line too long for one,
+        // collected up to the maximum field length
+        private boolean inBlobError;
+        private byte[] blob = new byte[128];
+        private int blobLength;
 
         @Override
         public void beginReply(boolean push) {
             target = null;
+            adapter = null;
             mode = UNCLAIMED;
             if (!push && !pubSubMode) {
                 PendingCommand head = pendingCommands.poll();
                 if (head != null) {
-                    deadlines.remove(head);
-                    if (head.internal) {
-                        // the answer to our own PING
-                        pingOutstanding = false;
-                        mode = DISCARD;
-                    } else if (head.timedOut) {
-                        // its handler has been told it timed out
-                        mode = DISCARD;
-                    } else {
-                        target = head;
-                        mode = COMMAND;
-                    }
+                    claim(head);
+                    return;
                 }
             }
-            if (mode != DISCARD) {
-                builder.beginReply(push);
+            builder.beginReply(push);
+        }
+
+        // The reply that follows is the answer to this command.
+        void claim(PendingCommand head) {
+            first = true;
+            target = null;
+            adapter = null;
+            if (head.internal) {
+                // the answer to our own PING
+                pingOutstanding = false;
+                deadlines.remove(head);
+                mode = DISCARD;
+            } else if (head.timedOut) {
+                // its handler has been told it timed out
+                mode = DISCARD;
+            } else {
+                target = head;
+                mode = COMMAND;
+                head.streaming = true;
+                head.lastActivityNanos = ticker.nanos();
+                inFlight = head;
+                adapter = ReplyAdapter.forHandler(head.callback, resultSession, maxField);
+                if (adapter != null) {
+                    adapter.setStream(new Stream(adapter));
+                }
             }
         }
 
@@ -1039,83 +1185,222 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
             if (mode == DISCARD) {
                 return;
             }
+            if (mode == COMMAND) {
+                PendingCommand done = target;
+                if (inFlight == done) {
+                    inFlight = null;
+                }
+                deadlines.remove(done);
+                done.streaming = false;
+                ReplyAdapter a = adapter;
+                adapter = null;
+                target = null;
+                if (a != null) {
+                    a.endReply(skipped);
+                }
+                armHealth();
+                return;
+            }
             builder.endReply(skipped);
             if (builder.isComplete()) {
-                if (mode == COMMAND) {
-                    dispatchResponse(target, builder.value());
-                } else {
-                    processResponse(builder.value());
-                }
-            } else if (mode == COMMAND) {
-                // too large to hold: it fails its own command only
-                if (target.callback != null) {
-                    dispatchError(target.callback, MessageFormat.format(
-                            L10N.getString("err.reply_too_large"),
-                            Long.valueOf(maxBuiltReply)));
-                }
+                processResponse(builder.value());
             } else {
                 events().warn("warn.reply_too_large").attr("limit", String.valueOf(maxBuiltReply)).emit();
             }
         }
 
+        // The reply is being read: it is activity for the deadline, and
+        // nothing more is given to a handler that has been told it timed out.
+        private boolean live() {
+            if (target.timedOut) {
+                return false;
+            }
+            if (target.deadlineNanos != 0) {
+                target.lastActivityNanos = ticker.nanos();
+            }
+            return true;
+        }
+
+        // The events other than an error line, which are the reply to the
+        // command if they come first.
+        private ReplyFlow toCommand() {
+            first = false;
+            return live() && adapter != null ? null : ReplyFlow.SKIP;
+        }
+
         @Override
         public ReplyFlow nullValue() {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.nullValue();
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.nullValue();
+            }
+            return mode == UNCLAIMED ? builder.nullValue() : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow integer(long value) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.integer(value);
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.integer(value);
+            }
+            return mode == UNCLAIMED ? builder.integer(value) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow doubleValue(double value) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.doubleValue(value);
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.doubleValue(value);
+            }
+            return mode == UNCLAIMED ? builder.doubleValue(value) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow booleanValue(boolean value) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.booleanValue(value);
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.booleanValue(value);
+            }
+            return mode == UNCLAIMED ? builder.booleanValue(value) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow bigNumber(String digits) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.bigNumber(digits);
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.bigNumber(digits);
+            }
+            return mode == UNCLAIMED ? builder.bigNumber(digits) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow simpleString(String value) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.simpleString(value);
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.simpleString(value);
+            }
+            return mode == UNCLAIMED ? builder.simpleString(value) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow error(String message) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.error(message);
+            if (mode == COMMAND) {
+                boolean whole = first;
+                first = false;
+                if (!live()) {
+                    return ReplyFlow.SKIP;
+                }
+                if (whole) {
+                    // the reply is this error: a listener may be able to
+                    // act on it (a cluster redirect), whether or not the
+                    // command has a handler
+                    RedirectListener listener = redirectListener;
+                    if (listener != null && target.sent != null
+                            && listener.handleError(target.sent, message)) {
+                        if (adapter != null) {
+                            adapter.abandon();
+                        }
+                        return ReplyFlow.SKIP;
+                    }
+                }
+                return adapter != null ? adapter.error(message) : ReplyFlow.SKIP;
+            }
+            return mode == UNCLAIMED ? builder.error(message) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow beginAggregate(RespType kind, long length) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.beginAggregate(kind, length);
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.beginAggregate(kind, length);
+            }
+            return mode == UNCLAIMED ? builder.beginAggregate(kind, length) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow endAggregate() {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.endAggregate();
+            if (mode == COMMAND) {
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.endAggregate();
+            }
+            return mode == UNCLAIMED ? builder.endAggregate() : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow beginString(RespType kind, long length, String format) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.beginString(kind, length, format);
+            if (mode == COMMAND) {
+                if (kind == RespType.BLOB_ERROR) {
+                    inBlobError = true;
+                    blobLength = 0;
+                    return ReplyFlow.CONTINUE;
+                }
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.beginString(kind, length, format);
+            }
+            return mode == UNCLAIMED ? builder.beginString(kind, length, format) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow stringChunk(ByteBuffer chunk) {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.stringChunk(chunk);
+            if (mode == COMMAND) {
+                if (inBlobError) {
+                    // an error message, so what the limit does not hold is dropped
+                    int n = Math.min(chunk.remaining(), maxField - blobLength);
+                    if (n > 0) {
+                        if (blobLength + n > blob.length) {
+                            blob = java.util.Arrays.copyOf(blob, Math.max(blobLength + n, blob.length * 2));
+                        }
+                        chunk.get(blob, blobLength, n);
+                        blobLength += n;
+                    }
+                    return ReplyFlow.CONTINUE;
+                }
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.stringChunk(chunk);
+            }
+            return mode == UNCLAIMED ? builder.stringChunk(chunk) : ReplyFlow.SKIP;
         }
 
         @Override
         public ReplyFlow endString() {
-            return mode == DISCARD ? ReplyFlow.SKIP : builder.endString();
+            if (mode == COMMAND) {
+                if (inBlobError) {
+                    inBlobError = false;
+                    return error(new String(blob, 0, blobLength, java.nio.charset.StandardCharsets.UTF_8));
+                }
+                ReplyFlow f = toCommand();
+                return f != null ? f : adapter.endString();
+            }
+            return mode == UNCLAIMED ? builder.endString() : ReplyFlow.SKIP;
+        }
+    }
+
+    /** The handle a handler has on its reply. */
+    private final class Stream implements ReplyStream {
+        private final ReplyAdapter adapter;
+
+        Stream(ReplyAdapter adapter) {
+            this.adapter = adapter;
+        }
+
+        @Override
+        public void resume() {
+            Endpoint ep = endpoint;
+            if (ep == null) {
+                return;
+            }
+            ep.execute(new Runnable() {
+                @Override
+                public void run() {
+                    resumeReading();
+                }
+            });
+        }
+
+        @Override
+        public void cancel() {
+            adapter.requestCancel();
+            resume();
         }
     }
 
@@ -1144,6 +1429,12 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         boolean blocking;
         // sent by the connection itself (the health check's PING)
         boolean internal;
+        // its reply is being read; the deadline then slides with the
+        // silence, from when anything last arrived
+        boolean streaming;
+        long lastActivityNanos;
+        // the consumer has paused the reply: no deadline runs
+        boolean suspended;
 
         PendingCommand(Object callback, SentCommand sent, String subscriptionKind,
                        int confirmationsDue) {

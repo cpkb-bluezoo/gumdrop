@@ -203,7 +203,7 @@ public class RedisClusterPubSubTest {
         }
     }
 
-    private static final class Ignore implements BulkResultHandler {
+    private static final class Ignore extends WholeBulk {
         @Override
         public void handleResult(byte[] value, RedisSession session) {
         }

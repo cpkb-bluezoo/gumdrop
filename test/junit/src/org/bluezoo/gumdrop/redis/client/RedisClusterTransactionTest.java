@@ -93,7 +93,7 @@ public class RedisClusterTransactionTest {
         }
     }
 
-    private static final class Many implements ArrayResultHandler {
+    private static final class Many extends WholeEvents {
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -112,7 +112,7 @@ public class RedisClusterTransactionTest {
         }
     }
 
-    private static final class Bulk implements BulkResultHandler {
+    private static final class Bulk extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override

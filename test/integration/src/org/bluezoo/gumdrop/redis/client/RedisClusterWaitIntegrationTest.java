@@ -198,7 +198,7 @@ public class RedisClusterWaitIntegrationTest {
         }
     }
 
-    private static final class Raw implements ArrayResultHandler {
+    private static final class Raw extends WholeEvents {
         final LinkedBlockingQueue<String> events = new LinkedBlockingQueue<String>();
 
         @Override

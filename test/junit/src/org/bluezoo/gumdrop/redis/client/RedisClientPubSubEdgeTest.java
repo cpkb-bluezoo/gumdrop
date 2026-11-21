@@ -83,18 +83,27 @@ public class RedisClientPubSubEdgeTest {
     }
 
     @Test
-    public void testWrongTypeReplyForAnIntegerCommandIsAProtocolErrorNotAnException() {
-        session.incr("k", new IntegerResultHandler() {
+    public void testWrongShapeReplyFailsOnlyItsOwnCommand() {
+        final java.util.List<String> seen = new java.util.ArrayList<String>();
+        IntegerResultHandler h = new IntegerResultHandler() {
             @Override
             public void handleResult(long result, RedisSession s) {
+                seen.add("value:" + result);
             }
 
             @Override
             public void handleError(String error, RedisSession s) {
+                seen.add("error:" + error);
             }
-        });
-        feed("+OK\r\n");
-        assertFalse(endpoint.open);
+        };
+        session.incr("k", h);
+        session.incr("k", h);
+        session.incr("k", h);
+        feed("+OK\r\n*2\r\n:1\r\n:2\r\n:5\r\n");
+        assertEquals(3, seen.size());
+        assertTrue(seen.get(0), seen.get(0).startsWith("error:ERR"));
+        assertTrue(seen.get(1), seen.get(1).startsWith("error:ERR"));
+        assertTrue("the connection survives", endpoint.open);
     }
 
     @Test
@@ -185,8 +194,8 @@ public class RedisClientPubSubEdgeTest {
         unconnected.get("k", (BulkResultHandler) null);
         unconnected.set("k", new byte[] { 1 }, null);
         unconnected.mset(null, "a", "b");
-        unconnected.command((ArrayResultHandler) null, "INFO", new String[] { "x" });
-        unconnected.command((ArrayResultHandler) null, "GET", new byte[] { 'k' });
+        unconnected.command((ReplyEventHandler) null, "INFO", new String[] { "x" });
+        unconnected.command((ReplyEventHandler) null, "GET", new byte[] { 'k' });
         unconnected.close();
         assertTrue(endpoint.sentBuffers.size() == 0);
     }

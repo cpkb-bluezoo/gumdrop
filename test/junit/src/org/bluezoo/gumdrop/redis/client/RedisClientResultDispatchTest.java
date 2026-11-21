@@ -128,7 +128,7 @@ public class RedisClientResultDispatchTest {
         }
     }
 
-    private static final class RecordingBulkHandler implements BulkResultHandler {
+    private static final class RecordingBulkHandler extends WholeBulk {
         final AtomicReference<byte[]> result = new AtomicReference<byte[]>();
         final AtomicReference<Boolean> nullResult = new AtomicReference<Boolean>();
 
@@ -173,7 +173,7 @@ public class RedisClientResultDispatchTest {
         }
     }
 
-    private static final class RecordingScanHandler implements ScanResultHandler {
+    private static final class RecordingScanHandler extends WholeScan {
         final AtomicReference<String> cursor = new AtomicReference<String>();
         final AtomicReference<List<RespValue>> elements = new AtomicReference<List<RespValue>>();
 

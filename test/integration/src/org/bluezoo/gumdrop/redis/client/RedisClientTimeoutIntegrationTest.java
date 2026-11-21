@@ -137,7 +137,7 @@ public class RedisClientTimeoutIntegrationTest {
     }
 
     /** Collects the outcomes of ECHO commands, in the order they happen. */
-    private static final class Outcomes implements ArrayResultHandler {
+    private static final class Outcomes extends WholeEvents {
         final LinkedBlockingQueue<String> events = new LinkedBlockingQueue<String>();
 
         @Override

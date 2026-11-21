@@ -109,18 +109,24 @@ abstract class AbstractRedisSession implements RedisSession {
      * @param session the session to pass to the handler
      */
     static void deliverError(Object callback, String error, RedisSession session) {
-        if (callback instanceof ScanResultHandler) {
-            ((ScanResultHandler) callback).handleError(error, session);
+        if (callback instanceof ReplyEventHandler) {
+            ((ReplyEventHandler) callback).handleComplete(error, session);
+        } else if (callback instanceof ScanResultHandler) {
+            ((ScanResultHandler) callback).handleComplete(error, session);
+        } else if (callback instanceof KeyArrayResultHandler) {
+            ((KeyArrayResultHandler) callback).handleComplete(error, session);
+        } else if (callback instanceof MapResultHandler) {
+            ((MapResultHandler) callback).handleComplete(error, session);
         } else if (callback instanceof StringResultHandler) {
             ((StringResultHandler) callback).handleError(error, session);
         } else if (callback instanceof BulkResultHandler) {
-            ((BulkResultHandler) callback).handleError(error, session);
+            ((BulkResultHandler) callback).handleComplete(error, session);
         } else if (callback instanceof IntegerResultHandler) {
             ((IntegerResultHandler) callback).handleError(error, session);
         } else if (callback instanceof BooleanResultHandler) {
             ((BooleanResultHandler) callback).handleError(error, session);
         } else if (callback instanceof ArrayResultHandler) {
-            ((ArrayResultHandler) callback).handleError(error, session);
+            ((ArrayResultHandler) callback).handleComplete(error, session);
         }
     }
 
@@ -141,14 +147,13 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     // RESP3 — HELLO command (Redis 6+) negotiates protocol version
-    @Override
-    public void hello(int protover, ArrayResultHandler h) {
+    // The connection's own negotiation, not part of the public API
+    void hello(int protover, ReplyEventHandler h) {
         sendCommand(h, "HELLO", new String[] { String.valueOf(protover) });
     }
 
     // RESP3 — HELLO with AUTH in a single round-trip
-    @Override
-    public void hello(int protover, String username, String password, ArrayResultHandler h) {
+    void hello(int protover, String username, String password, ReplyEventHandler h) {
         sendCommand(h, "HELLO", new String[] {
             String.valueOf(protover), "AUTH", username, password
         });
@@ -343,7 +348,7 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void keys(String pattern, ArrayResultHandler h) {
+    public void keys(String pattern, KeyArrayResultHandler h) {
         sendCommand(h, "KEYS", new String[] { pattern });
     }
 
@@ -377,32 +382,32 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void hscan(String key, String cursor, ScanResultHandler h) {
+    public void hscan(String key, String cursor, ReplyEventHandler h) {
         sendCommand(h, "HSCAN", new String[] { key, cursor });
     }
 
     @Override
-    public void hscan(String key, String cursor, String match, int count, ScanResultHandler h) {
+    public void hscan(String key, String cursor, String match, int count, ReplyEventHandler h) {
         sendCommand(h, "HSCAN", buildKeyScanArgs(key, cursor, match, count));
     }
 
     @Override
-    public void sscan(String key, String cursor, ScanResultHandler h) {
+    public void sscan(String key, String cursor, ReplyEventHandler h) {
         sendCommand(h, "SSCAN", new String[] { key, cursor });
     }
 
     @Override
-    public void sscan(String key, String cursor, String match, int count, ScanResultHandler h) {
+    public void sscan(String key, String cursor, String match, int count, ReplyEventHandler h) {
         sendCommand(h, "SSCAN", buildKeyScanArgs(key, cursor, match, count));
     }
 
     @Override
-    public void zscan(String key, String cursor, ScanResultHandler h) {
+    public void zscan(String key, String cursor, ReplyEventHandler h) {
         sendCommand(h, "ZSCAN", new String[] { key, cursor });
     }
 
     @Override
-    public void zscan(String key, String cursor, String match, int count, ScanResultHandler h) {
+    public void zscan(String key, String cursor, String match, int count, ReplyEventHandler h) {
         sendCommand(h, "ZSCAN", buildKeyScanArgs(key, cursor, match, count));
     }
 
@@ -475,12 +480,12 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void hgetall(String key, ArrayResultHandler h) {
+    public void hgetall(String key, MapResultHandler h) {
         sendCommand(h, "HGETALL", new String[] { key });
     }
 
     @Override
-    public void hkeys(String key, ArrayResultHandler h) {
+    public void hkeys(String key, KeyArrayResultHandler h) {
         sendCommand(h, "HKEYS", new String[] { key });
     }
 
@@ -767,7 +772,7 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void exec(ArrayResultHandler h) {
+    public void exec(ReplyEventHandler h) {
         sendCommand(h, "EXEC");
     }
 
@@ -800,12 +805,12 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void eval(String script, int numKeys, String[] keys, String[] args, ArrayResultHandler h) {
+    public void eval(String script, int numKeys, String[] keys, String[] args, ReplyEventHandler h) {
         sendCommand(h, "EVAL", scriptArgs(script, numKeys, keys, args));
     }
 
     @Override
-    public void evalsha(String sha1, int numKeys, String[] keys, String[] args, ArrayResultHandler h) {
+    public void evalsha(String sha1, int numKeys, String[] keys, String[] args, ReplyEventHandler h) {
         sendCommand(h, "EVALSHA", scriptArgs(sha1, numKeys, keys, args));
     }
 
@@ -831,29 +836,29 @@ abstract class AbstractRedisSession implements RedisSession {
 
     // Redis command reference — XRANGE
     @Override
-    public void xrange(String key, String start, String end, ArrayResultHandler h) {
+    public void xrange(String key, String start, String end, ReplyEventHandler h) {
         sendCommand(h, "XRANGE", new String[] { key, start, end });
     }
 
     @Override
-    public void xrange(String key, String start, String end, int count, ArrayResultHandler h) {
+    public void xrange(String key, String start, String end, int count, ReplyEventHandler h) {
         sendCommand(h, "XRANGE", new String[] { key, start, end, "COUNT", String.valueOf(count) });
     }
 
     // Redis command reference — XREVRANGE
     @Override
-    public void xrevrange(String key, String end, String start, ArrayResultHandler h) {
+    public void xrevrange(String key, String end, String start, ReplyEventHandler h) {
         sendCommand(h, "XREVRANGE", new String[] { key, end, start });
     }
 
     @Override
-    public void xrevrange(String key, String end, String start, int count, ArrayResultHandler h) {
+    public void xrevrange(String key, String end, String start, int count, ReplyEventHandler h) {
         sendCommand(h, "XREVRANGE", new String[] { key, end, start, "COUNT", String.valueOf(count) });
     }
 
     // Redis command reference — XREAD
     @Override
-    public void xread(int count, long blockMillis, ArrayResultHandler h, String... keysAndIds) {
+    public void xread(int count, long blockMillis, ReplyEventHandler h, String... keysAndIds) {
         ArrayList<String> args = new ArrayList<String>();
         if (count > 0) {
             args.add("COUNT");
@@ -900,7 +905,7 @@ abstract class AbstractRedisSession implements RedisSession {
 
     // Redis command reference — XPENDING
     @Override
-    public void xpending(String key, String group, ArrayResultHandler h) {
+    public void xpending(String key, String group, ReplyEventHandler h) {
         sendCommand(h, "XPENDING", new String[] { key, group });
     }
 
@@ -944,12 +949,12 @@ abstract class AbstractRedisSession implements RedisSession {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void command(ArrayResultHandler h, String command, String... args) {
+    public void command(ReplyEventHandler h, String command, String... args) {
         sendCommand(h, command, args);
     }
 
     @Override
-    public void command(ArrayResultHandler h, String command, byte[]... args) {
+    public void command(ReplyEventHandler h, String command, byte[]... args) {
         sendCommand(h, command, args);
     }
 
@@ -959,18 +964,18 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs, ArrayResultHandler h) {
+    public void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs, ReplyEventHandler h) {
         sendCommand(h, "WAITAOF", new String[] {
             String.valueOf(numLocal), String.valueOf(numReplicas), String.valueOf(timeoutMs) });
     }
 
     @Override
-    public void commandForKey(String routingKey, ArrayResultHandler h, String command, String... args) {
+    public void commandForKey(String routingKey, ReplyEventHandler h, String command, String... args) {
         sendCommandForKey(h, CommandTimeouts.DEFAULT, routingKey, command, args, null);
     }
 
     @Override
-    public void commandForKey(String routingKey, java.time.Duration timeout, ArrayResultHandler h,
+    public void commandForKey(String routingKey, java.time.Duration timeout, ReplyEventHandler h,
                               String command, byte[]... args) {
         sendCommandForKey(h, timeoutMillis(timeout), routingKey, command, null, args);
     }
@@ -989,12 +994,12 @@ abstract class AbstractRedisSession implements RedisSession {
     }
 
     @Override
-    public void command(java.time.Duration timeout, ArrayResultHandler h, String command, String... args) {
+    public void command(java.time.Duration timeout, ReplyEventHandler h, String command, String... args) {
         sendCommand(h, timeoutMillis(timeout), command, args);
     }
 
     @Override
-    public void command(java.time.Duration timeout, ArrayResultHandler h, String command, byte[]... args) {
+    public void command(java.time.Duration timeout, ReplyEventHandler h, String command, byte[]... args) {
         sendCommand(h, timeoutMillis(timeout), command, args);
     }
 }

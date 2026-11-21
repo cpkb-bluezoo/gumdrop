@@ -79,7 +79,7 @@ public class RedisClientProtocolHandlerTest {
     @Test
     public void testHelloSendsCommand() {
         RedisSession session = sessionRef.get();
-        session.hello(3, new StubArrayHandler());
+        ((AbstractRedisSession) session).hello(3, new StubArrayHandler());
 
         String sent = lastSentCommand();
         assertNotNull(sent);
@@ -90,7 +90,7 @@ public class RedisClientProtocolHandlerTest {
     @Test
     public void testHelloWithAuth() {
         RedisSession session = sessionRef.get();
-        session.hello(3, "user", "pass", new StubArrayHandler());
+        ((AbstractRedisSession) session).hello(3, "user", "pass", new StubArrayHandler());
 
         String sent = lastSentCommand();
         assertTrue(sent.contains("HELLO"));
@@ -167,7 +167,7 @@ public class RedisClientProtocolHandlerTest {
         final AtomicReference<List<RespValue>> elementsRef = new AtomicReference<>();
 
         RedisSession session = sessionRef.get();
-        session.scan("0", new ScanResultHandler() {
+        session.scan("0", new WholeScan() {
             @Override
             public void handleResult(String cursor, List<RespValue> elements, RedisSession s) {
                 cursorRef.set(cursor);
@@ -418,7 +418,7 @@ public class RedisClientProtocolHandlerTest {
         final AtomicReference<List<RespValue>> resultRef = new AtomicReference<>();
 
         RedisSession session = sessionRef.get();
-        session.command(new ArrayResultHandler() {
+        session.command(new WholeEvents() {
             @Override
             public void handleResult(List<RespValue> array, RedisSession s) {
                 resultRef.set(array);
@@ -443,7 +443,7 @@ public class RedisClientProtocolHandlerTest {
         final AtomicReference<String> errorRef = new AtomicReference<>();
 
         RedisSession session = sessionRef.get();
-        session.get("somekey", new BulkResultHandler() {
+        session.get("somekey", new WholeBulk() {
             @Override
             public void handleResult(byte[] value, RedisSession s) {
                 fail("Should not get a value");
@@ -509,7 +509,7 @@ public class RedisClientProtocolHandlerTest {
         @Override public void handleError(String error, RedisSession s) {}
     }
 
-    static class StubBulkHandler implements BulkResultHandler {
+    static class StubBulkHandler extends WholeBulk {
         @Override public void handleResult(byte[] value, RedisSession s) {}
         @Override public void handleNull(RedisSession s) {}
         @Override public void handleError(String error, RedisSession s) {}
@@ -520,15 +520,51 @@ public class RedisClientProtocolHandlerTest {
         @Override public void handleError(String error, RedisSession s) {}
     }
 
-    static class StubArrayHandler implements ArrayResultHandler {
-        @Override public void handleResult(List<RespValue> array, RedisSession s) {}
-        @Override public void handleNull(RedisSession s) {}
-        @Override public void handleError(String error, RedisSession s) {}
+    /** A handler of every shape that does nothing, for tests that look at what was sent. */
+    static class StubArrayHandler extends ControlReplies.Acknowledgement
+            implements ArrayResultHandler, KeyArrayResultHandler, MapResultHandler, ScanResultHandler {
+        @Override void done(String error, RedisSession s) {}
+        @Override public void handleNull() {}
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleBegin(long count, ReplyStream stream) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleElementNull() {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleElementBegin(long length) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleElementContent(ByteBuffer chunk) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleElementEnd() {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleKey(String key) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleField(String field) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleValueNull() {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleValueBegin(long length) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleValueContent(ByteBuffer chunk) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleValueEnd() {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public org.bluezoo.gumdrop.redis.codec.ReplyFlow handleCursor(String cursor, ReplyStream stream) {
+            return org.bluezoo.gumdrop.redis.codec.ReplyFlow.CONTINUE;
+        }
+        @Override public void handleEnd() {}
     }
 
-    static class StubScanHandler implements ScanResultHandler {
-        @Override public void handleResult(String cursor, List<RespValue> elements, RedisSession s) {}
-        @Override public void handleError(String error, RedisSession s) {}
+    static class StubScanHandler extends StubArrayHandler {
     }
 
 }

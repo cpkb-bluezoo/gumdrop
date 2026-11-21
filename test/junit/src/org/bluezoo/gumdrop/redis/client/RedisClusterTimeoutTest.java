@@ -154,7 +154,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    static final class Bulk implements BulkResultHandler {
+    static final class Bulk extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -173,7 +173,7 @@ public class RedisClusterTimeoutTest {
         }
     }
 
-    private static final class Many implements ArrayResultHandler {
+    private static final class Many extends WholeEvents {
         final List<String> events = new ArrayList<String>();
 
         @Override

@@ -85,7 +85,7 @@ public class RedisClusterSessionTest {
     }
 
     /** Records what the result handler is told, and with which session. */
-    private static final class Bulk implements BulkResultHandler {
+    private static final class Bulk extends WholeBulk {
         final List<String> events = new ArrayList<String>();
         final List<RedisSession> sessions = new ArrayList<RedisSession>();
 
@@ -247,7 +247,7 @@ public class RedisClusterSessionTest {
 
     @Test
     public void aHashTagKeepsKeysTogether() {
-        session.mget(new ArrayResultHandler() {
+        session.mget(new WholeArray() {
             @Override
             public void handleResult(List<RespValue> values, RedisSession s) {
             }

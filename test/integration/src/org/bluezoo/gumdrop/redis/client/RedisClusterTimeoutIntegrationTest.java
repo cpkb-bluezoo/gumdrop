@@ -125,7 +125,7 @@ public class RedisClusterTimeoutIntegrationTest {
         }
     }
 
-    private static final class Outcomes implements BulkResultHandler {
+    private static final class Outcomes extends WholeBulk {
         final LinkedBlockingQueue<String> events = new LinkedBlockingQueue<String>();
 
         @Override

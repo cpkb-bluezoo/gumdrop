@@ -79,13 +79,13 @@ public class RedisSessionCommandsTest {
 
     @Test
     public void commandHello() {
-        session.hello(2, new RedisClientProtocolHandlerTest.StubArrayHandler());
+        ((AbstractRedisSession) session).hello(2, new RedisClientProtocolHandlerTest.StubArrayHandler());
         assertSent("HELLO");
     }
 
     @Test
     public void commandHello2() {
-        session.hello(2, "k", "k", new RedisClientProtocolHandlerTest.StubArrayHandler());
+        ((AbstractRedisSession) session).hello(2, "k", "k", new RedisClientProtocolHandlerTest.StubArrayHandler());
         assertSent("HELLO");
     }
 

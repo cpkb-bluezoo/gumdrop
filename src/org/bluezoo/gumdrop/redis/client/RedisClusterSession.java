@@ -478,7 +478,7 @@ final class RedisClusterSession extends AbstractRedisSession {
 
     @Override
     public void waitAof(String slotKey, int numLocal, int numReplicas, long timeoutMs,
-                        ArrayResultHandler handler) {
+                        ReplyEventHandler handler) {
         sendWait(new AofWait(ClusterSlots.slot(slotKey.getBytes(UTF_8)), handler), "WAITAOF",
                 new String[] { String.valueOf(numLocal), String.valueOf(numReplicas),
                     String.valueOf(timeoutMs) });
@@ -513,7 +513,7 @@ final class RedisClusterSession extends AbstractRedisSession {
             boundWaits.put(Integer.valueOf(wait.slot), list);
         }
         list.add(wait);
-        connection(node).submit(new SentCommand(wait, command, args, null).pinned());
+        connection(node).submit(new SentCommand(wait.callback(), command, args, null).pinned());
     }
 
     // The writes a slot's WAITs follow have been redirected: those sent on
@@ -541,6 +541,11 @@ final class RedisClusterSession extends AbstractRedisSession {
         }
 
         abstract void deliverError(String error);
+
+        /** What the node's connection is given to answer to. */
+        Object callback() {
+            return this;
+        }
 
         void release() {
             List<BoundWait> list = boundWaits.get(Integer.valueOf(slot));
@@ -594,44 +599,35 @@ final class RedisClusterSession extends AbstractRedisSession {
         }
     }
 
-    private final class AofWait extends BoundWait implements ArrayResultHandler {
-        private final ArrayResultHandler delegate;
+    private final class AofWait extends BoundWait {
+        private final ControlReplies.Forwarding forward;
 
-        AofWait(int slot, ArrayResultHandler delegate) {
+        AofWait(int slot, final ReplyEventHandler delegate) {
             super(slot);
             this.delegate = delegate;
+            this.forward = new ControlReplies.Forwarding(delegate) {
+                @Override
+                public void handleComplete(String error, RedisSession s) {
+                    if (!finished) {
+                        finished = true;
+                        release();
+                        delegate.handleComplete(error, RedisClusterSession.this);
+                    }
+                }
+            };
+        }
+
+        private final ReplyEventHandler delegate;
+
+        // the events pass through, the completion is the wait's
+        @Override
+        Object callback() {
+            return forward;
         }
 
         @Override
         void deliverError(String error) {
-            delegate.handleError(error, RedisClusterSession.this);
-        }
-
-        @Override
-        public void handleResult(List<org.bluezoo.gumdrop.redis.codec.RespValue> values, RedisSession s) {
-            if (!finished) {
-                finished = true;
-                release();
-                delegate.handleResult(values, RedisClusterSession.this);
-            }
-        }
-
-        @Override
-        public void handleNull(RedisSession s) {
-            if (!finished) {
-                finished = true;
-                release();
-                delegate.handleNull(RedisClusterSession.this);
-            }
-        }
-
-        @Override
-        public void handleError(String error, RedisSession s) {
-            if (!finished) {
-                finished = true;
-                release();
-                delegate.handleError(error, RedisClusterSession.this);
-            }
+            delegate.handleComplete(error, RedisClusterSession.this);
         }
     }
 
@@ -701,9 +697,14 @@ final class RedisClusterSession extends AbstractRedisSession {
         watchNode = null;
         if (node == null) {
             // nothing was queued, so no node ever saw the MULTI
-            if (exec && command.getCallback() instanceof ArrayResultHandler) {
-                ((ArrayResultHandler) command.getCallback()).handleResult(
-                        Collections.<org.bluezoo.gumdrop.redis.codec.RespValue>emptyList(), this);
+            if (exec && command.getCallback() instanceof ReplyEventHandler) {
+                ReplyEventHandler h = (ReplyEventHandler) command.getCallback();
+                h.handleStream(ReplyStream.NONE);
+                h.beginReply(false);
+                h.beginAggregate(org.bluezoo.gumdrop.redis.codec.RespType.ARRAY, 0);
+                h.endAggregate();
+                h.endReply(false);
+                h.handleComplete(null, this);
             } else if (!exec) {
                 answerOk(command.getCallback());
             }
@@ -752,7 +753,12 @@ final class RedisClusterSession extends AbstractRedisSession {
         if (callback instanceof StringResultHandler) {
             ((StringResultHandler) callback).handleResult("OK", this);
         } else if (callback instanceof BulkResultHandler) {
-            ((BulkResultHandler) callback).handleResult("OK".getBytes(UTF_8), this);
+            BulkResultHandler h = (BulkResultHandler) callback;
+            byte[] ok = "OK".getBytes(UTF_8);
+            h.handleBegin(ok.length, ReplyStream.NONE);
+            h.handleContent(java.nio.ByteBuffer.wrap(ok));
+            h.handleEnd();
+            h.handleComplete(null, this);
         }
     }
 

@@ -43,7 +43,7 @@ public class RedisClientHealthCheckTest {
 
     private static final long INTERVAL = 1000;
 
-    private static class Bulk implements BulkResultHandler {
+    private static class Bulk extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -306,7 +306,7 @@ public class RedisClientHealthCheckTest {
 
     @Test
     public void aBlockingCommandIsNotMistakenForADeadConnection() {
-        session.blpop(0, new RedisClientCommandTimeoutTest.Many(), "q");
+        session.blpop(0, new RedisClientCommandTimeoutTest.Arr(), "q");
         advance(INTERVAL);
         RedisClientCommandTimeoutTest.Timer t = live();
         if (t != null) {

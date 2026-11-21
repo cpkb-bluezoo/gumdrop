@@ -64,7 +64,7 @@ public class RedisClientRedirectTest {
     }
 
     /** Bulk-string results (GET and the like). */
-    private static final class Results implements BulkResultHandler {
+    private static final class Results extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override

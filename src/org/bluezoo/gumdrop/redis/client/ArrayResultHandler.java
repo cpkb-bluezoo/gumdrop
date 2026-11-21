@@ -1,6 +1,6 @@
 /*
  * ArrayResultHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -21,74 +21,88 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
-import java.util.List;
+import java.nio.ByteBuffer;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 
 /**
- * Handler for Redis commands that return a RESP Array ({@code *}).
+ * Receives an array of string payloads, element by element, each element as
+ * chunks: the reply of {@code MGET}, {@code LRANGE}, {@code SMEMBERS},
+ * {@code ZRANGE} and the like.
  *
- * <p>Arrays contain a list of RESP values which may be bulk strings,
- * integers, nested arrays, or null values. Null arrays ({@code *-1\r\n})
- * are dispatched to {@link #handleNull} (RESP spec — "Arrays").
+ * <p>Nothing is held by the library, so neither the number of elements nor
+ * the size of any one is limited by it. The array is {@link #handleBegin},
+ * then for each element either {@link #handleElementNull} or
+ * {@link #handleElementBegin}, {@link #handleElementContent} calls and
+ * {@link #handleElementEnd}, then {@link #handleEnd}. A reply that is null
+ * as a whole is {@link #handleNull}. {@link #handleComplete} always comes
+ * last, once.
  *
- * <h4>Commands returning arrays:</h4>
- * <ul>
- *   <li>{@code KEYS} - list of matching keys</li>
- *   <li>{@code LRANGE} - list of elements</li>
- *   <li>{@code SMEMBERS} - set members</li>
- *   <li>{@code HGETALL} - alternating field/value pairs</li>
- *   <li>{@code MGET} - values for multiple keys (may include nulls)</li>
- *   <li>{@code EXEC} - transaction results</li>
- *   <li>{@code ZRANGE} - sorted set members</li>
- *   <li>{@code SCAN} - cursor and array of keys</li>
- * </ul>
+ * <p>An element that is not a string (an integer, a double) is delivered as
+ * a payload of its text. All calls are made on the connection's event loop
+ * and must not block.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see RespValue
  */
 public interface ArrayResultHandler {
 
     /**
-     * Called when the command succeeds with an array result.
-     *
-     * <p>The array contains {@link RespValue} objects which can be
-     * queried for their type and converted to appropriate Java types.
-     *
-     * <h4>Processing example:</h4>
-     * <pre>{@code
-     * void handleResult(List<RespValue> array, RedisSession session) {
-     *     for (RespValue value : array) {
-     *         if (value.isNull()) {
-     *             // Handle null
-     *         } else if (value.isBulkString()) {
-     *             byte[] data = value.asBytes();
-     *         } else if (value.isInteger()) {
-     *             long num = value.asLong();
-     *         }
-     *     }
-     * }
-     * }</pre>
-     *
-     * @param array the array elements
-     * @param session the session for further operations
+     * The command returned null instead of an array.
      */
-    void handleResult(List<RespValue> array, RedisSession session);
+    void handleNull();
 
     /**
-     * Called when the command returns null (empty array).
+     * The array begins.
      *
-     * @param session the session for further operations
+     * @param count the number of elements, or -1 if the server did not say
+     * (a RESP3 streamed array)
+     * @param stream a handle to resume or cancel the reply
+     * @return what to do next: continue, pause or skip the rest
      */
-    void handleNull(RedisSession session);
+    ReplyFlow handleBegin(long count, ReplyStream stream);
 
     /**
-     * Called when the command fails with a Redis error.
+     * An element is null (for example a key missing from an {@code MGET}).
      *
-     * @param error the error message from Redis
+     * @return what to do next
+     */
+    ReplyFlow handleElementNull();
+
+    /**
+     * An element begins.
+     *
+     * @param length its length in bytes, or -1 if the server did not say
+     * @return what to do next
+     */
+    ReplyFlow handleElementBegin(long length);
+
+    /**
+     * The next bytes of the element, never empty. The buffer is valid only
+     * during the call.
+     *
+     * @param chunk the bytes, from its position to its limit
+     * @return what to do next
+     */
+    ReplyFlow handleElementContent(ByteBuffer chunk);
+
+    /**
+     * The element is complete.
+     *
+     * @return what to do next
+     */
+    ReplyFlow handleElementEnd();
+
+    /**
+     * The array is complete.
+     */
+    void handleEnd();
+
+    /**
+     * The command is over, whether it succeeded or not. The last call.
+     *
+     * @param error null if it succeeded, otherwise the error
      * @param session the session for further operations
      */
-    void handleError(String error, RedisSession session);
+    void handleComplete(String error, RedisSession session);
 
 }
-

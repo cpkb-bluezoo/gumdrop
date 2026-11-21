@@ -89,7 +89,7 @@ public class RedisClientCommandTimeoutTest {
         }
     }
 
-    private static class Bulk implements BulkResultHandler {
+    private static class Bulk extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -108,7 +108,26 @@ public class RedisClientCommandTimeoutTest {
         }
     }
 
-    static final class Many implements ArrayResultHandler {
+    static final class Many extends WholeEvents {
+        final List<String> events = new ArrayList<String>();
+
+        @Override
+        public void handleResult(List<RespValue> values, RedisSession s) {
+            events.add("array:" + values.size());
+        }
+
+        @Override
+        public void handleNull(RedisSession s) {
+            events.add("null");
+        }
+
+        @Override
+        public void handleError(String error, RedisSession s) {
+            events.add("error:" + error);
+        }
+    }
+
+    static final class Arr extends WholeArray {
         final List<String> events = new ArrayList<String>();
 
         @Override
@@ -418,14 +437,14 @@ public class RedisClientCommandTimeoutTest {
     @Test
     public void aBlockingCommandIsGivenItsOwnWaitOnTopOfTheTimeout() {
         handler.setCommandTimeoutMillis(1000);
-        session.blpop(5, new Many(), "q");
+        session.blpop(5, new Arr(), "q");
         assertEquals(6000, endpoint.live().get(0).delayMs);
     }
 
     @Test
     public void aBlockingCommandThatWaitsForeverHasNoTimeout() {
         handler.setCommandTimeoutMillis(1000);
-        session.blpop(0, new Many(), "q");
+        session.blpop(0, new Arr(), "q");
         assertTrue(endpoint.timers.isEmpty());
     }
 

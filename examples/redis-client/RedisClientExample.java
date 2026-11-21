@@ -6,14 +6,11 @@
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.redis.client.ArrayResultHandler;
-import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
 import org.bluezoo.gumdrop.redis.client.RedisClient;
 import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
 import org.bluezoo.gumdrop.redis.client.StringResultHandler;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -108,7 +105,7 @@ public class RedisClientExample {
                     System.out.println("[SET greeting] " + result);
 
                     // GET the key back
-                    s.get("greeting", new BulkResultHandler() {
+                    s.get("greeting", new SmallBulk() {
                         @Override
                         public void handleResult(byte[] value, RedisSession s2) {
                             String str = new String(value, StandardCharsets.UTF_8);
@@ -244,20 +241,20 @@ public class RedisClientExample {
                                     System.out.println("[HSET user:1 age 30] Fields added: " + value3);
 
                                     // Get a single field
-                                    s3.hget("user:1", "name", new BulkResultHandler() {
+                                    s3.hget("user:1", "name", new SmallBulk() {
                                         @Override
                                         public void handleResult(byte[] val, RedisSession s4) {
                                             String name = new String(val, StandardCharsets.UTF_8);
                                             System.out.println("[HGET user:1 name] " + name);
 
                                             // Get all fields
-                                            s4.hgetall("user:1", new ArrayResultHandler() {
+                                            s4.hgetall("user:1", new SmallMap() {
                                                 @Override
-                                                public void handleResult(List<RespValue> array, RedisSession s5) {
+                                                public void handleResult(List<String> array, RedisSession s5) {
                                                     System.out.println("[HGETALL user:1]");
                                                     for (int i = 0; i < array.size(); i += 2) {
-                                                        String field = array.get(i).asString();
-                                                        String fieldValue = array.get(i + 1).asString();
+                                                        String field = array.get(i);
+                                                        String fieldValue = array.get(i + 1);
                                                         System.out.println("  " + field + " = " + fieldValue);
                                                     }
                                                     demonstrateList(s5);
@@ -326,16 +323,16 @@ public class RedisClientExample {
                             System.out.println("[RPUSH queue item1 item2 item3] List length: " + length);
 
                             // Get list range
-                            s2.lrange("queue", 0, -1, new ArrayResultHandler() {
+                            s2.lrange("queue", 0, -1, new SmallList() {
                                 @Override
-                                public void handleResult(List<RespValue> array, RedisSession s3) {
+                                public void handleResult(List<String> array, RedisSession s3) {
                                     System.out.println("[LRANGE queue 0 -1]");
                                     for (int i = 0; i < array.size(); i++) {
-                                        System.out.println("  [" + i + "] " + array.get(i).asString());
+                                        System.out.println("  [" + i + "] " + array.get(i));
                                     }
 
                                     // Pop from list
-                                    s3.lpop("queue", new BulkResultHandler() {
+                                    s3.lpop("queue", new SmallBulk() {
                                         @Override
                                         public void handleResult(byte[] val, RedisSession s4) {
                                             System.out.println("[LPOP queue] " + new String(val, StandardCharsets.UTF_8));
@@ -387,12 +384,12 @@ public class RedisClientExample {
             System.out.println();
             System.out.println("=== Key Pattern ===");
 
-            session.keys("*", new ArrayResultHandler() {
+            session.keys("*", new SmallKeys() {
                 @Override
-                public void handleResult(List<RespValue> array, RedisSession s) {
+                public void handleResult(List<String> array, RedisSession s) {
                     System.out.println("[KEYS *] Found " + array.size() + " keys:");
-                    for (RespValue key : array) {
-                        System.out.println("  - " + key.asString());
+                    for (String key : array) {
+                        System.out.println("  - " + key);
                     }
                     cleanup(s);
                 }

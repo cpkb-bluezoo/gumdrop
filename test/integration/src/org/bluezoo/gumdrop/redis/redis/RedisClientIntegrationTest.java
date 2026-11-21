@@ -32,6 +32,7 @@ import org.bluezoo.gumdrop.redis.client.RedisClient;
 import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
 import org.bluezoo.gumdrop.redis.client.StringResultHandler;
+import org.bluezoo.gumdrop.redis.client.WholeBulk;
 
 import org.junit.After;
 import org.junit.Before;
@@ -383,7 +384,7 @@ public class RedisClientIntegrationTest {
         }
     }
 
-    private abstract class TestBulkHandler implements BulkResultHandler {
+    private abstract class TestBulkHandler extends WholeBulk {
         final AtomicReference<Exception> error;
         final CountDownLatch latch;
 

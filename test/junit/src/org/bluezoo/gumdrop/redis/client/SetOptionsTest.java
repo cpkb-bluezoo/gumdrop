@@ -41,7 +41,7 @@ import static org.junit.Assert.*;
  */
 public class SetOptionsTest {
 
-    private static final class Outcome implements BulkResultHandler {
+    private static final class Outcome extends WholeBulk {
         final List<String> events = new ArrayList<String>();
 
         @Override

@@ -31,16 +31,36 @@
  * Redis command is issued. Commands are pipelined naturally: nothing
  * blocks waiting for a reply, so issuing several commands back to back
  * sends them immediately and each result arrives via its own callback as
- * the server replies. Different result handler interfaces distinguish
- * Redis's several reply shapes -- {@link
- * org.bluezoo.gumdrop.redis.client.StringResultHandler} (simple
- * strings), {@link org.bluezoo.gumdrop.redis.client.BulkResultHandler}
- * (bulk strings, nullable), {@link
- * org.bluezoo.gumdrop.redis.client.IntegerResultHandler}, {@link
- * org.bluezoo.gumdrop.redis.client.BooleanResultHandler} (integer 0/1
- * results), {@link org.bluezoo.gumdrop.redis.client.ArrayResultHandler},
- * and {@link org.bluezoo.gumdrop.redis.client.MessageHandler} for
- * Pub/Sub. MULTI/EXEC transactions and Lua scripting (EVAL) are
+ * the server replies.
+ *
+ * <p>Replies stream: the library offers no call that returns, or passes to
+ * a handler, a value whose size depends on the server's data. A
+ * <em>payload</em> (a value, a list element, a hash value) is delivered
+ * only as chunks; an <em>identifier</em> (a key, a field name, a cursor) is
+ * delivered whole, up to the connection's maximum field length; a
+ * <em>scalar</em> (an integer, {@code OK}) is delivered as a value. The
+ * handler interfaces are the shapes of reply: {@link
+ * org.bluezoo.gumdrop.redis.client.StringResultHandler}, {@link
+ * org.bluezoo.gumdrop.redis.client.IntegerResultHandler} and {@link
+ * org.bluezoo.gumdrop.redis.client.BooleanResultHandler} for scalars;
+ * {@link org.bluezoo.gumdrop.redis.client.BulkResultHandler} for one
+ * payload; {@link org.bluezoo.gumdrop.redis.client.ArrayResultHandler} for
+ * an array of payloads; {@link
+ * org.bluezoo.gumdrop.redis.client.KeyArrayResultHandler} for an array of
+ * identifiers; {@link org.bluezoo.gumdrop.redis.client.MapResultHandler}
+ * for pairs of an identifier and a payload; {@link
+ * org.bluezoo.gumdrop.redis.client.ScanResultHandler} for a batch of
+ * {@code SCAN}; and {@link
+ * org.bluezoo.gumdrop.redis.client.ReplyEventHandler} for any other shape.
+ * There is no handler that collects: an application that needs a whole
+ * value accumulates it in its own handler, where the limit and the cost are
+ * visible. A handler steers the reply with the {@link
+ * org.bluezoo.gumdrop.redis.codec.ReplyFlow} it returns: continue, pause
+ * (reading stops until {@link
+ * org.bluezoo.gumdrop.redis.client.ReplyStream#resume()}), or skip (the rest
+ * of that reply is discarded, and the command completes with a {@code
+ * CANCELLED} error). {@link org.bluezoo.gumdrop.redis.client.MessageHandler}
+ * receives Pub/Sub. MULTI/EXEC transactions and Lua scripting (EVAL) are
  * supported directly on {@code RedisSession}.
  *
  * <p>The client is single-threaded, tied to one {@link
