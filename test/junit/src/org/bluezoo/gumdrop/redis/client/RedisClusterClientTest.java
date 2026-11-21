@@ -376,6 +376,21 @@ public class RedisClusterClientTest {
     }
 
     @Test
+    public void aRefreshThatReachesNoNodeFailsAndTheSessionGoesOn() {
+        discover();
+        up(indexOf("127.0.0.1:7000"));
+        Request b = up(indexOf("127.0.0.1:7001"));
+        ready.session.get("foo", new Bulk());
+        int before = connector.requests.size();
+        reply(b, "-MOVED 12182 127.0.0.1:7000\r\n");
+        // every node the refresh tries refuses it
+        for (int i = before; i < connector.requests.size() && i < before + 20; i++) {
+            connector.requests.get(i).listener.failed(new java.io.IOException("refused"));
+        }
+        assertTrue(connector.requests.size() > before);
+    }
+
+    @Test
     public void aRefreshedTopologyIsUsedAndItsConnectionClosed() {
         discover();
         up(indexOf("127.0.0.1:7000"));

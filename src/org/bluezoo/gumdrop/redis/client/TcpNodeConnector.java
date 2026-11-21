@@ -58,6 +58,11 @@ final class TcpNodeConnector implements NodeConnector {
 
     @Override
     public void connect(ClusterNode node, NodeListener listener) {
+        newClient(node).connect(gumdrop, new NodeAdapter(listener, username, password, protocol));
+    }
+
+    // The client for a node, as configured; not yet connected.
+    RedisClient newClient(ClusterNode node) {
         RedisClient client = new RedisClient()
                 .host(node.getHost())
                 .port(node.getPort())
@@ -67,6 +72,6 @@ final class TcpNodeConnector implements NodeConnector {
         if (dnsResolver != null) {
             client.dnsResolver(dnsResolver);
         }
-        client.connect(gumdrop, new NodeAdapter(listener, username, password, protocol));
+        return client;
     }
 }

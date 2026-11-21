@@ -403,6 +403,89 @@ public class RedisClusterPubSubTest {
     }
 
     @Test
+    public void unsubscribingWhileTheConnectionIsDownIsAcknowledgedAtOnce() {
+        Rec h = new Rec();
+        session.subscribe(h, "news");
+        session.unsubscribe("news");
+        assertEquals("[unsubscribed:news:0]", h.events.toString());
+        Rec p = new Rec();
+        session.psubscribe(p, "n*");
+        session.punsubscribe("n*");
+        assertEquals("[punsubscribed:n*:0]", p.events.toString());
+        Rec sh = new Rec();
+        session.ssubscribe(sh, "foo");
+        session.sunsubscribe("foo");
+        assertEquals("[sunsubscribed:foo:0]", sh.events.toString());
+    }
+
+    @Test
+    public void unsubscribingFromNothingNamedLeavesEveryChannel() {
+        Rec h = new Rec();
+        session.subscribe(h, "a", "b");
+        Request r = up(connector.requests.get(0));
+        session.unsubscribe();
+        assertTrue(written(r), written(r).contains("UNSUBSCRIBE"));
+    }
+
+    @Test
+    public void anUnsubscribeThatIsNeverAcknowledgedIsToldWhenTheConnectionIsLost() {
+        Rec h = new Rec();
+        session.subscribe(h, "news");
+        session.psubscribe(h, "n*");
+        Request r = up(connector.requests.get(0));
+        push(r, "subscribe", "news", ":1\r\n");
+        session.unsubscribe("news");
+        session.punsubscribe("n*");
+        lose(r);
+        assertTrue(h.events.toString(), h.events.contains("unsubscribed:news:0"));
+        assertTrue(h.events.toString(), h.events.contains("punsubscribed:n*:0"));
+    }
+
+    @Test
+    public void aSubscriptionWithNoNodeToGoToIsTold() {
+        SlotMap none = SlotMap.parse(arr(), "127.0.0.1");
+        RedisClusterSession empty = new RedisClusterSession(none, connector);
+        Rec h = new Rec();
+        empty.subscribe(h, "news");
+        assertEquals(1, h.events.size());
+        assertTrue(h.events.toString(), h.events.get(0).startsWith("error:"));
+    }
+
+    @Test
+    public void aLostConnectionThatCannotBeRestoredEndsTheSubscriptions() {
+        RedisClusterSession noWait = new RedisClusterSession(threeMasters(), connector);
+        Rec h = new Rec();
+        noWait.subscribe(h, "news");
+        Request r = up(connector.requests.get(connector.requests.size() - 1));
+        lose(r);
+        assertEquals(1, h.events.size());
+        assertTrue(h.events.toString(), h.events.get(0).startsWith("error:"));
+    }
+
+    @Test
+    public void aConnectionThatArrivesAfterTheSessionClosedIsClosed() {
+        session.subscribe(new Rec(), "news");
+        Request r = connector.requests.get(0);
+        session.close();
+        up(r);
+        assertFalse(r.endpoint.open);
+    }
+
+    @Test
+    public void aShardSubscriptionWhoseSlotNoNodeServesIsTold() {
+        Rec h = new Rec();
+        session.ssubscribe(h, "foo");
+        Request c = up(connector.requests.get(0));
+        push(c, "ssubscribe", "foo", ":1\r\n");
+        session.get("bar", new Ignore());
+        connector.forAddress(A).get(0).listener.failed(new java.io.IOException("refused"));
+        // a map that no longer has anything for foo's slot
+        refresher.requests.get(0).refreshed(SlotMap.parse(arr(range(0, 5460, 7000),
+                range(5461, 10922, 7001)), "127.0.0.1"));
+        assertTrue(h.events.toString(), h.events.toString().contains("error:"));
+    }
+
+    @Test
     public void patternConfirmationsAreRelayedToTheirHandler() {
         Rec h = new Rec();
         session.psubscribe(h, "n*");
