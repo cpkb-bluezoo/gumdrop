@@ -41,7 +41,6 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeTrue;

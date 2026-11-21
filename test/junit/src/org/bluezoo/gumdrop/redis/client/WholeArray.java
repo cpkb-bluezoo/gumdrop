@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Test support: an {@link ArrayResultHandler} that accumulates the elements

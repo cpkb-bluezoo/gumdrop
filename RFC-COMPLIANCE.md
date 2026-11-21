@@ -1616,25 +1616,28 @@ follow the other mail protocols; see `NntpProtocolHandler`.
 
 | Requirement | Spec | Status | Implementation |
 |---|---|---|---|
-| Command encoding (array of bulk strings) | RESP spec — Sending commands | Compliant | `RespEncoder.encodeCommand()` — `*N\r\n$len\r\narg\r\n...` |
-| Simple String response (`+`) | RESP spec — Simple Strings | Compliant | `RespDecoder` parses `+...\r\n` → `RespType.SIMPLE_STRING` |
-| Error response (`-`) | RESP spec — Errors | Compliant | `RespDecoder` parses `-...\r\n` → `RespType.ERROR` |
-| Integer response (`:`) | RESP spec — Integers | Compliant | `RespDecoder` parses `:N\r\n` → `RespType.INTEGER` (signed 64-bit) |
-| Bulk String response (`$`) | RESP spec — Bulk Strings | Compliant | `RespDecoder` parses `$len\r\ndata\r\n` → `RespType.BULK_STRING` |
-| Array response (`*`) | RESP spec — Arrays | Compliant | `RespDecoder` parses `*N\r\n...` → `RespType.ARRAY` (recursive) |
-| Null Bulk String (`$-1\r\n`) | RESP spec — Bulk Strings | Compliant | `RespValue.nullValue()` dispatched to `handleNull()` |
-| Null Array (`*-1\r\n`) | RESP spec — Arrays | Compliant | `RespValue.nullValue()` dispatched to `handleNull()` |
-| Streaming decode (partial data) | RESP spec | Compliant | `RespDecoder.receive()` accumulates; `next()` returns when complete |
-| Pipelining (multiple commands in-flight) | RESP spec — Pipelining | Compliant | FIFO `pendingCommands` queue correlates responses to callbacks |
-| RESP3 Map (`%`) | RESP3 spec — Map | Compliant | `RespDecoder` parses `%N\r\n...` → `RespType.MAP`, flattened for `ArrayResultHandler` |
-| RESP3 Set (`~`) | RESP3 spec — Set | Compliant | `RespDecoder` parses `~N\r\n...` → `RespType.SET` |
-| RESP3 Double (`,`) | RESP3 spec — Double | Compliant | `RespDecoder` parses `,value\r\n` including inf/nan |
-| RESP3 Boolean (`#`) | RESP3 spec — Boolean | Compliant | `RespDecoder` parses `#t`/`#f` → `RespType.BOOLEAN` |
-| RESP3 Null (`_`) | RESP3 spec — Null | Compliant | `RespDecoder` parses `_\r\n` → `RespType.NULL` |
-| RESP3 Push (`>`) | RESP3 spec — Push | Compliant | `RespDecoder` parses `>N\r\n...` → `RespType.PUSH`, Pub/Sub dispatch |
-| RESP3 Verbatim String (`=`) | RESP3 spec — Verbatim String | Compliant | `RespDecoder` parses `=len\r\nenc:data\r\n` with encoding hint |
-| RESP3 Big Number (`(`) | RESP3 spec — Big Number | Compliant | `RespDecoder` parses `(value\r\n` → `RespType.BIG_NUMBER` |
-| RESP3 Blob Error (`!`) | RESP3 spec — Blob Error | Compliant | `RespDecoder` parses `!len\r\ndata\r\n` → `RespType.BLOB_ERROR` |
+| Command encoding (array of bulk strings) | RESP spec — Sending commands | Compliant | `RespEncoder.encodeCommand()` — `*N\r\n$len\r\narg\r\n...`; a streamed argument is `encodeStreamedHead()`, its bytes, then `encodeStreamedTail()` |
+| Simple String response (`+`) | RESP spec — Simple Strings | Compliant | `RespDecoder` reports `+...\r\n` as `simpleString()` |
+| Error response (`-`) | RESP spec — Errors | Compliant | `RespDecoder` reports `-...\r\n` as `error()`; an error that is the whole reply is only `handleComplete(error)` |
+| Integer response (`:`) | RESP spec — Integers | Compliant | `RespDecoder` reports `:N\r\n` as `integer()` (signed 64-bit) |
+| Bulk String response (`$`) | RESP spec — Bulk Strings | Compliant | `RespDecoder` reports `$len\r\ndata\r\n` as `beginString()`, `stringChunk()`s and `endString()`; no payload is held |
+| Array response (`*`) | RESP spec — Arrays | Compliant | `RespDecoder` reports `*N\r\n...` as `beginAggregate()`, its elements and `endAggregate()`, with an explicit stack of counts (no recursion) |
+| Null Bulk String (`$-1\r\n`) | RESP spec — Bulk Strings | Compliant | `RespDecoder` reports `nullValue()`; `BulkResultHandler.handleNull()` |
+| Null Array (`*-1\r\n`) | RESP spec — Arrays | Compliant | `RespDecoder` reports `nullValue()` |
+| Incremental decode (partial data) | RESP spec | Compliant | `RespDecoder.receive()` consumes the buffer it is given in any split; only an unfinished header line (at most `maxLine`) is kept |
+| Pipelining (multiple commands in-flight) | RESP spec — Pipelining | Compliant | FIFO `pendingCommands` queue correlates replies to handlers; each reply is routed as it is read |
+| RESP3 Map (`%`) | RESP3 spec — Map | Compliant | `RespDecoder` reports `%N\r\n...` as an aggregate of kind `RespType.MAP` (N counts pairs); `MapResultHandler` takes a map or flat pairs |
+| RESP3 Set (`~`) | RESP3 spec — Set | Compliant | `RespDecoder` reports `~N\r\n...` as an aggregate of kind `RespType.SET` |
+| RESP3 Double (`,`) | RESP3 spec — Double | Compliant | `RespDecoder` reports `,value\r\n` as `doubleValue()` including inf/nan |
+| RESP3 Boolean (`#`) | RESP3 spec — Boolean | Compliant | `RespDecoder` reports `#t`/`#f` as `booleanValue()` |
+| RESP3 Null (`_`) | RESP3 spec — Null | Compliant | `RespDecoder` reports `_\r\n` as `nullValue()` |
+| RESP3 Push (`>`) | RESP3 spec — Push | Compliant | `RespDecoder` reports `>N\r\n...` as a reply with `push` true; `PubSubReader` sends deliveries to the `MessageHandler`, other pushes to the `PushHandler` |
+| RESP3 Verbatim String (`=`) | RESP3 spec — Verbatim String | Compliant | `RespDecoder` reports `=len\r\nenc:data\r\n` as a string with its three-letter format; a string with no format is refused |
+| RESP3 Big Number (`(`) | RESP3 spec — Big Number | Compliant | `RespDecoder` reports `(value\r\n` as `bigNumber()` |
+| RESP3 Blob Error (`!`) | RESP3 spec — Blob Error | Compliant | `RespDecoder` reports `!len\r\ndata\r\n` as a string of kind `RespType.BLOB_ERROR`; the connection reads it as an error, truncated to the maximum field length |
+| RESP3 Streamed strings (`$?`, `;N`) | RESP3 spec — Streamed strings | Compliant | `RespDecoder` reports a string of unknown length and its chunks |
+| RESP3 Streamed aggregates (`*?`, `%?`, `~?`, `.`) | RESP3 spec — Streamed aggregates | Compliant | `RespDecoder` reports an aggregate of unknown length closed by `endAggregate()` |
+| RESP3 Attributes (`\|`) | RESP3 spec — Attribute | Compliant | `RespDecoder` reads and drops them, counted against the skip limit |
 
 ### Connection and Authentication
 

@@ -31,7 +31,6 @@ import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import static org.junit.Assert.*;
 

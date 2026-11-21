@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Test support: a {@link ScanResultHandler} that accumulates the batch and

@@ -31,7 +31,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;

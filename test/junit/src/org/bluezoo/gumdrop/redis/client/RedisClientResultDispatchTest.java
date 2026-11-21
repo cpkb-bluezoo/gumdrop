@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 import org.junit.Before;
 import org.junit.Test;
 

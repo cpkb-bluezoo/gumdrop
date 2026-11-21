@@ -11,9 +11,10 @@ import org.bluezoo.gumdrop.redis.codec.RespType;
 /**
  * Micro-benchmark for the RESP codec, with no Redis server involved.
  *
- * <p>Decoder: a bulk-string reply of 1 KiB, 64 KiB and 1 MiB, and an array
- * reply of 100 bulk strings of 1 KiB, each fed in chunks of 512 bytes and
- * 16 KiB. Encoder: SET and GET with a 16-byte and a 64 KiB value.
+ * <p>Decoder: a bulk-string reply of 1 KiB, 64 KiB, 1 MiB and 64 MiB, and an
+ * array reply of 100 bulk strings of 1 KiB, each fed in chunks of 512 bytes
+ * and 16 KiB (the 64 MiB reply in chunks of 16 KiB only), the events
+ * discarded as they arrive. Encoder: SET and GET with a 16-byte and a 64 KiB value.
  *
  * <p>Each case warms up, then runs for a fixed number of iterations on one
  * thread and prints one CSV row: operations per second, bytes per second,
@@ -41,9 +42,14 @@ public class RespCodecBench {
         }
         System.out.println("case,ops_per_s,mb_per_s,alloc_bytes_per_op,cpu_ns_per_op");
         int[] chunks = new int[] { 512, 16384 };
-        int[] sizes = new int[] { 1024, 64 * 1024, 1024 * 1024 };
+        // the decoder reports a payload as chunks and holds none of it, so
+        // the bytes allocated per operation stay flat from 64 KiB to 64 MiB
+        int[] sizes = new int[] { 1024, 64 * 1024, 1024 * 1024, 64 * 1024 * 1024 };
         for (int s = 0; s < sizes.length; s++) {
             for (int c = 0; c < chunks.length; c++) {
+                if (sizes[s] > 1024 * 1024 && chunks[c] < 16384) {
+                    continue;
+                }
                 byte[] wire = bulk(sizes[s]);
                 run("decode-bulk-" + label(sizes[s]) + "-chunk" + chunks[c],
                         new DecodeOp(wire, chunks[c], false), millis);
@@ -84,13 +90,13 @@ public class RespCodecBench {
     }
 
     static byte[] bulk(int size) {
-        StringBuilder sb = new StringBuilder(size + 16);
-        sb.append('$').append(size).append("\r\n");
-        for (int i = 0; i < size; i++) {
-            sb.append('x');
-        }
-        sb.append("\r\n");
-        return sb.toString().getBytes(StandardCharsets.US_ASCII);
+        byte[] head = ("$" + size + "\r\n").getBytes(StandardCharsets.US_ASCII);
+        byte[] out = new byte[head.length + size + 2];
+        System.arraycopy(head, 0, out, 0, head.length);
+        java.util.Arrays.fill(out, head.length, head.length + size, (byte) 'x');
+        out[out.length - 2] = '\r';
+        out[out.length - 1] = '\n';
+        return out;
     }
 
     static byte[] array(int count, int elementSize) {
@@ -130,9 +136,13 @@ public class RespCodecBench {
         private final int chunk;
         private final RespDecoder decoder = new RespDecoder();
         private final Discarding handler = new Discarding();
+        // one view onto the reply, moved along it, so that the benchmark
+        // itself allocates nothing per chunk
+        private final ByteBuffer view;
 
         DecodeOp(byte[] wire, int chunk, boolean array) {
             this.wire = wire;
+            this.view = ByteBuffer.wrap(wire);
             this.chunk = chunk;
         }
 
@@ -141,7 +151,9 @@ public class RespCodecBench {
             int before = handler.replies;
             while (off < wire.length) {
                 int n = Math.min(chunk, wire.length - off);
-                decoder.receive(ByteBuffer.wrap(wire, off, n), handler);
+                view.limit(off + n);
+                view.position(off);
+                decoder.receive(view, handler);
                 off += n;
             }
             if (handler.replies == before) {

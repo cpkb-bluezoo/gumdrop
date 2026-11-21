@@ -48,6 +48,7 @@ rate limiting, or pub/sub messaging.
 <li><a href="#selector-affinity">SelectorLoop affinity</a></li>
 <li><a href="#commands">Supported commands</a></li>
 <li><a href="#handlers">Result handlers</a></li>
+<li><a href="#streaming">Streaming: replies, requests and memory</a></li>
 <li><a href="#resp3">RESP3 protocol</a></li>
 <li><a href="#scan">Cursor-based iteration (SCAN)</a></li>
 <li><a href="#blocking">Blocking commands</a></li>
@@ -64,7 +65,9 @@ rate limiting, or pub/sub messaging.
 <p>
 The Redis client follows the same patterns as other Gumdrop clients (LDAP,
 SMTP, HTTP). It uses the RESP (Redis Serialization Protocol) for wire-level
-communication, with a streaming decoder that handles partial data gracefully.
+communication, with an incremental decoder that reports what it reads as
+events and holds none of it: no reply, and no part of a reply, is ever
+assembled into a value.
 </p>
 
 <h4>Key components</h4>
@@ -82,13 +85,17 @@ RESP protocol</li>
 <li><code>RedisSession</code> - interface exposing all Redis operations</li>
 <li><code>RedisConnectionReady</code> - entry point handler receiving the ready
 notification, as well as the usual connection lifecycle callbacks</li>
-<li>Result handlers (<code>StringResultHandler</code>,
-<code>BulkResultHandler</code>, <code>IntegerResultHandler</code>,
-<code>BooleanResultHandler</code>, <code>ArrayResultHandler</code>,
-<code>ScanResultHandler</code>) and <code>MessageHandler</code> for
-Pub/Sub</li>
-<li><code>RespValue</code> and the codec classes - the decoded RESP value
-tree</li>
+<li>Result handlers, one for each shape of reply (<code>StringResultHandler</code>,
+<code>IntegerResultHandler</code>, <code>BooleanResultHandler</code>,
+<code>BulkResultHandler</code>, <code>ArrayResultHandler</code>,
+<code>KeyArrayResultHandler</code>, <code>MapResultHandler</code>,
+<code>ScanResultHandler</code>, <code>ReplyEventHandler</code>),
+<code>MessageHandler</code> for Pub/Sub and <code>PushHandler</code> for RESP3
+pushes</li>
+<li><code>ArgumentSource</code> - an argument of a request whose bytes are
+pulled as the connection can take them</li>
+<li>The codec classes: <code>RespDecoder</code>, which reports events to a
+<code>RespEventHandler</code>, and <code>RespEncoder</code></li>
 </ul>
 
 <h4>Asynchronous model</h4>
@@ -174,7 +181,7 @@ session.set("user:1:name", "Alice", new StringResultHandler() {
     public void handleResult(String result, RedisSession s) {
         // result is "OK"
         // Now retrieve the value
-        s.get("user:1:name", new BulkResultHandler() {
+        s.get("user:1:name", new SmallBulk() {   // see "Small values" below
             @Override
             public void handleResult(byte[] value, RedisSession session) {
                 String name = new String(value, StandardCharsets.UTF_8);
@@ -252,7 +259,7 @@ public void mailFrom(final MailFromState state, EmailAddress sender,
         return;
     }
     // Check sender reputation in Redis
-    redisSession.get("reputation:" + sender.getAddress(), new BulkResultHandler() {
+    redisSession.get("reputation:" + sender.getAddress(), new SmallBulk() {
         @Override
         public void handleResult(byte[] value, RedisSession session) {
             int score = Integer.parseInt(new String(value, StandardCharsets.UTF_8));
@@ -357,8 +364,6 @@ commands, organised by data type.
 <tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
 <tr><td><code>auth(password, handler)</code></td><td>AUTH</td><td>Authenticate (Redis 5 and earlier)</td></tr>
 <tr><td><code>auth(user, password, handler)</code></td><td>AUTH</td><td>Authenticate with ACL (Redis 6+)</td></tr>
-<tr><td><code>hello(protover, handler)</code></td><td>HELLO</td><td>Negotiate RESP protocol version (Redis 6+)</td></tr>
-<tr><td><code>hello(protover, user, pass, handler)</code></td><td>HELLO</td><td>Negotiate protocol with auth</td></tr>
 <tr><td><code>clientSetName(name, handler)</code></td><td>CLIENT SETNAME</td><td>Set connection name</td></tr>
 <tr><td><code>clientGetName(handler)</code></td><td>CLIENT GETNAME</td><td>Get connection name</td></tr>
 <tr><td><code>clientId(handler)</code></td><td>CLIENT ID</td><td>Get connection ID</td></tr>
@@ -527,71 +532,331 @@ session.command(handler, "OBJECT", "ENCODING", "mykey");
 <h3 id="handlers">Result handlers</h3>
 
 <p>
-Each command type has a corresponding result handler interface:
+Each command is sent with a handler, and there is one handler interface for
+each shape of reply. The library offers no call that returns, or passes to a
+handler, a value whose size depends on what the server sends: a reply is told to
+the handler as it is read, and what the handler wants of it, it keeps.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Handler</th><th>For</th><th>Delivers</th></tr>
+<tr><td><code>StringResultHandler</code></td><td>OK, PONG, TYPE</td><td>the string, whole</td></tr>
+<tr><td><code>IntegerResultHandler</code>, <code>BooleanResultHandler</code></td><td>INCR, DEL, EXISTS, SISMEMBER</td><td>the number</td></tr>
+<tr><td><code>BulkResultHandler</code></td><td>GET, HGET, LPOP, SET with options</td><td>one payload, as chunks</td></tr>
+<tr><td><code>ArrayResultHandler</code></td><td>MGET, LRANGE, SMEMBERS, ZRANGE, HVALS, BLPOP</td><td>an array of payloads, each as chunks</td></tr>
+<tr><td><code>KeyArrayResultHandler</code></td><td>KEYS, HKEYS</td><td>an array of identifiers, each whole</td></tr>
+<tr><td><code>MapResultHandler</code></td><td>HGETALL</td><td>pairs of an identifier and a payload</td></tr>
+<tr><td><code>ScanResultHandler</code></td><td>SCAN</td><td>a cursor, then keys</td></tr>
+<tr><td><code>ReplyEventHandler</code></td><td>EXEC, EVAL, XREAD, XRANGE, SSCAN, HSCAN, ZSCAN, <code>command()</code></td><td>the events of the reply</td></tr>
+<tr><td><code>MessageHandler</code></td><td>Pub/Sub</td><td>messages, each body as chunks</td></tr>
+<tr><td><code>PushHandler</code></td><td>RESP3 pushes</td><td>the events of each push</td></tr>
+</table>
+
+<p>
+The scalar handlers (<code>StringResultHandler</code>,
+<code>IntegerResultHandler</code>, <code>BooleanResultHandler</code>) cannot be
+given a reply larger than a line, so they are refused one: a string longer than
+the maximum field length, or a collection, fails that command with an error
+that names the streaming form, and the connection carries on.
+</p>
+
+<h4>The rule</h4>
+
+<p>
+<em>Payloads stream; protocol identifiers are bounded and delivered whole.</em>
+This is the split HTTP makes between a body and a header field.
 </p>
 
 <ul>
-<li><code>StringResultHandler</code> - for commands returning simple strings
-("OK", "PONG")</li>
-<li><code>BulkResultHandler</code> - for commands returning bulk strings or
-null (GET, HGET)</li>
-<li><code>IntegerResultHandler</code> - for commands returning integers
-(INCR, LPUSH, DEL)</li>
-<li><code>BooleanResultHandler</code> - convenience for integer-as-boolean
-(EXISTS, SISMEMBER)</li>
-<li><code>ArrayResultHandler</code> - for commands returning arrays
-(KEYS, LRANGE, HGETALL)</li>
-<li><code>MessageHandler</code> - for Pub/Sub messages</li>
-<li><code>ScanResultHandler</code> - for SCAN family commands (cursor + elements)</li>
+<li>A <strong>payload</strong> is a string whose size is the application's
+data: a value, a list element, a hash value, a published message, a script
+result. It is delivered only as chunks.</li>
+<li>An <strong>identifier</strong> is a string the protocol uses to name or
+route: a key, a channel or pattern, a hash field name, a cursor. It is
+delivered whole, up to the maximum field length (64 KiB by default). A longer
+one fails that reply, not the connection.</li>
+<li>A <strong>scalar</strong> (an integer, <code>OK</code>, an error line) is
+delivered as a value, bounded by the maximum line length.</li>
 </ul>
 
-<h4>BulkResultHandler example</h4>
+<h4>Streaming a payload</h4>
+
+<p>
+A bulk payload arrives as <code>handleBegin</code>, any number of
+<code>handleContent</code> calls and <code>handleEnd</code>, and
+<code>handleComplete</code> comes last, once, with a null error if the
+command succeeded. The buffer given to <code>handleContent</code> is a view
+onto the connection's receive buffer and is valid only during the call.
+</p>
 
 <pre>
-session.get("key", new BulkResultHandler() {
+session.get("big", new BulkResultHandler() {
+    private FileChannel out;
+
     @Override
-    public void handleResult(byte[] value, RedisSession session) {
-        // Value found - convert bytes to string if needed
-        String s = new String(value, StandardCharsets.UTF_8);
+    public void handleNull() {
+        // the key does not exist
     }
-    
+
     @Override
-    public void handleNull(RedisSession session) {
-        // Key doesn't exist
+    public ReplyFlow handleBegin(long length, ReplyStream stream) {
+        out = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING);
+        return ReplyFlow.CONTINUE;
     }
-    
+
     @Override
-    public void handleError(String error, RedisSession session) {
-        // Redis error (e.g., WRONGTYPE)
+    public ReplyFlow handleContent(ByteBuffer chunk) {
+        out.write(chunk);                    // consume the chunk
+        return ReplyFlow.CONTINUE;
+    }
+
+    @Override
+    public void handleEnd() {
+        out.close();
+    }
+
+    @Override
+    public void handleComplete(String error, RedisSession session) {
+        // error is null on success; otherwise a server error, or TIMEOUT,
+        // CANCELLED or TOOLARGE followed by a description
     }
 });
 </pre>
 
-<h4>ArrayResultHandler example</h4>
+<p>
+<code>examples/redis-client/StreamingExample.java</code> is a full version of
+this, and of its counterpart, writing a value from a file.
+</p>
+
+<h4 id="small-values">Small values</h4>
+
+<p>
+There is no collecting handler: a handler that needs a whole value
+accumulates it itself, where the limit and the cost are visible. For a value
+known to be small, the examples keep a few such classes (<code>SmallBulk</code>,
+<code>SmallList</code>, <code>SmallMap</code>, <code>SmallKeys</code>,
+<code>SmallMessages</code>) which accumulate under an explicit limit and
+answer <code>SKIP</code> beyond it:
+</p>
 
 <pre>
-session.hgetall("user:1", new ArrayResultHandler() {
-    @Override
-    public void handleResult(List&lt;RespValue&gt; array, RedisSession session) {
-        // HGETALL returns alternating field/value pairs
-        for (int i = 0; i &lt; array.size(); i += 2) {
-            String field = array.get(i).asString();
-            String value = array.get(i + 1).asString();
-            System.out.println(field + " = " + value);
+public abstract class SmallBulk implements BulkResultHandler {
+    static final int LIMIT = 64 * 1024;
+    private ByteArrayOutputStream value;
+    private boolean tooLarge;
+
+    public ReplyFlow handleBegin(long length, ReplyStream stream) {
+        if (length &gt; LIMIT) {
+            tooLarge = true;
+            return ReplyFlow.SKIP;           // this command only; the connection is fine
+        }
+        value = new ByteArrayOutputStream();
+        return ReplyFlow.CONTINUE;
+    }
+
+    public ReplyFlow handleContent(ByteBuffer chunk) {
+        // ... copy the chunk, SKIP if the total passes LIMIT
+    }
+
+    public void handleComplete(String error, RedisSession session) {
+        if (tooLarge) {
+            handleError("value larger than " + LIMIT + " bytes", session);
+        } else if (error != null) {
+            handleError(error, session);
+        } else if (value == null) {
+            handleNull(session);
+        } else {
+            handleResult(value.toByteArray(), session);
         }
     }
-    
+
+    public abstract void handleResult(byte[] value, RedisSession session);
+    public abstract void handleNull(RedisSession session);
+    public abstract void handleError(String error, RedisSession session);
+}
+</pre>
+
+<p>
+The examples on this page that read a small value use these classes.
+</p>
+
+<h4>Arrays, maps and other shapes</h4>
+
+<pre>
+// HGETALL: pairs of a field name (whole) and a value (as chunks)
+session.hgetall("user:1", new MapResultHandler() {
+    public ReplyFlow handleBegin(long pairs, ReplyStream stream) { ... }
+    public ReplyFlow handleField(String field) { ... }
+    public ReplyFlow handleValueNull() { ... }
+    public ReplyFlow handleValueBegin(long length) { ... }
+    public ReplyFlow handleValueContent(ByteBuffer chunk) { ... }
+    public ReplyFlow handleValueEnd() { ... }
+    public void handleEnd() { ... }
+    public void handleNull() { ... }
+    public void handleComplete(String error, RedisSession session) { ... }
+});
+</pre>
+
+<p>
+A RESP3 map and a RESP2 flat array of alternating names and values are
+delivered the same way. <code>ArrayResultHandler</code> has the same shape for
+an array of payloads (<code>handleElementBegin</code>,
+<code>handleElementContent</code>, <code>handleElementEnd</code>), and
+<code>KeyArrayResultHandler</code> delivers each identifier whole with
+<code>handleKey</code>. <code>ReplyEventHandler</code> is for replies of any
+shape; extend <code>ReplyEventAdapter</code> to override only the events you
+want:
+</p>
+
+<pre>
+session.exec(new ReplyEventAdapter() {
+    private long results;
+
     @Override
-    public void handleNull(RedisSession session) {
-        // Key doesn't exist
+    public ReplyFlow beginAggregate(RespType kind, long length) {
+        return ReplyFlow.CONTINUE;
     }
-    
+
     @Override
-    public void handleError(String error, RedisSession session) {
-        // Error occurred
+    public ReplyFlow integer(long value) {
+        results++;                               // INCR's result, say
+        return ReplyFlow.CONTINUE;
+    }
+
+    @Override
+    public ReplyFlow nullValue() {
+        // the transaction was aborted (a WATCHed key changed)
+        return ReplyFlow.CONTINUE;
+    }
+
+    @Override
+    public void handleComplete(String error, RedisSession session) {
+        // an error that is the whole reply (EXECABORT) is only ever here
     }
 });
 </pre>
+
+<h4>Flow control and skipping</h4>
+
+<p>
+Every event that can continue returns a
+<code>org.bluezoo.gumdrop.redis.codec.ReplyFlow</code>:
+</p>
+
+<ul>
+<li><code>CONTINUE</code> - go on.</li>
+<li><code>PAUSE</code> - stop reading on the connection after this event.
+The unread rest stays in the operating system's buffers, so TCP flow control
+reaches the server, and memory stays constant. The <code>ReplyStream</code>
+the handler was given continues the same reply when its
+<code>resume()</code> is called, from any thread.</li>
+<li><code>SKIP</code> - discard the rest of this reply as it arrives, in
+constant memory. The connection survives, the replies before and after are
+delivered, and the handler's <code>handleComplete</code> gets a
+<code>CANCELLED</code> error. A reply nobody wants (the answer to a command
+that timed out) is discarded the same way.</li>
+</ul>
+
+<p>
+<code>ReplyStream.cancel()</code> does the same as <code>SKIP</code> from
+outside an event, resuming a paused reply in order to discard it.
+</p>
+
+<h3 id="streaming">Streaming: replies, requests and memory</h3>
+
+<h4>Large values in requests</h4>
+
+<p>
+RESP puts the length of each argument before its bytes, so a streamed argument
+declares its length and is pulled as the connection can take it.
+<code>set(key, ArgumentSource, ...)</code> writes a value of any size without
+holding it:
+</p>
+
+<pre>
+session.set("big", new ArgumentSource() {
+    public long length() {
+        return size;
+    }
+
+    public ArgumentStream open(ArgumentSink sink) {
+        return new FileStream(path);         // a fresh reading each time
+    }
+}, handler);
+</pre>
+
+<p>
+An <code>ArgumentStream</code> is read on the connection's event loop, a block
+(16 KiB) at a time and only while the unsent bytes the endpoint holds are under
+64 KiB, so it must not block: a stream with nothing to give returns 0 and calls
+<code>sink.ready()</code> when it has. Commands sent meanwhile queue behind
+the streamed one, as the bytes of one command cannot be broken by another's.
+A key must be in memory, as a cluster reads it to route the command.
+</p>
+
+<p>
+A command can be sent more than once: a cluster follows <code>MOVED</code> and
+<code>ASK</code>, and a connection can be redialled. Each attempt calls
+<code>open</code> afresh. A source that can be read only once returns null
+from the second <code>open</code>, and the command then fails with
+<code>NOT_REPEATABLE</code> rather than sending a short value.
+<code>ArgumentSource.of(bytes)</code> is a repeatable source for bytes in
+memory.
+</p>
+
+<h4>Timeouts and health checks</h4>
+
+<p>
+The timeout of a command that streams its request starts when its last byte
+has been written, and so do those of the commands queued behind it. The
+timeout of a reply that is being streamed is the wait for its first byte
+followed by an inactivity timeout, reset on every chunk, and stopped while the
+handler has paused it. The health check's <code>PING</code> does not run
+against a connection that is paused, or one the client is still sending on,
+and still drops a stream whose server goes silent.
+</p>
+
+<h4>Clusters</h4>
+
+<p>
+<code>MOVED</code>, <code>ASK</code>, <code>CLUSTERDOWN</code> and
+<code>TRYAGAIN</code> arrive as error replies, which are the first event of a
+reply, so a handler has heard nothing when the cluster sends the command
+again, and a streamed read is streamed from the new owner. Once a payload event
+has been delivered the attempt belongs to its node: a connection lost after
+that completes the handler with a <code>CONNLOST</code> error and the command
+is not repeated.
+</p>
+
+<h4>Memory</h4>
+
+<p>
+Nothing the client holds depends on the data. A connection costs at most its
+receive buffer, one line, one identifier, a stack of 32 counts for nested
+aggregates, and a block of a streamed request being written: connections
+&times; (buffer + maximum line + maximum field), an expression of configuration
+and never of data. The maximum line and field default to 64 KiB.
+</p>
+
+<h4>What closes a connection</h4>
+
+<ul>
+<li>A server that sends data that is not RESP, or nests aggregates more than
+32 deep.</li>
+<li>Discarding more than the skip limit (256 MiB by default) of one reply:
+reading on only to discard has a cost of its own. This is the one case in which
+flow control closes a connection.</li>
+<li>A streamed request argument that fails or ends short of its declared
+length: the length has been announced and the only way to resynchronise is to
+start again. The command and those behind it fail.</li>
+<li>A health check that goes unanswered for an interval.</li>
+</ul>
+
+<p>
+An oversize identifier, a reply of the wrong shape, a handler that skips, a
+command that times out and a message with a channel that is too long fail only
+the reply or message they concern.
+</p>
 
 <h3 id="resp3">RESP3 protocol</h3>
 
@@ -603,27 +868,21 @@ Verbatim String (=), Big Number ((), and Blob Error (!).
 </p>
 
 <pre>
-// Negotiate RESP3 protocol
-session.hello(3, new ArrayResultHandler() {
-    @Override
-    public void handleResult(List&lt;RespValue&gt; array, RedisSession session) {
-        // Server properties (flattened map): server, version, proto, id, mode, role
-        for (int i = 0; i &lt; array.size(); i += 2) {
-            System.out.println(array.get(i).asString() + ": " + array.get(i + 1).asString());
-        }
-    }
-    // ...
-});
-
-// HELLO with authentication (single round-trip)
-session.hello(3, "default", "password", handler);
+RedisClient client = new RedisClient("localhost", 6379).protocol(3);
 </pre>
 
 <p>
-RESP3 Maps received by <code>ArrayResultHandler</code> are automatically
-flattened to alternating key/value lists for compatibility. The RESP3 Push
-type (&gt;) is used for out-of-band Pub/Sub message delivery, replacing the
-RESP2 array-based detection.
+The connection negotiates the protocol itself, with <code>HELLO</code>, before
+the application is told it is ready; the reply to <code>HELLO</code> is read by
+the client and is not exposed. A RESP3 map is delivered to a
+<code>MapResultHandler</code> as pairs, and to an
+<code>ArrayResultHandler</code> as alternating names and values. The RESP3 Push
+type (&gt;) is used for out-of-band Pub/Sub delivery and for the pushes of
+client-side caching, which go to a <code>PushHandler</code>; for the cache,
+<code>InvalidationHandler</code> turns them into <code>invalidate(key)</code>
+and <code>invalidateAll()</code>. A key too long to deliver is reported as
+<code>invalidateAll()</code>, since invalidating too much of a cache is safe and
+invalidating too little is not.
 </p>
 
 <p>
@@ -659,25 +918,40 @@ cursor to track position.
 <pre>
 // Iterate all keys matching "user:*"
 session.scan("0", "user:*", 100, new ScanResultHandler() {
+    private String next;
+
     @Override
-    public void handleResult(String cursor, List&lt;RespValue&gt; elements,
-                             RedisSession session) {
-        for (RespValue key : elements) {
-            System.out.println("Key: " + key.asString());
-        }
-        if (!"0".equals(cursor)) {
+    public ReplyFlow handleCursor(String cursor, ReplyStream stream) {
+        next = cursor;                       // comes first
+        return ReplyFlow.CONTINUE;
+    }
+
+    @Override
+    public ReplyFlow handleKey(String key) {
+        System.out.println("Key: " + key);   // each key is delivered whole
+        return ReplyFlow.CONTINUE;
+    }
+
+    @Override
+    public void handleEnd() {
+    }
+
+    @Override
+    public void handleComplete(String error, RedisSession session) {
+        if (error == null &amp;&amp; !"0".equals(next)) {
             // Continue iteration
-            session.scan(cursor, "user:*", 100, this);
+            session.scan(next, "user:*", 100, this);
         }
     }
-    // ...
 });
 </pre>
 
 <p>
-The same pattern applies to <code>hscan()</code> (hash fields),
-<code>sscan()</code> (set members), and <code>zscan()</code> (sorted set
-members with scores). Each accepts optional MATCH and COUNT parameters.
+<code>hscan()</code> (hash fields), <code>sscan()</code> (set members), and
+<code>zscan()</code> (sorted set members with scores) carry payloads, so they
+take a <code>ReplyEventHandler</code>: the cursor is the first element of the
+reply and the members follow. Each accepts optional MATCH and COUNT
+parameters.
 </p>
 
 <h3 id="blocking">Blocking commands</h3>
@@ -689,13 +963,11 @@ These are commonly used to implement job queues and message consumers.
 
 <pre>
 // Block until an element is available on "queue" (5 second timeout)
-session.blpop(5.0, new ArrayResultHandler() {
+session.blpop(5.0, new SmallList() {
     @Override
-    public void handleResult(List&lt;RespValue&gt; array, RedisSession session) {
+    public void handleResult(List&lt;String&gt; array, RedisSession session) {
         // array[0] = key, array[1] = value
-        String key = array.get(0).asString();
-        String value = array.get(1).asString();
-        System.out.println("Got " + value + " from " + key);
+        System.out.println("Got " + array.get(1) + " from " + array.get(0));
     }
 
     @Override
@@ -747,39 +1019,52 @@ to channels, the connection enters Pub/Sub mode and messages are delivered
 through the <code>MessageHandler</code>.
 </p>
 
+<p>
+The body of a message is a payload, so it is delivered as chunks:
+<code>messageBegin(header, length, stream)</code>, <code>messageContent(chunk)</code> and
+<code>messageEnd()</code>. The channel, and the pattern for a pattern
+subscription, are identifiers and arrive whole in the
+<code>MessageHeader</code>. Returning <code>SKIP</code> drops that message
+only; <code>PAUSE</code> stops reading until the stream is resumed. A message
+whose channel or pattern is longer than the maximum field length is dropped
+and reported to <code>handleError</code>, and the messages after it are not
+disturbed. For small messages the examples keep <code>SmallMessages</code>,
+which accumulates each under a limit:
+</p>
+
 <pre>
-session.subscribe(new MessageHandler() {
+session.subscribe(new SmallMessages() {
     @Override
     public void handleMessage(String channel, byte[] message) {
         String text = new String(message, StandardCharsets.UTF_8);
         System.out.println("Received on " + channel + ": " + text);
     }
-    
+
     @Override
     public void handlePatternMessage(String pattern, String channel, byte[] message) {
         // For psubscribe patterns
     }
-    
+
     @Override
     public void handleSubscribed(String channel, int subscriptionCount) {
         System.out.println("Subscribed to " + channel);
     }
-    
+
     @Override
     public void handlePatternSubscribed(String pattern, int subscriptionCount) {
         System.out.println("Pattern subscribed: " + pattern);
     }
-    
+
     @Override
     public void handleUnsubscribed(String channel, int subscriptionCount) {
         System.out.println("Unsubscribed from " + channel);
     }
-    
+
     @Override
     public void handlePatternUnsubscribed(String pattern, int subscriptionCount) {
         System.out.println("Pattern unsubscribed: " + pattern);
     }
-    
+
     @Override
     public void handleError(String error) {
         System.err.println("Pub/Sub error: " + error);
@@ -831,28 +1116,30 @@ session.multi(new StringResultHandler() {
         session.set("last_updated", String.valueOf(System.currentTimeMillis()), null);
         
         // Execute all queued commands
-        session.exec(new ArrayResultHandler() {
+        session.exec(new ReplyEventAdapter() {
+            private int index;
+
             @Override
-            public void handleResult(List&lt;RespValue&gt; results, RedisSession session) {
-                // results[0] = INCR result (integer)
-                // results[1] = GET result (bulk string)
-                // results[2] = SET result ("OK")
-                long newValue = results.get(0).asLong();
-                String current = results.get(1).asString();
+            public ReplyFlow integer(long value) {
+                // the results arrive in order: INCR's, then GET's, then SET's
+                return ReplyFlow.CONTINUE;
             }
-            
+
             @Override
-            public void handleNull(RedisSession session) {
+            public ReplyFlow nullValue() {
                 // Transaction aborted (WATCH key was modified)
+                return ReplyFlow.CONTINUE;
             }
-            
+
             @Override
-            public void handleError(String error, RedisSession session) {
-                System.err.println("Transaction failed: " + error);
+            public void handleComplete(String error, RedisSession session) {
+                if (error != null) {
+                    System.err.println("Transaction failed: " + error);
+                }
             }
         });
     }
-    
+
     @Override
     public void handleError(String error, RedisSession session) {
         System.err.println("MULTI failed: " + error);
@@ -868,7 +1155,7 @@ session.watch(new StringResultHandler() {
     @Override
     public void handleResult(String result, RedisSession session) {
         // Read current value
-        session.get("balance", new BulkResultHandler() {
+        session.get("balance", new SmallBulk() {
             @Override
             public void handleResult(byte[] value, RedisSession session) {
                 int balance = Integer.parseInt(new String(value, UTF_8));
@@ -879,22 +1166,20 @@ session.watch(new StringResultHandler() {
                     @Override
                     public void handleResult(String r, RedisSession s) {
                         s.set("balance", String.valueOf(newBalance), null);
-                        s.exec(new ArrayResultHandler() {
+                        s.exec(new ReplyEventAdapter() {
                             @Override
-                            public void handleResult(List&lt;RespValue&gt; results, RedisSession s) {
-                                // Transaction succeeded
-                            }
-                            
-                            @Override
-                            public void handleNull(RedisSession s) {
+                            public ReplyFlow nullValue() {
                                 // Someone modified balance - retry
+                                return ReplyFlow.CONTINUE;
                             }
-                            
+
                             @Override
-                            public void handleError(String e, RedisSession s) { }
+                            public void handleComplete(String e, RedisSession s) {
+                                // null error: the transaction ran, unless nullValue() was called
+                            }
                         });
                     }
-                    
+
                     @Override
                     public void handleError(String e, RedisSession s) { }
                 });
@@ -1083,13 +1368,12 @@ public class RedisSessionServlet extends HttpServlet {
         redisPool.getSession(gumdrop.nextWorkerLoop(), new RedisPool.SessionCallback() {
             @Override
             public void onSession(RedisSession redis) {
-                redis.hgetall("session:" + sessionId, new ArrayResultHandler() {
+                redis.hgetall("session:" + sessionId, new SmallMap() {
                     @Override
-                    public void handleResult(List&lt;RespValue&gt; array, RedisSession s) {
+                    public void handleResult(List&lt;String&gt; pairs, RedisSession s) {
                         Map&lt;String, String&gt; attrs = new HashMap&lt;&gt;();
-                        for (int i = 0; i &lt; array.size(); i += 2) {
-                            attrs.put(array.get(i).asString(),
-                                     array.get(i + 1).asString());
+                        for (int i = 0; i &lt; pairs.size(); i += 2) {
+                            attrs.put(pairs.get(i), pairs.get(i + 1));
                         }
                         req.setAttribute("redisSession", attrs);
                         async.dispatch("/session-view");
@@ -1134,7 +1418,7 @@ public class CachingService {
     private final int cacheTTLSeconds = 300; // 5 minutes
     
     public void getCached(String key, CacheCallback callback) {
-        redis.get("cache:" + key, new BulkResultHandler() {
+        redis.get("cache:" + key, new SmallBulk() {
             @Override
             public void handleResult(byte[] value, RedisSession session) {
                 callback.onHit(new String(value, UTF_8));

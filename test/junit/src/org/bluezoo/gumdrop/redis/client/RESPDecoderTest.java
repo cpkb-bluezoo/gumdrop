@@ -19,7 +19,11 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.redis.codec;
+package org.bluezoo.gumdrop.redis.client;
+
+import org.bluezoo.gumdrop.redis.codec.RespDecoder;
+import org.bluezoo.gumdrop.redis.codec.RespEncoder;
+import org.bluezoo.gumdrop.redis.codec.RespException;
 
 import org.junit.Before;
 import org.junit.Test;

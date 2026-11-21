@@ -28,7 +28,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Which node of a Redis Cluster serves each of the 16384 hash slots.

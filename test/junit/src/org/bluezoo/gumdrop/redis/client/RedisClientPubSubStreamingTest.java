@@ -292,7 +292,7 @@ public class RedisClientPubSubStreamingTest {
         final List<String> seen = new ArrayList<String>();
         session.command(new WholeEvents() {
             @Override
-            public void handleResult(List<org.bluezoo.gumdrop.redis.codec.RespValue> values, RedisSession s) {
+            public void handleResult(List<RespValue> values, RedisSession s) {
                 seen.add("array:" + values.size() + ":" + values.get(0).asString());
             }
 

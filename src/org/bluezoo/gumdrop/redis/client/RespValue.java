@@ -19,7 +19,9 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.redis.codec;
+package org.bluezoo.gumdrop.redis.client;
+
+import org.bluezoo.gumdrop.redis.codec.RespType;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -41,7 +43,7 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
-public final class RespValue {
+final class RespValue {
 
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
 

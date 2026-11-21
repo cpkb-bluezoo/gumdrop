@@ -29,7 +29,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import static org.junit.Assert.*;
 

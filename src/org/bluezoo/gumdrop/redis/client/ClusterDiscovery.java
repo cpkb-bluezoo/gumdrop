@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.List;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Loads a cluster's topology: asks each seed in turn for {@code CLUSTER SLOTS}

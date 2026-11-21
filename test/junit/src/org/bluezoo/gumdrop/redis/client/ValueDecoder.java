@@ -19,7 +19,13 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.redis.codec;
+package org.bluezoo.gumdrop.redis.client;
+
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
+import org.bluezoo.gumdrop.redis.codec.RespDecoder;
+import org.bluezoo.gumdrop.redis.codec.RespEventHandler;
+import org.bluezoo.gumdrop.redis.codec.RespException;
+import org.bluezoo.gumdrop.redis.codec.RespType;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;

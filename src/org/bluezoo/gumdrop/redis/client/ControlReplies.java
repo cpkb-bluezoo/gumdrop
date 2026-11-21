@@ -25,8 +25,6 @@ import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 import org.bluezoo.gumdrop.redis.codec.RespType;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
-import org.bluezoo.gumdrop.redis.codec.RespValueBuilder;
 
 /**
  * Handlers for the replies the client reads for itself: the handshake and
@@ -46,7 +44,7 @@ final class ControlReplies {
     }
 
     /** A reply of which only the outcome matters; what it holds is ignored. */
-    abstract static class Acknowledgement implements ReplyEventHandler {
+    abstract static class Acknowledgement extends ReplyEventAdapter {
 
         /**
          * The command is over.
@@ -57,80 +55,8 @@ final class ControlReplies {
         abstract void done(String error, RedisSession session);
 
         @Override
-        public void handleStream(ReplyStream stream) {
-        }
-
-        @Override
         public void handleComplete(String error, RedisSession session) {
             done(error, session);
-        }
-
-        @Override
-        public void beginReply(boolean push) {
-        }
-
-        @Override
-        public void endReply(boolean skipped) {
-        }
-
-        @Override
-        public ReplyFlow nullValue() {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow integer(long value) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow doubleValue(double value) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow booleanValue(boolean value) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow bigNumber(String digits) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow simpleString(String value) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow error(String message) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow beginAggregate(RespType kind, long length) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow endAggregate() {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow beginString(RespType kind, long length, String format) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow stringChunk(ByteBuffer chunk) {
-            return ReplyFlow.CONTINUE;
-        }
-
-        @Override
-        public ReplyFlow endString() {
-            return ReplyFlow.CONTINUE;
         }
     }
 

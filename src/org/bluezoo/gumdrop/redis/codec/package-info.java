@@ -24,16 +24,23 @@
  * (simple strings {@code +}, errors {@code -}, integers {@code :}, bulk
  * strings {@code $}, arrays {@code *}) and RESP3.
  *
- * <p>{@link org.bluezoo.gumdrop.redis.codec.RespDecoder} is a streaming
- * decoder: if a complete value isn't yet available, {@code next()}
- * returns null and the partial data is retained across calls to {@code
- * receive()}. {@link org.bluezoo.gumdrop.redis.codec.RespEncoder} writes
- * commands in the corresponding wire format; encoder instances are
- * thread-safe, decoder instances are not (each is meant for one
- * connection's SelectorLoop thread). {@link
- * org.bluezoo.gumdrop.redis.codec.RespValue} is the decoded value,
- * {@link org.bluezoo.gumdrop.redis.codec.RespType} its type tag, and
- * {@link org.bluezoo.gumdrop.redis.codec.RespException} reports
+ * <p>{@link org.bluezoo.gumdrop.redis.codec.RespDecoder} is an incremental
+ * push parser and an event source: it is given whatever bytes have arrived,
+ * in any split, and reports what they hold to a {@link
+ * org.bluezoo.gumdrop.redis.codec.RespEventHandler}: scalars, the start and
+ * end of aggregates, and strings as chunks that are views onto the buffer it
+ * was given. It assembles nothing and holds no payload, whatever its size;
+ * what it keeps between calls is an unfinished header line, a stack of counts
+ * for the aggregates that are open, and a few counters. A handler steers it
+ * with the {@link org.bluezoo.gumdrop.redis.codec.ReplyFlow} it returns:
+ * continue, pause (the unconsumed bytes stay with the caller), or skip (the
+ * rest of that reply is discarded as it arrives, in constant memory).
+ * {@link org.bluezoo.gumdrop.redis.codec.RespEncoder} writes commands in the
+ * corresponding wire format, including the head and tail of a command with a
+ * streamed argument; encoder instances are thread-safe, decoder instances are
+ * not (each is meant for one connection's SelectorLoop thread). {@link
+ * org.bluezoo.gumdrop.redis.codec.RespType} is the type tag of an aggregate or
+ * string, and {@link org.bluezoo.gumdrop.redis.codec.RespException} reports
  * malformed input.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

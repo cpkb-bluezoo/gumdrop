@@ -45,6 +45,28 @@ RedisClient client = new RedisClient("localhost", 6379);
 client.connect(gumdrop, handler);
 ```
 
+### StreamingExample
+
+Writes a file to a Redis key and reads the key back into another file, without
+holding the value in either direction:
+
+```bash
+java -cp build StreamingExample <file> [host] [port]
+```
+
+This example shows:
+- An `ArgumentSource` for a request argument: it declares its length up front
+  and is read a block at a time, only as the connection can take it, and is
+  opened afresh if the command is sent again
+- A `BulkResultHandler` that writes a reply payload to a file as chunks
+- `ReplyFlow.SKIP` to give up one reply without disturbing the connection
+
+The other examples read values that are known to be small. They use the small
+classes in this directory (`SmallBulk`, `SmallList`, `SmallKeys`, `SmallMap`,
+`SmallMessages`), which accumulate under an explicit limit in the
+application's own handler and answer `ReplyFlow.SKIP` beyond it, so the library
+never collects a value on the application's behalf.
+
 ### RedisPubSubExample
 
 Demonstrates Redis publish/subscribe:

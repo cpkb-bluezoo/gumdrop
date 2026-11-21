@@ -25,7 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Test support: a {@link ReplyEventHandler} that builds the reply and reports
