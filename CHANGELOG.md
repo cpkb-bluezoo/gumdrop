@@ -6,8 +6,156 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-21
+
+### Added
+
+- **Redis client: streamed requests.** A request argument can be an
+  `ArgumentSource`, whose bytes are pulled as the connection can take them, so
+  a value larger than memory can be written without being held.
+  `RedisSession.set(key, ArgumentSource, ...)` takes one; RESP announces the
+  length of each argument before its bytes, so a source declares its
+  `length()`. The value is written in 16 KiB blocks, each pulled only while the
+  endpoint holds under 64 KiB unsent (waiting on `onWriteReady`), and a stream
+  with nothing to give returns 0 and calls `ArgumentSink.ready()` when it has.
+  A source is opened afresh for each attempt (a cluster follows MOVED and ASK,
+  a connection can be redialled); one that cannot be read again fails its
+  command with `NOT_REPEATABLE` rather than sending a short value. A source
+  that fails or ends short closes the connection, since the only way to
+  resynchronise is to start again. The command timeout, and those of the
+  commands queued behind, start when the value has been written, and the
+  health check does not run while the client is sending. Keys stay in memory,
+  as a cluster reads them to route. `ArgumentSource.of(bytes)` is a repeatable
+  source for bytes in memory.
+- **Redis client: limits on what a server can send.** `RedisClient` and
+  `RedisClusterClient` (which applies them to every connection it makes) gain
+  `maxLine` (the longest header or simple-string line, default 64 KiB; a
+  longer one closes the connection), `maxField` (the longest identifier or
+  scalar string delivered whole, default 64 KiB; a longer one fails that reply
+  with `TOOLARGE` or drops that Pub/Sub message, and the connection is not
+  affected) and `maxSkip` (the most read only to be discarded, default
+  256 MiB; past it the connection is closed). They bound what a server, or
+  anyone who can write a key it returns, can make the client hold or spend.
+  Payloads are not subject to them, as they are delivered as chunks.
+- **Redis client: flow control and skipping.** Every streaming callback that
+  can continue returns a `ReplyFlow`: `PAUSE` stops all reads on the
+  connection until `ReplyStream.resume()` (the connection costs no more
+  memory however much the server has to send, and neither the command timeout
+  nor the health check runs against a paused consumer), and `SKIP` discards the
+  rest of that reply as it arrives, in constant memory, completing the
+  command with a `CANCELLED` error without disturbing the replies around it.
+  `ReplyStream.cancel()` does the same from outside an event. The timeout of a
+  streamed reply is a wait for its first byte followed by an inactivity
+  timeout, reset on every chunk. A connection lost mid-reply completes the
+  handler with `CONNLOST` and the command is not repeated.
+- **Redis client: `ReplyEventAdapter`, `InvalidationHandler`.**
+  `ReplyEventAdapter` is a no-op `ReplyEventHandler` to override only the
+  events wanted. `InvalidationHandler` reads the `invalidate` pushes of
+  client-side caching for a cache (`invalidate(key)`, `invalidateAll()`); a key
+  too long to deliver is reported as everything changed, since invalidating
+  too much of a cache is safe and too little is not.
+- `ParserLimits.maxNestingDepth` limits how deeply multiparts may nest in the
+  MIME parser (default 64; zero or less for no limit). The parser keeps one
+  boundary per open level, so a message of nothing but nested multiparts made
+  it hold memory in proportion to the message size.
+- A RESP codec micro-benchmark (`run_redis_codec_bench.sh`) and a benchmark of
+  the Redis client against a live server (`run_redis_bench.sh`), under
+  `test/benchmark`.
+
+### Changed
+
+- **Redis client: replies stream, and no call returns a value whose size
+  depends on the server's data** (breaking). Until now the decoder assembled a
+  tree of values and handlers were given whole `byte[]` and `List<RespValue>`
+  values, so memory per connection was set by the largest value a server would
+  ever send, and a reply over a limit closed the connection and failed every
+  command pipelined behind it. The rule now: *payloads stream; protocol
+  identifiers are bounded and delivered whole.* A payload (a value, a list
+  element, a hash value, a published message) is only ever delivered as
+  chunks; an identifier (a key, field name, channel, pattern or cursor) is
+  delivered whole up to `maxField`; a scalar is delivered as a value. A
+  connection costs at most its receive buffer, one line, one identifier and a
+  stack of 32 counts, whatever the data. In detail:
+  - `RespDecoder` is an incremental event source:
+    `receive(ByteBuffer, RespEventHandler)` reports scalars, aggregates and
+    strings (as chunks that are views onto the buffer it was given) and holds
+    none of them. `next()` and `setMaxCollectionElements`, `setMaxBulkLength`
+    and `setMaxAccumulatorBytes` are removed; `setMaxLine` and `setMaxSkip`
+    are added. `RespValue` and `RespValueBuilder` are no longer public: the
+    handshake and `CLUSTER SLOTS` are read by a private builder under a fixed
+    4 MiB cap.
+  - `BulkResultHandler`, `ArrayResultHandler` and `ScanResultHandler` take
+    streaming callbacks (`handleBegin`, `handleContent`, `handleEnd`, and for
+    an array `handleElementBegin` and so on) and end with
+    `handleComplete(error, session)`. `handleResult(byte[], ...)` and
+    `handleResult(List<RespValue>, ...)` are gone. New handlers:
+    `KeyArrayResultHandler` (`KEYS`, `HKEYS`), `MapResultHandler`
+    (`HGETALL`, a RESP3 map or flat pairs) and `ReplyEventHandler` (`EXEC`,
+    `EVAL`, `EVALSHA`, `XREAD`, `XRANGE`, `XPENDING`, `HSCAN`, `SSCAN`,
+    `ZSCAN`, `command()`, `waitAof()`). There is no collecting handler: a
+    handler that needs a whole value accumulates it itself, where the limit
+    and the cost are visible. `examples/redis-client` has `SmallBulk`,
+    `SmallList`, `SmallMap`, `SmallKeys` and `SmallMessages` which do so under
+    an explicit limit and answer `SKIP` beyond it, and `StreamingExample`
+    streams a file to a key and back.
+  - `StringResultHandler`, `IntegerResultHandler` and `BooleanResultHandler`
+    stay, since their replies cannot exceed a line. A reply of the wrong shape
+    for one, or an identifier over `maxField`, now fails only that command with
+    an error that says so; before, it closed the connection.
+  - `MessageHandler`'s `handleMessage`, `handlePatternMessage` and
+    `handleShardMessage` become `messageBegin(MessageHeader, length,
+    ReplyStream)`, `messageContent(ByteBuffer)` and `messageEnd()`. The channel
+    and pattern arrive whole in the `MessageHeader`; a message with a longer
+    one is dropped and reported to the new `handleDropped` (which calls
+    `handleError` by default, and which the cluster relay forwards without
+    ending any subscription). `PushHandler.onPush(kind, List<Object>)` becomes
+    the decoder's events.
+  - `hello(...)` is no longer public API: the connection negotiates RESP3
+    itself (`protocol(3)`), and the reply is read by the client.
+  - The decoder is stricter: a verbatim string with no format tag and a
+    negative length other than the RESP2 null (`$-1`, `*-1`) are refused.
+  - Cluster redirects (MOVED, ASK, TRYAGAIN, CLUSTERDOWN) are the first event
+    of a reply, so a handler has heard nothing when the command is sent
+    again, and a streamed read is streamed from the new owner; a redirected
+    streamed request opens a fresh source. Closes #612.
+- **TLS endpoints encrypt application data written together as shared
+  records.** Every `send()` was encrypted and framed on its own, so a pipeline
+  of small writes paid for a record each (22 bytes of header and tag, 29 in TLS
+  1.2, and an AEAD operation); a hundred 30-byte writes put 5,200 bytes on the
+  wire for 3,000 bytes of data. Data is now held back until the selector loop
+  is about to write, so what an application sends in one go shares records.
+  Data is encrypted at once when a record's worth is waiting, and before
+  `close_notify` and at handshake completion, so ordering and close behaviour
+  are unchanged.
+- **Redis client performance.** A command is classified once, by a
+  `CommandInfo` descriptor, rather than on each use; a cluster command's slot
+  is found without encoding its values; a master is picked without scanning
+  the 16384-slot table; commands waiting for a node connection share one timer
+  and leave their queue without a scan; the next command deadline is found
+  without scanning the pending queue; and a number of allocations in the
+  varargs wrappers, scan arguments and slot hashing are removed. Behaviour is
+  unchanged. Closes #604, #611.
+
 ### Fixed
 
+- **A large Redis reply no longer closes the connection** (#601). The decoder
+  rejected an array over 1024 elements or a bulk string over 512 KiB, which
+  failed every pipelined command, so an ordinary `LRANGE`, `HGETALL` or `GET`
+  of a larger value took the connection down. With streaming there is no such
+  limit.
+- **Large buffers are no longer pooled.** `ByteBufferPool.release()` clamped
+  any buffer above 64 KiB into the 64 KiB bucket, so a multi-megabyte buffer
+  was kept, handed out again for a 64 KiB request, and stayed pinned in each
+  thread's pool long after the load had gone. A buffer above the largest
+  bucket is now left to the garbage collector. Closes #607.
+- **The qlog exporter no longer grows with every connection ever logged.** It
+  remembered the reference time of every file it had closed so that a late
+  event could be appended on the original epoch; it now reads the epoch back
+  from the file's header, so a reopened file is continued from that and the
+  exporter keeps no memory of finished connections. A second exporter over the
+  same directory, as after a restart, now appends rather than writing a second
+  header. The changelog's pre-rename event name `recovery:metrics_updated` is
+  corrected to `quic:recovery_metrics_updated`.
 - **qlog: event schema URIs and field names follow quic-events-14 and
   h3-events-14.** The event schema URIs in the trace header carry the draft
   suffix the drafts require (`urn:ietf:params:qlog:events:quic-14`, `http3-14`

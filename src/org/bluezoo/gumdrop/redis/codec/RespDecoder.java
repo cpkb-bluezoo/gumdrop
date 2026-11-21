@@ -268,19 +268,24 @@ public class RespDecoder {
         if (streamedString != (b == ';')) {
             throw error("err.streamed_string_interrupted");
         }
+        boolean known;
         switch (b) {
             case '+': case '-': case ':': case ',': case '#': case '_':
             case '(': case '$': case '!': case '=': case '*': case '~':
             case '>': case '%': case '|': case ';':
+                known = true;
                 break;
             case '.':
-                if (depth > 0 && streamed[depth - 1]) {
-                    break;
-                }
-                // fall through
+                // only the end of a streamed aggregate
+                known = depth > 0 && streamed[depth - 1];
+                break;
             default:
-                throw new RespException(MessageFormat.format(
-                        L10N.getString("err.unknown_type_prefix"), (char) (b & 0xff)));
+                known = false;
+                break;
+        }
+        if (!known) {
+            throw new RespException(MessageFormat.format(
+                    L10N.getString("err.unknown_type_prefix"), (char) (b & 0xff)));
         }
         tag = b;
         lineLength = 0;

@@ -197,7 +197,6 @@ public class RespEncoder {
         return buffer;
     }
 
-    /** Number of decimal digits in a non-negative {@code value}. */
     /**
      * Encodes the start of a command one of whose arguments is streamed: the
      * array header, the command and the arguments before the streamed one,
@@ -266,6 +265,7 @@ public class RespEncoder {
         buffer.put(CRLF);
     }
 
+    /** Number of decimal digits in a non-negative {@code value}. */
     private static int digitCount(int value) {
         int digits = 1;
         while (value >= 10) {

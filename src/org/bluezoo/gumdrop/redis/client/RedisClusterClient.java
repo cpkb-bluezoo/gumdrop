@@ -157,12 +157,6 @@ public class RedisClusterClient {
     }
 
     /**
-     * Authenticates every node connection with a password ({@code AUTH}).
-     *
-     * @param password the password
-     * @return this client
-     */
-    /**
      * Sets the RESP version to use on every node connection. With 3,
      * {@code HELLO 3} (carrying the credentials, if any) is sent on each
      * connection as soon as it is up, before any command runs on it. That
@@ -274,6 +268,12 @@ public class RedisClusterClient {
         return this;
     }
 
+    /**
+     * Authenticates every node connection with a password ({@code AUTH}).
+     *
+     * @param password the password
+     * @return this client
+     */
     public RedisClusterClient auth(String password) {
         return auth(null, password);
     }

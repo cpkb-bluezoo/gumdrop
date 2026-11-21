@@ -47,8 +47,6 @@ final class NodeAdapter implements RedisConnectionReady {
      * @param listener told how the connection gets on
      * @param username the user to authenticate as, or null for the default user
      * @param password the password, or null if the node needs none
-     */
-    /**
      * @param protocol the RESP version to negotiate: 3 sends HELLO 3 (with
      *                 the credentials, if any) before the connection is
      *                 reported ready; 2 sends no HELLO
