@@ -52,13 +52,13 @@ public class RespCodecEdgeTest {
     }
 
     private static RespValue decodeOne(String wire) throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         decoder.receive(wrap(wire));
         return decoder.next();
     }
 
     private static void assertRejected(String wire) {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         try {
             decoder.receive(wrap(wire));
             RespValue v = decoder.next();
@@ -69,7 +69,7 @@ public class RespCodecEdgeTest {
     }
 
     private static RespValue feedByteByByte(String wire) throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         byte[] bytes = wire.getBytes(StandardCharsets.UTF_8);
         for (int i = 0; i < bytes.length - 1; i++) {
             decoder.receive(ByteBuffer.wrap(new byte[] { bytes[i] }));
@@ -80,21 +80,6 @@ public class RespCodecEdgeTest {
         RespValue done = decoder.next();
         assertNotNull(done);
         return done;
-    }
-
-    @Test
-    public void testCollectionCountLimitForEveryCollectionType() {
-        assertRejected("*1048577\r\n");
-        assertRejected("%1048577\r\n");
-        assertRejected("~1048577\r\n");
-        assertRejected(">1048577\r\n");
-    }
-
-    @Test
-    public void testBulkLengthLimitForEveryBulkType() {
-        assertRejected("$67108865\r\n");
-        assertRejected("=67108865\r\n");
-        assertRejected("!67108865\r\n");
     }
 
     @Test
@@ -139,11 +124,19 @@ public class RespCodecEdgeTest {
 
     @Test
     public void testNegativeLengthsDecodeToNull() throws RespException {
-        String[] wires = { "$-1\r\n", "*-1\r\n", "%-1\r\n", "~-1\r\n", ">-1\r\n", "=-1\r\n", "!-1\r\n" };
+        String[] wires = { "$-1\r\n", "*-1\r\n" };
         for (int i = 0; i < wires.length; i++) {
             RespValue v = decodeOne(wires[i]);
             assertNotNull(wires[i], v);
             assertTrue(wires[i], v.isNull());
+        }
+    }
+
+    @Test
+    public void testNegativeLengthsOfOtherTypesAreRejected() {
+        String[] wires = { "%-1\r\n", "~-1\r\n", ">-1\r\n", "=-1\r\n", "!-1\r\n", "$-2\r\n" };
+        for (int i = 0; i < wires.length; i++) {
+            assertRejected(wires[i]);
         }
     }
 
@@ -172,28 +165,15 @@ public class RespCodecEdgeTest {
     }
 
     @Test
-    public void testAccumulatorLimit() {
-        RespDecoder decoder = new RespDecoder();
-        ByteBuffer huge = ByteBuffer.allocate(128 * 1024 * 1024 + 1);
-        try {
-            decoder.receive(huge);
-            fail("expected RespException");
-        } catch (RespException expected) {
-            assertNotNull(expected.getMessage());
-        }
-    }
-
-    @Test
     public void testEmptyReceiveAndNextOnEmptyBuffer() throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         decoder.receive(ByteBuffer.allocate(0));
         assertNull(decoder.next());
-        assertEquals(0, decoder.bufferedBytes());
     }
 
     @Test
     public void testBufferGrowsPastInitialCapacity() throws RespException {
-        RespDecoder decoder = new RespDecoder(16);
+        ValueDecoder decoder = new ValueDecoder(16);
         StringBuilder payload = new StringBuilder();
         for (int i = 0; i < 100; i++) {
             payload.append('x');
@@ -206,7 +186,7 @@ public class RespCodecEdgeTest {
 
     @Test
     public void testGrowWithPendingPartialValue() throws RespException {
-        RespDecoder decoder = new RespDecoder(16);
+        ValueDecoder decoder = new ValueDecoder(16);
         decoder.receive(wrap("$40\r\n0123456789"));
         assertNull(decoder.next());
         decoder.receive(wrap("012345678901234567890123456789\r\n"));
@@ -217,7 +197,7 @@ public class RespCodecEdgeTest {
 
     @Test
     public void testCompactionAfterConsumedValue() throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         decoder.receive(wrap("+one\r\n+tw"));
         RespValue first = decoder.next();
         assertEquals("one", first.asString());
@@ -225,23 +205,20 @@ public class RespCodecEdgeTest {
         decoder.receive(wrap("o\r\n"));
         RespValue second = decoder.next();
         assertEquals("two", second.asString());
-        assertEquals(0, decoder.bufferedBytes());
     }
 
     @Test
     public void testResetDiscardsBufferedData() throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         decoder.receive(wrap("+partial"));
-        assertEquals(8, decoder.bufferedBytes());
         decoder.reset();
-        assertEquals(0, decoder.bufferedBytes());
         decoder.receive(wrap("+fresh\r\n"));
         assertEquals("fresh", decoder.next().asString());
     }
 
     @Test
     public void testNestingDepthRecoversAfterError() throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         try {
             decoder.receive(wrap("*2\r\n:1\r\n:zz\r\n"));
             decoder.next();
@@ -288,7 +265,7 @@ public class RespCodecEdgeTest {
         assertTrue(bool.asBoolean());
 
         RespValue nul = feedByteByByte("_\r\n");
-        assertEquals(RespType.NULL, nul.getType());
+        assertTrue(nul.isNull());
 
         RespValue big = feedByteByByte("(12345678901234567890\r\n");
         assertTrue(big.isBigNumber());
@@ -318,10 +295,9 @@ public class RespCodecEdgeTest {
     }
 
     @Test
-    public void testVerbatimWithoutEncodingPrefix() throws RespException {
-        RespValue v = decodeOne("=3\r\nabc\r\n");
-        assertEquals("txt", v.getVerbatimEncoding());
-        assertEquals("abc", v.asString());
+    public void testVerbatimWithoutEncodingPrefixIsRejected() {
+        assertRejected("=3\r\nabc\r\n");
+        assertRejected("=7\r\ntxt-abc\r\n");
     }
 
     @Test

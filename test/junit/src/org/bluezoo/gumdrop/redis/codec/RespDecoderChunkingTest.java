@@ -78,7 +78,7 @@ public class RespDecoderChunkingTest {
     }
 
     private static List<String> decode(byte[] wire, int chunk) throws RespException {
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         List<String> out = new ArrayList<String>();
         int off = 0;
         while (off < wire.length) {
@@ -90,7 +90,6 @@ public class RespDecoderChunkingTest {
                 out.add(describe(v));
             }
         }
-        assertEquals(0, decoder.bufferedBytes());
         return out;
     }
 
@@ -114,7 +113,7 @@ public class RespDecoderChunkingTest {
         sb.append("#t\r\n#f\r\n_\r\n");
         sb.append("(3492890328409238509324850943850943825024385\r\n");
         sb.append("=15\r\ntxt:Some string\r\n");
-        sb.append("=4\r\nabcd\r\n");
+        sb.append("=8\r\nmkd:abcd\r\n");
         sb.append("!21\r\nSYNTAX invalid syntax\r\n");
         sb.append("*2\r\n%1\r\n+k\r\n~2\r\n:1\r\n:2\r\n>1\r\n+p\r\n");
         sb.append("$2\r\né\r\n");
@@ -137,22 +136,6 @@ public class RespDecoderChunkingTest {
     }
 
     @Test
-    public void aLimitIsStillEnforcedWhenTheLengthArrivesInPieces() {
-        RespDecoder decoder = new RespDecoder();
-        decoder.setMaxBulkLength(10);
-        byte[] bytes = "$11\r\n".getBytes(StandardCharsets.US_ASCII);
-        try {
-            for (int i = 0; i < bytes.length; i++) {
-                decoder.receive(ByteBuffer.wrap(bytes, i, 1));
-                decoder.next();
-            }
-            fail("expected RespException");
-        } catch (RespException expected) {
-            assertNotNull(expected.getMessage());
-        }
-    }
-
-    @Test
     public void integersAtTheLimitsOfALongDecode() throws RespException {
         byte[] bytes = (":-9223372036854775808\r\n:9223372036854775807\r\n:0\r\n:-0\r\n")
                 .getBytes(StandardCharsets.US_ASCII);
@@ -163,9 +146,9 @@ public class RespDecoderChunkingTest {
     @Test
     public void anIntegerOutOfRangeOrMalformedIsRejected() {
         String[] bad = { ":9223372036854775808\r\n", ":-9223372036854775809\r\n", ":\r\n",
-            ":-\r\n", ":+\r\n", ":1 \r\n", ":12a\r\n", "$2147483648\r\n", "*-2147483649\r\n" };
+            ":-\r\n", ":+\r\n", ":1 \r\n", ":12a\r\n", "*-2147483649\r\n" };
         for (int i = 0; i < bad.length; i++) {
-            RespDecoder decoder = new RespDecoder();
+            ValueDecoder decoder = new ValueDecoder();
             try {
                 decoder.receive(ByteBuffer.wrap(bad[i].getBytes(StandardCharsets.US_ASCII)));
                 decoder.next();
@@ -179,7 +162,7 @@ public class RespDecoderChunkingTest {
     @Test
     public void aMalformedLengthIsRejectedWhenSplit() {
         byte[] bytes = "$1x\r\n".getBytes(StandardCharsets.US_ASCII);
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         try {
             for (int i = 0; i < bytes.length; i++) {
                 decoder.receive(ByteBuffer.wrap(bytes, i, 1));
@@ -207,7 +190,7 @@ public class RespDecoderChunkingTest {
             sb.append("\r\n");
         }
         byte[] bytes = sb.toString().getBytes(StandardCharsets.US_ASCII);
-        RespDecoder decoder = new RespDecoder();
+        ValueDecoder decoder = new ValueDecoder();
         decodeOnce(decoder, bytes, 512); // warm up
         com.sun.management.ThreadMXBean mx =
                 (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
@@ -218,7 +201,7 @@ public class RespDecoderChunkingTest {
         assertTrue("allocated " + allocated + " bytes", allocated < 1024 * 1024);
     }
 
-    private static void decodeOnce(RespDecoder decoder, byte[] bytes, int chunk) throws RespException {
+    private static void decodeOnce(ValueDecoder decoder, byte[] bytes, int chunk) throws RespException {
         RespValue v = null;
         int off = 0;
         while (off < bytes.length) {
@@ -230,25 +213,4 @@ public class RespDecoderChunkingTest {
         assertEquals(100, v.asArray().size());
     }
 
-    /**
-     * After a large reply has been consumed the decoder must give its
-     * grown buffer back, not keep a multi-megabyte buffer for the life of
-     * the connection.
-     */
-    @Test
-    public void theBufferShrinksOnceALargeReplyIsConsumed() throws RespException {
-        int size = 2 * 1024 * 1024;
-        StringBuilder sb = new StringBuilder("$" + size + "\r\n");
-        for (int i = 0; i < size; i++) {
-            sb.append('x');
-        }
-        sb.append("\r\n");
-        RespDecoder decoder = new RespDecoder();
-        decoder.receive(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII)));
-        assertTrue(decoder.bufferCapacity() >= size);
-        assertEquals(size, decoder.next().asBytes().length);
-        assertTrue("capacity " + decoder.bufferCapacity(), decoder.bufferCapacity() <= 64 * 1024);
-        decoder.receive(ByteBuffer.wrap("+OK\r\n".getBytes(StandardCharsets.US_ASCII)));
-        assertEquals("OK", decoder.next().asString());
-    }
 }

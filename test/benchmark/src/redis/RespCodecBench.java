@@ -2,9 +2,11 @@ import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 import org.bluezoo.gumdrop.redis.codec.RespDecoder;
 import org.bluezoo.gumdrop.redis.codec.RespEncoder;
-import org.bluezoo.gumdrop.redis.codec.RespValue;
+import org.bluezoo.gumdrop.redis.codec.RespEventHandler;
+import org.bluezoo.gumdrop.redis.codec.RespType;
 
 /**
  * Micro-benchmark for the RESP codec, with no Redis server involved.
@@ -102,29 +104,47 @@ public class RespCodecBench {
         return out;
     }
 
-    /** Feeds one reply into a fresh-state decoder in fixed-size chunks. */
+    /** Counts completed replies and discards everything they hold. */
+    static final class Discarding implements RespEventHandler {
+        int replies;
+
+        public void beginReply(boolean push) { }
+        public void endReply(boolean skipped) { replies++; }
+        public ReplyFlow nullValue() { return ReplyFlow.CONTINUE; }
+        public ReplyFlow integer(long value) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow doubleValue(double value) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow booleanValue(boolean value) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow bigNumber(String digits) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow simpleString(String value) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow error(String message) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow beginAggregate(RespType kind, long length) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow endAggregate() { return ReplyFlow.CONTINUE; }
+        public ReplyFlow beginString(RespType kind, long length, String format) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow stringChunk(ByteBuffer chunk) { return ReplyFlow.CONTINUE; }
+        public ReplyFlow endString() { return ReplyFlow.CONTINUE; }
+    }
+
+    /** Feeds one reply into a decoder in fixed-size chunks, discarding what it holds. */
     static class DecodeOp implements Op {
         private final byte[] wire;
         private final int chunk;
-        private final boolean array;
         private final RespDecoder decoder = new RespDecoder();
+        private final Discarding handler = new Discarding();
 
         DecodeOp(byte[] wire, int chunk, boolean array) {
             this.wire = wire;
             this.chunk = chunk;
-            this.array = array;
         }
 
         public long run() throws Exception {
             int off = 0;
-            RespValue value = null;
+            int before = handler.replies;
             while (off < wire.length) {
                 int n = Math.min(chunk, wire.length - off);
-                decoder.receive(ByteBuffer.wrap(wire, off, n));
+                decoder.receive(ByteBuffer.wrap(wire, off, n), handler);
                 off += n;
-                value = decoder.next();
             }
-            if (value == null) {
+            if (handler.replies == before) {
                 throw new IllegalStateException("reply not decoded");
             }
             return wire.length;

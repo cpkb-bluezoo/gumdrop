@@ -37,11 +37,11 @@ import static org.junit.Assert.*;
  */
 public class RESP3DecoderTest {
 
-    private RespDecoder decoder;
+    private ValueDecoder decoder;
 
     @Before
     public void setUp() {
-        decoder = new RespDecoder();
+        decoder = new ValueDecoder();
     }
 
     private ByteBuffer wrap(String data) {
@@ -49,11 +49,7 @@ public class RESP3DecoderTest {
     }
 
     private void recv(String data) {
-        try {
-            decoder.receive(wrap(data));
-        } catch (RespException e) {
-            throw new AssertionError(e);
-        }
+        decoder.receive(wrap(data));
     }
 
     // Map type
@@ -160,7 +156,7 @@ public class RESP3DecoderTest {
         RespValue value = decoder.next();
 
         assertNotNull(value);
-        assertEquals(RespType.NULL, value.getType());
+        assertTrue(value.isNull());
         assertNull(value.asString());
     }
 
@@ -255,14 +251,6 @@ public class RESP3DecoderTest {
         assertEquals("#f", RespValue.booleanValue(false).toString());
         assertEquals("_", RespValue.resp3Null().toString());
         assertEquals("(12345", RespValue.bigNumber("12345").toString());
-    }
-
-    @Test(expected = RespException.class)
-    public void testHugeMapCountRejected() throws RespException {
-        StringBuilder sb = new StringBuilder();
-        sb.append('%').append(RespDecoder.DEFAULT_MAX_COLLECTION_ELEMENTS + 1).append("\r\n");
-        recv(sb.toString());
-        decoder.next();
     }
 
 }

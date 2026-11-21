@@ -38,7 +38,11 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.redis.codec.ReplyFlow;
 import org.bluezoo.gumdrop.redis.codec.RespDecoder;
+import org.bluezoo.gumdrop.redis.codec.RespEventHandler;
+import org.bluezoo.gumdrop.redis.codec.RespType;
+import org.bluezoo.gumdrop.redis.codec.RespValueBuilder;
 import org.bluezoo.gumdrop.redis.codec.RespEncoder;
 import org.bluezoo.gumdrop.redis.codec.RespException;
 import org.bluezoo.gumdrop.redis.codec.RespValue;
@@ -89,6 +93,12 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     private final RedisConnectionReady handler;
     private final RespDecoder decoder;
+    // Until the handlers stream (see the streaming-only redesign), a reply
+    // that is wanted is assembled here, under a cap, and one over the cap
+    // fails its own command and nothing else.
+    private RespValueBuilder builder = new RespValueBuilder(MAX_BUILT_REPLY);
+    private long maxBuiltReply = MAX_BUILT_REPLY;
+    private final ReplyRouter router = new ReplyRouter();
     private final RespEncoder encoder;
 
     private Endpoint endpoint;
@@ -140,6 +150,9 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
 
     /** The most commands allowed to await a reply on one connection, unless configured. */
     static final int DEFAULT_MAX_PENDING = 65536;
+
+    /** The most one reply may hold while handlers still take whole values. */
+    static final long MAX_BUILT_REPLY = 64L * 1024 * 1024;
 
     /** Source of the monotonic time deadlines are measured in; replaced in tests. */
     interface Ticker {
@@ -201,11 +214,7 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     public void receive(ByteBuffer buf) {
         quietSinceNanos = ticker.nanos();
         try {
-            decoder.receive(buf);
-            RespValue response;
-            while ((response = decoder.next()) != null) {
-                processResponse(response);
-            }
+            decoder.receive(buf, router);
         } catch (RespException e) {
             events().warn("err.protocol_error").thrown(e).emit();
             handler.onError(e);
@@ -371,6 +380,12 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
         transmit(command.getCallback(), redirectListener != null ? command : null,
                 command.getCommand(), command.getTextArgs(), command.getBinaryArgs(),
                 command.getTimeoutMs());
+    }
+
+    /** Test seam: the most one reply may hold while handlers take whole values. */
+    void setMaxBuiltReply(long max) {
+        this.maxBuiltReply = max;
+        this.builder = new RespValueBuilder(max);
     }
 
     /** Test seam: attaches an endpoint without the connect handshake. */
@@ -975,6 +990,134 @@ public class RedisClientProtocolHandler extends AbstractRedisSession implements 
     // ─────────────────────────────────────────────────────────────────────────
     // Inner classes
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Routes the events of each reply to the command it answers. A reply
+     * nobody wants (to a command that timed out, or to the health check) is
+     * discarded as it arrives, without being assembled.
+     */
+    private final class ReplyRouter implements RespEventHandler {
+
+        // who the reply in progress is for
+        private static final int DISCARD = 0;
+        private static final int COMMAND = 1;
+        // Pub/Sub deliveries share the shape of replies, so a reply on a
+        // subscribed connection is told apart only once it is complete
+        private static final int UNCLAIMED = 2;
+
+        private int mode;
+        private PendingCommand target;
+
+        @Override
+        public void beginReply(boolean push) {
+            target = null;
+            mode = UNCLAIMED;
+            if (!push && !pubSubMode) {
+                PendingCommand head = pendingCommands.poll();
+                if (head != null) {
+                    deadlines.remove(head);
+                    if (head.internal) {
+                        // the answer to our own PING
+                        pingOutstanding = false;
+                        mode = DISCARD;
+                    } else if (head.timedOut) {
+                        // its handler has been told it timed out
+                        mode = DISCARD;
+                    } else {
+                        target = head;
+                        mode = COMMAND;
+                    }
+                }
+            }
+            if (mode != DISCARD) {
+                builder.beginReply(push);
+            }
+        }
+
+        @Override
+        public void endReply(boolean skipped) {
+            if (mode == DISCARD) {
+                return;
+            }
+            builder.endReply(skipped);
+            if (builder.isComplete()) {
+                if (mode == COMMAND) {
+                    dispatchResponse(target, builder.value());
+                } else {
+                    processResponse(builder.value());
+                }
+            } else if (mode == COMMAND) {
+                // too large to hold: it fails its own command only
+                if (target.callback != null) {
+                    dispatchError(target.callback, MessageFormat.format(
+                            L10N.getString("err.reply_too_large"),
+                            Long.valueOf(maxBuiltReply)));
+                }
+            } else {
+                events().warn("warn.reply_too_large").attr("limit", String.valueOf(maxBuiltReply)).emit();
+            }
+        }
+
+        @Override
+        public ReplyFlow nullValue() {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.nullValue();
+        }
+
+        @Override
+        public ReplyFlow integer(long value) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.integer(value);
+        }
+
+        @Override
+        public ReplyFlow doubleValue(double value) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.doubleValue(value);
+        }
+
+        @Override
+        public ReplyFlow booleanValue(boolean value) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.booleanValue(value);
+        }
+
+        @Override
+        public ReplyFlow bigNumber(String digits) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.bigNumber(digits);
+        }
+
+        @Override
+        public ReplyFlow simpleString(String value) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.simpleString(value);
+        }
+
+        @Override
+        public ReplyFlow error(String message) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.error(message);
+        }
+
+        @Override
+        public ReplyFlow beginAggregate(RespType kind, long length) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.beginAggregate(kind, length);
+        }
+
+        @Override
+        public ReplyFlow endAggregate() {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.endAggregate();
+        }
+
+        @Override
+        public ReplyFlow beginString(RespType kind, long length, String format) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.beginString(kind, length, format);
+        }
+
+        @Override
+        public ReplyFlow stringChunk(ByteBuffer chunk) {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.stringChunk(chunk);
+        }
+
+        @Override
+        public ReplyFlow endString() {
+            return mode == DISCARD ? ReplyFlow.SKIP : builder.endString();
+        }
+    }
 
     /**
      * Tracks a pending command waiting for a response.

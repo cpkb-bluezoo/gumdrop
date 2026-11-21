@@ -36,11 +36,11 @@ import static org.junit.Assert.*;
  */
 public class RESPDecoderTest {
 
-    private RespDecoder decoder;
+    private ValueDecoder decoder;
 
     @Before
     public void setUp() {
-        decoder = new RespDecoder();
+        decoder = new ValueDecoder();
     }
 
     private ByteBuffer wrap(String data) {
@@ -48,19 +48,11 @@ public class RESPDecoderTest {
     }
 
     private void recv(String data) {
-        try {
-            decoder.receive(wrap(data));
-        } catch (RespException e) {
-            throw new AssertionError(e);
-        }
+        decoder.receive(wrap(data));
     }
 
     private void recv(ByteBuffer data) {
-        try {
-            decoder.receive(data);
-        } catch (RespException e) {
-            throw new AssertionError(e);
-        }
+        decoder.receive(data);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -401,7 +393,6 @@ public class RESPDecoderTest {
     public void testReset() throws RespException {
         recv("+partial");
         decoder.reset();
-        assertEquals(0, decoder.bufferedBytes());
 
         recv("+OK\r\n");
         RespValue value = decoder.next();
@@ -409,20 +400,9 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testBufferedBytes() {
-        assertEquals(0, decoder.bufferedBytes());
-
-        recv("+OK");
-        assertEquals(3, decoder.bufferedBytes());
-
-        recv("\r\n");
-        assertEquals(5, decoder.bufferedBytes());
-    }
-
-    @Test
     public void testBufferGrowth() throws RespException {
         // Create a decoder with small initial capacity
-        decoder = new RespDecoder(8);
+        decoder = new ValueDecoder(8);
 
         // Send data larger than initial capacity
         recv("$20\r\n12345678901234567890\r\n");
@@ -515,40 +495,6 @@ public class RESPDecoderTest {
         }
         assertNotNull(value);
         assertEquals(size, value.asString().length());
-    }
-
-    @Test
-    public void testConfiguredBulkLimitStillRejects() throws RespException {
-        decoder.setMaxBulkLength(1024);
-        recv("$2048\r\n");
-        try {
-            decoder.next();
-            fail("expected RespException");
-        } catch (RespException expected) {
-            assertNotNull(expected.getMessage());
-        }
-    }
-
-    @Test
-    public void testConfiguredCollectionLimitStillRejects() throws RespException {
-        decoder.setMaxCollectionElements(10);
-        recv("*11\r\n");
-        try {
-            decoder.next();
-            fail("expected RespException");
-        } catch (RespException expected) {
-            assertNotNull(expected.getMessage());
-        }
-    }
-
-    @Test(expected = RespException.class)
-    public void testHugeArrayCountRejected() throws RespException {
-        StringBuilder sb = new StringBuilder();
-        sb.append('*');
-        sb.append(RespDecoder.DEFAULT_MAX_COLLECTION_ELEMENTS + 1);
-        sb.append("\r\n");
-        recv(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.UTF_8)));
-        decoder.next();
     }
 
     @Test(expected = RespException.class)

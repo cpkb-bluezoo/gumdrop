@@ -49,7 +49,7 @@ public class RespDecoderSweepTest {
         return new TruncationSweep.Target() {
             @Override
             public void decode(byte[] input) throws Exception {
-                RespDecoder decoder = new RespDecoder(16);
+                ValueDecoder decoder = new ValueDecoder(16);
                 decoder.receive(ByteBuffer.wrap(input));
                 while (decoder.next() != null) {
                     // drain
